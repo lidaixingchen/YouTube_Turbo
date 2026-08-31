@@ -4,7 +4,8 @@ export const StorageKeys = {
     functionState: "yt/functionState_01",
     videoLoop: "py/videoLoop",
     theme: "yt/theme",
-    downloadingConfirm: "yt/downloadingConfirm"
+    downloadingConfirm: "yt/downloadingConfirm",
+    subtitleOffset: "yt/subtitleOffset"
   }
 } as const;
 
