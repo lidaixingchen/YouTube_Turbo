@@ -5,6 +5,7 @@ import { ThemeProgressbar } from "../features/theme";
 import { Toolbar, TOOLBAR_CONSTANTS } from "../ui/toolbar";
 import { SpeedControl } from "../features/player";
 import { MarkOrRemoveAd } from "../features/adblock";
+import { SubtitleOffset } from "../features/caption";
 
 export const defaultFeatureDescriptors: FeatureDescriptor[] = [
   {
@@ -61,5 +62,13 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     order: 60,
     setup: () => MarkOrRemoveAd.run(),
     teardown: () => MarkOrRemoveAd.destroy()
+  },
+  {
+    id: "isOpenSubtitleOffset",
+    i18nKey: "function_is_subtitle_offset_open",
+    defaultValue: true,
+    order: 70,
+    setup: () => SubtitleOffset.run(),
+    teardown: () => SubtitleOffset.destroy()
   }
 ];

@@ -30,7 +30,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "Picture-in-Picture: On",
       hud_pip_disabled: "Picture-in-Picture: Off",
       hud_loop_enabled: "Loop Playback: On",
-      hud_loop_disabled: "Loop Playback: Off"
+      hud_loop_disabled: "Loop Playback: Off",
+      function_is_subtitle_offset_open: "Enable subtitle timing adjustment (Alt+[ advance, Alt+] delay, Alt+\\ reset).",
+      subtitle_offset_label: "Subtitle Offset",
+      subtitle_offset_reset_suffix: "(Reset)"
     }
   },
   "zh-CN": {
@@ -59,7 +62,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "画中画: 开启",
       hud_pip_disabled: "画中画: 关闭",
       hud_loop_enabled: "单曲循环: 开启",
-      hud_loop_disabled: "单曲循环: 关闭"
+      hud_loop_disabled: "单曲循环: 关闭",
+      function_is_subtitle_offset_open: "启用字幕时间轴微调与校准（Alt+[ 提前, Alt+] 延后, Alt+\\ 重置）。",
+      subtitle_offset_label: "字幕时间轴",
+      subtitle_offset_reset_suffix: "(已重置)"
     }
   },
   "zh-TW": {
@@ -88,7 +94,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "子母畫面: 開啟",
       hud_pip_disabled: "子母畫面: 關閉",
       hud_loop_enabled: "循環播放: 開啟",
-      hud_loop_disabled: "循環播放: 關閉"
+      hud_loop_disabled: "循環播放: 關閉",
+      function_is_subtitle_offset_open: "啟用字幕時間軸微調與校準（Alt+[ 提前, Alt+] 延後, Alt+\\ 重設）。",
+      subtitle_offset_label: "字幕時間軸",
+      subtitle_offset_reset_suffix: "(已重設)"
     }
   },
   "ja": {
@@ -117,7 +126,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "ピクチャーインピクチャー: オン",
       hud_pip_disabled: "ピクチャーインピクチャー: オフ",
       hud_loop_enabled: "ループ再生: オン",
-      hud_loop_disabled: "ループ再生: オフ"
+      hud_loop_disabled: "ループ再生: オフ",
+      function_is_subtitle_offset_open: "字幕タイミング微調整を有効にする（Alt+[ 早める, Alt+] 遅らせる, Alt+\\ リセット）。",
+      subtitle_offset_label: "字幕オフセット",
+      subtitle_offset_reset_suffix: "(リセット)"
     }
   },
   "ko": {
@@ -146,7 +158,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "PIP 모드: 켜짐",
       hud_pip_disabled: "PIP 모드: 꺼짐",
       hud_loop_enabled: "반복 재생: 켜짐",
-      hud_loop_disabled: "반복 재생: 꺼짐"
+      hud_loop_disabled: "반복 재생: 꺼짐",
+      function_is_subtitle_offset_open: "자막 싱크 미세 조정 활성화 (Alt+[ 당기기, Alt+] 미루기, Alt+\\ 초기화).",
+      subtitle_offset_label: "자막 싱크",
+      subtitle_offset_reset_suffix: "(초기화)"
     }
   },
   "ru": {
@@ -175,7 +190,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "Картинка в картинке: Вкл",
       hud_pip_disabled: "Картинка в картинке: Выкл",
       hud_loop_enabled: "Повтор: Вкл",
-      hud_loop_disabled: "Повтор: Выкл"
+      hud_loop_disabled: "Повтор: Выкл",
+      function_is_subtitle_offset_open: "Включить калибровку тайминга субтитров (Alt+[ вперед, Alt+] назад, Alt+\\ сброс).",
+      subtitle_offset_label: "Сдвиг субтитров",
+      subtitle_offset_reset_suffix: "(Сброшено)"
     }
   },
   "fr": {
@@ -204,7 +222,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "Image dans l'image: Activé",
       hud_pip_disabled: "Image dans l'image: Désactivé",
       hud_loop_enabled: "Lecture en boucle: Activé",
-      hud_loop_disabled: "Lecture en boucle: Désactivé"
+      hud_loop_disabled: "Lecture en boucle: Désactivé",
+      function_is_subtitle_offset_open: "Activer le décalage des sous-titres (Alt+[ avancer, Alt+] retarder, Alt+\\ réinitialiser).",
+      subtitle_offset_label: "Décalage des sous-titres",
+      subtitle_offset_reset_suffix: "(Réinitialisé)"
     }
   },
   "de": {
@@ -233,7 +254,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "Bild-im-Bild: Ein",
       hud_pip_disabled: "Bild-im-Bild: Aus",
       hud_loop_enabled: "Endlosschleife: Ein",
-      hud_loop_disabled: "Endlosschleife: Aus"
+      hud_loop_disabled: "Endlosschleife: Aus",
+      function_is_subtitle_offset_open: "Untertitel-Synchronisation aktivieren (Alt+[ vorverlegen, Alt+] verzögern, Alt+\\ zurücksetzen).",
+      subtitle_offset_label: "Untertitel-Versatz",
+      subtitle_offset_reset_suffix: "(Zurückgesetzt)"
     }
   },
   "es": {
@@ -262,7 +286,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "Imagen en imagen: Activado",
       hud_pip_disabled: "Imagen en imagen: Desactivado",
       hud_loop_enabled: "Bucle: Activado",
-      hud_loop_disabled: "Bucle: Desactivado"
+      hud_loop_disabled: "Bucle: Desactivado",
+      function_is_subtitle_offset_open: "Activar ajuste de sincronización de subtítulos (Alt+[ adelantar, Alt+] retrasar, Alt+\\ restablecer).",
+      subtitle_offset_label: "Desfase de subtítulos",
+      subtitle_offset_reset_suffix: "(Restablecido)"
     }
   },
   "id": {
@@ -291,7 +318,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "Gambar dalam Gambar: Aktif",
       hud_pip_disabled: "Gambar dalam Gambar: Nonaktif",
       hud_loop_enabled: "Putar Ulang: Aktif",
-      hud_loop_disabled: "Putar Ulang: Nonaktif"
+      hud_loop_disabled: "Putar Ulang: Nonaktif",
+      function_is_subtitle_offset_open: "Aktifkan penyesuaian sinkronisasi subtitle (Alt+[ majukan, Alt+] mundurkan, Alt+\\ reset).",
+      subtitle_offset_label: "Offset Subtitle",
+      subtitle_offset_reset_suffix: "(Direset)"
     }
   },
   "pt": {
@@ -320,7 +350,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "Picture-in-Picture: Ativado",
       hud_pip_disabled: "Picture-in-Picture: Desativado",
       hud_loop_enabled: "Repetir: Ativado",
-      hud_loop_disabled: "Repetir: Desativado"
+      hud_loop_disabled: "Repetir: Desativado",
+      function_is_subtitle_offset_open: "Ativar ajuste de sincronização de legendas (Alt+[ avançar, Alt+] atrasar, Alt+\\ redefinir).",
+      subtitle_offset_label: "Deslocamento de Legenda",
+      subtitle_offset_reset_suffix: "(Redefinido)"
     }
   },
   "tr": {
@@ -349,7 +382,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "Resim içinde Resim: Açık",
       hud_pip_disabled: "Resim içinde Resim: Kapalı",
       hud_loop_enabled: "Döngü: Açık",
-      hud_loop_disabled: "Döngü: Kapalı"
+      hud_loop_disabled: "Döngü: Kapalı",
+      function_is_subtitle_offset_open: "Altyazı zamanlama ayarını etkinleştir (Alt+[ öne al, Alt+] geciktir, Alt+\\ sıfırla).",
+      subtitle_offset_label: "Altyazı Ofseti",
+      subtitle_offset_reset_suffix: "(Sıfırlandı)"
     }
   },
   "ar": {
@@ -378,7 +414,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_pip_enabled: "صورة داخل صورة: مفعل",
       hud_pip_disabled: "صورة داخل صورة: معطل",
       hud_loop_enabled: "تكرار التشغيل: مفعل",
-      hud_loop_disabled: "تكرار التشغيل: معطل"
+      hud_loop_disabled: "تكرار التشغيل: معطل",
+      function_is_subtitle_offset_open: "تفعيل تعديل توقيت الترجمة (Alt+[ تقديم, Alt+] تأخير, Alt+\\ إعادة ضبط).",
+      subtitle_offset_label: "إزاحة الترجمة",
+      subtitle_offset_reset_suffix: "(تمت إعادة الضبط)"
     }
   }
 };
