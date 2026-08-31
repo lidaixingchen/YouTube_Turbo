@@ -38,7 +38,7 @@ pnpm run check
 pnpm run build
 ```
 
-打包产物将输出至 `dist/youtube-turbo.user.js`。
+打包产物将输出至 `dist/youtube-improvements.user.js`。
 
 ## 致谢 (Acknowledgements)
 

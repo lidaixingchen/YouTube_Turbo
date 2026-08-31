@@ -6,7 +6,7 @@
 
 ## 1. 项目概览
 
-- **核心产物**：`dist/youtube-turbo.user.js`
+- **核心产物**：`dist/youtube-improvements.user.js`
 - **运行环境**：Tampermonkey / Violentmonkey 等主流油猴脚本管理器（在 `*://*.youtube.com/**` 上 `document-start` 阶段注入运行）
 - **核心能力**：
   - 视频详情页 Tabview 标签页布局重构（评论区、推荐列表、简介分栏）
@@ -26,12 +26,15 @@
 ```
 YouTube_Improvements/
 ├── build/                       # 构建与打包辅助配置
-│   └── metadata.ts              # 油猴 Userscript 头部多语言元数据与 GM_* 权限声明
+│   ├── metadata.ts              # 油猴 Userscript 头部多语言元数据与 GM_* 权限声明
+│   └── plugins/                 # 专用 Vite/Rollup 构建插件
+│       └── tabview-bundle.ts    # 页面端 TS 虚拟打包注入插件 (esbuild Sub-bundle)
 ├── src/
 │   ├── main.ts                  # 脚本统一主入口
 │   ├── types/                   # 全局与通用 TypeScript 类型定义
 │   │   ├── index.ts             # 核心数据接口（特性描述符、通信包体、弹窗选项等）
-│   │   └── monkey.d.ts          # 油猴 API 与全局环境补丁类型
+│   │   ├── monkey.d.ts          # 油猴 API 与全局环境补丁类型
+│   │   └── virtual.d.ts         # 虚拟模块类型声明
 │   ├── core/                    # 底层基础设施与核心引擎
 │   │   ├── bridge.ts            # 沙箱（Sandbox）与主页面（Page）跨上下文事件桥梁
 │   │   ├── constants.ts         # 全局通用常量（事件名、策略名、轮询阈值等）
@@ -40,12 +43,28 @@ YouTube_Improvements/
 │   │   ├── shortcuts.ts         # 全局快捷键调度器（支持输入上下文防冲突过滤）
 │   │   ├── storage.ts           # GM 存储封装与 StorageKey 统一命名空间
 │   │   ├── style-engine.ts      # 动态样式注入与安全卸载引擎（单例管理）
-│   │   └── trusted-types.ts     # YouTube 严苛 Trusted Types (TTP) 兼容策略
+│   │   └── trusted-types.ts     # YouTube Trusted Types (TTP) 隔离策略
 │   ├── features/                # 业务特性模块（高内聚、支持独立生命周期）
 │   │   ├── adblock/             # 广告/推广元素视觉标记
-│   │   ├── grid/                # 首页与订阅页响应式 4 列网格重排
+│   │   ├── grid/                # 首页与订阅页响应式 4 列网格自适应
 │   │   ├── player/              # 播放器控制、调速面板与无损截图
-│   │   ├── tabview/             # 详情页多 Tab 结构重构（注入主页面执行）
+│   │   ├── tabview/             # 详情页多 Tab 结构重构（Sub-bundle 注入主页面）
+│   │   │   ├── index.ts         # 沙箱端挂载入口与 Bridge 调度
+│   │   │   ├── constants.ts     # 模块常量与通信事件标识
+│   │   │   ├── types.ts         # 业务模型与强类型契约
+│   │   │   ├── tabview.css      # Tabview 布局样式
+│   │   │   └── page/            # 页面执行上下文（编译为 IIFE 虚拟模块）
+│   │   │       ├── index.ts             # 页面端自执行入口
+│   │   │       ├── constants.ts         # 页面端专用选择器与 DOM 标记
+│   │   │       ├── types.ts             # 页面端内部类型契约
+│   │   │       ├── coordinator.ts       # NavigationCoordinator (SPA 路由与生命周期调度)
+│   │   │       ├── observer-registry.ts # ObserverRegistry (统管 Mutation/Resize/Intersection 观察者总线)
+│   │   │       ├── polymer-patcher.ts   # PolymerPatcher (Custom Elements 原型拦截沙盒)
+│   │   │       ├── polymer-helper.ts    # PolymerHelper (元素反射与安全查询)
+│   │   │       ├── relocator.ts         # DOMRelocator (Slot 声明式迁移与占位复原)
+│   │   │       ├── tabs-view.ts         # TabsView (Tab 头部渲染、字号缩放与徽标)
+│   │   │       ├── expander-fixer.ts    # ExpanderFixer (展开器排版与评论计数同步)
+│   │   │       └── bridge-adapter.ts    # PageBridgeAdapter (页面端跨上下文事件对接)
 │   │   └── theme/               # 深浅色主题切换与彩虹进度条
 │   ├── registry/                # 特性生命周期注册与配置中心
 │   │   ├── descriptors.ts       # 默认特性元数据定义与依赖声明
