@@ -7,6 +7,7 @@ export class InfoMirrorEngine {
   private static instance: InfoMirrorEngine | null = null;
   private mirrorNodeCache: WeakMap<HTMLElement, HTMLElement> = new WeakMap();
   private sourceNodeCache: WeakMap<HTMLElement, WeakRef<HTMLElement>> = new WeakMap();
+  private lastSyncedDataMap: WeakMap<HTMLElement, unknown> = new WeakMap();
   private dummyNode: HTMLElement = document.createElement(PAGE_CONSTANTS.TAGS.NOSCRIPT);
   private templateContainer: HTMLElement | null = null;
   private aythlContainer: HTMLElement | null = null;
@@ -77,8 +78,10 @@ export class InfoMirrorEngine {
     if (mirrorNode && nativeNode) {
       const mirrorCnt = PolymerHelper.insp(mirrorNode);
       const rawCnt = PolymerHelper.insp(nativeNode);
-      if (mirrorCnt && rawCnt?.data && mirrorCnt.data !== rawCnt.data) {
+      const lastData = this.lastSyncedDataMap.get(mirrorNode);
+      if (mirrorCnt && rawCnt?.data && rawCnt.data !== lastData) {
         mirrorCnt.data = Object.assign({}, rawCnt.data);
+        this.lastSyncedDataMap.set(mirrorNode, rawCnt.data);
       }
       const inlineExpander = mirrorNode.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
       if (inlineExpander) {
@@ -128,14 +131,23 @@ export class InfoMirrorEngine {
         this.bindDataReflection(srcEl, mirrorEl);
         this.mirrorNodeCache.set(srcEl, mirrorEl);
         this.sourceNodeCache.set(mirrorEl, new WeakRef(srcEl));
+        if (srcCnt?.data) {
+          const mirrorCnt = PolymerHelper.insp(mirrorEl);
+          if (mirrorCnt) {
+            mirrorCnt.data = Object.assign({}, srcCnt.data);
+          }
+          this.lastSyncedDataMap.set(mirrorEl, srcCnt.data);
+        }
         isTopologyChanged = true;
-      }
-
-      const mirrorCnt = PolymerHelper.insp(mirrorEl);
-      if (mirrorCnt && srcCnt?.data && mirrorCnt.data !== srcCnt.data) {
-        mirrorEl.replaceWith(this.dummyNode);
-        mirrorCnt.data = Object.assign({}, srcCnt.data);
-        this.dummyNode.replaceWith(mirrorEl);
+      } else {
+        const mirrorCnt = PolymerHelper.insp(mirrorEl);
+        const lastData = this.lastSyncedDataMap.get(mirrorEl);
+        if (mirrorCnt && srcCnt?.data && srcCnt.data !== lastData) {
+          mirrorEl.replaceWith(this.dummyNode);
+          mirrorCnt.data = Object.assign({}, srcCnt.data);
+          this.dummyNode.replaceWith(mirrorEl);
+          this.lastSyncedDataMap.set(mirrorEl, srcCnt.data);
+        }
       }
 
       mirrorElements.push(mirrorEl);
@@ -273,10 +285,12 @@ export class InfoMirrorEngine {
       if (shouldRefresh) {
         const currentSrcCnt = PolymerHelper.insp(sourceEl);
         const currentMirCnt = PolymerHelper.insp(mirrorEl);
-        if (currentSrcCnt?.data && currentMirCnt) {
+        const lastData = this.lastSyncedDataMap.get(mirrorEl);
+        if (currentSrcCnt?.data && currentMirCnt && currentSrcCnt.data !== lastData) {
           mirrorEl.replaceWith(this.dummyNode);
           currentMirCnt.data = Object.assign({}, currentSrcCnt.data);
           this.dummyNode.replaceWith(mirrorEl);
+          this.lastSyncedDataMap.set(mirrorEl, currentSrcCnt.data);
         }
       }
     });

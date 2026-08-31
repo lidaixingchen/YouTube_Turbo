@@ -109,7 +109,10 @@ export class NavigationCoordinator {
           this.updatePlaylistTabVisibility();
           this.expanderFixer?.updateCommentsCounter();
           this.relocator.checkAndHandleLinkedComment();
-          InfoMirrorEngine.getInstance().runInfoFix();
+          const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
+          if (tabInfo && tabInfo.childElementCount === 0) {
+            InfoMirrorEngine.getInstance().runInfoFix();
+          }
         }
       }
     }, 1000);
