@@ -1,5 +1,6 @@
 import { PAGE_CONSTANTS } from "./constants";
 import { PolymerHelper } from "./polymer-helper";
+import { fixInlineExpanderMethods } from "./expander-fixer";
 import type { PolymerElementInstance } from "./types";
 
 export class InfoMirrorEngine {
@@ -51,17 +52,65 @@ export class InfoMirrorEngine {
   }
 
   /**
+   * 确保并获取主视频描述的镜像节点，支持自愈发现与数据初始化
+   */
+  public ensureMainDescription(): HTMLElement | null {
+    let mirrorNode = document.querySelector<HTMLElement>(
+      `${PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER}[${PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER}]`
+    );
+
+    const nativeNode = document.querySelector<HTMLElement>(
+      'ytd-watch-metadata ytd-expandable-video-description-body-renderer:not([tyt-info-renderer]), #below ytd-expandable-video-description-body-renderer:not([tyt-info-renderer]), ytd-expandable-video-description-body-renderer:not([tyt-info-renderer]):not([tyt-main-info])'
+    );
+
+    if (!mirrorNode && nativeNode) {
+      const sandbox = this.getOrCreateTemplateSandbox();
+      mirrorNode = document.createElement(PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER);
+      mirrorNode.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER, "");
+      mirrorNode.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER_FRONT, "");
+      mirrorNode.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO, "");
+      mirrorNode.classList.add(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO);
+      sandbox.appendChild(mirrorNode);
+      nativeNode.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER_BACK, "");
+    }
+
+    if (mirrorNode && nativeNode) {
+      const mirrorCnt = PolymerHelper.insp(mirrorNode);
+      const rawCnt = PolymerHelper.insp(nativeNode);
+      if (mirrorCnt && rawCnt?.data && mirrorCnt.data !== rawCnt.data) {
+        mirrorCnt.data = Object.assign({}, rawCnt.data);
+      }
+      const inlineExpander = mirrorNode.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
+      if (inlineExpander) {
+        const inlineCnt = PolymerHelper.insp(inlineExpander);
+        if (inlineCnt) {
+          fixInlineExpanderMethods(inlineCnt);
+        }
+      }
+    }
+
+    return mirrorNode;
+  }
+
+  /**
+   * SPA 路由切歌时同步主描述数据
+   */
+  public syncMainDescriptionData(): void {
+    this.ensureMainDescription();
+    this.runInfoFix();
+  }
+
+  /**
    * 执行 extra-content 与主描述的镜像与同步
    */
   public runInfoFix(): void {
     const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
     const flexy = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
-    const mainInfoRenderer = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TYT_INFO_RENDERER);
-
     if (!tabInfo || !flexy) {
       return;
     }
 
+    const mainInfoRenderer = this.ensureMainDescription();
     const sourceElements = this.queryExtraContentSources();
     const mirrorElements: HTMLElement[] = [];
     const sandbox = this.getOrCreateAythlSandbox(flexy);
@@ -84,7 +133,6 @@ export class InfoMirrorEngine {
 
       const mirrorCnt = PolymerHelper.insp(mirrorEl);
       if (mirrorCnt && srcCnt?.data && mirrorCnt.data !== srcCnt.data) {
-        // 利用虚拟占位节点保证深层 Polymer 干净重置
         mirrorEl.replaceWith(this.dummyNode);
         mirrorCnt.data = Object.assign({}, srcCnt.data);
         this.dummyNode.replaceWith(mirrorEl);
@@ -93,10 +141,10 @@ export class InfoMirrorEngine {
       mirrorElements.push(mirrorEl);
     }
 
-    // 检查 DOM 现有子节点排布是否需要实际变动 (Dirty Checking)
+    const expectedChildren = [mainInfoRenderer, ...mirrorElements].filter(Boolean) as HTMLElement[];
+    const currentChildren = Array.from(tabInfo.children);
+
     if (!isTopologyChanged) {
-      const currentChildren = Array.from(tabInfo.children);
-      const expectedChildren = [mainInfoRenderer, ...mirrorElements].filter(Boolean) as HTMLElement[];
       if (
         currentChildren.length !== expectedChildren.length ||
         currentChildren.some((el, idx) => el !== expectedChildren[idx])
@@ -105,7 +153,7 @@ export class InfoMirrorEngine {
       }
     }
 
-    if (isTopologyChanged) {
+    if (isTopologyChanged && expectedChildren.length > 0) {
       this.assignTabInfoChildren(tabInfo, mainInfoRenderer, mirrorElements);
       this.notifyRefreshCount(mirrorElements);
     }
@@ -121,20 +169,34 @@ export class InfoMirrorEngine {
 
     const result: HTMLElement[] = [];
     for (let i = 0; i < rawElements.length; i++) {
-      let el: HTMLElement | null = rawElements[i];
+      const el = rawElements[i];
+      if (!el || el.closest("noscript") || el.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER)) {
+        continue;
+      }
+
       const cnt = PolymerHelper.insp(el);
-      if (cnt && typeof cnt.is === "string") {
-        const targetTag = cnt.is;
-        while (el && el instanceof HTMLElement) {
-          const matched = Array.from(el.querySelectorAll<HTMLElement>(targetTag)).filter(
-            (candidate) => Boolean(PolymerHelper.insp(candidate)?.data)
-          );
-          if (matched.length > 0) {
-            result.push(matched[0]);
-            break;
-          }
-          el = el.parentElement;
+      const is = (typeof cnt?.is === "string" ? cnt.is : el.tagName.toLowerCase());
+      let matchedDeepEl: HTMLElement | null = null;
+
+      let cur: HTMLElement | null = el;
+      while (cur && cur instanceof HTMLElement) {
+        const queryList = Array.from(cur.querySelectorAll<HTMLElement>(is)).filter(
+          (candidate) => Boolean(PolymerHelper.insp(candidate)?.data)
+        );
+        if (queryList.length > 0) {
+          matchedDeepEl = queryList[0];
+          break;
         }
+        if (PolymerHelper.insp(cur)?.data) {
+          matchedDeepEl = cur;
+          break;
+        }
+        cur = cur.parentElement;
+      }
+
+      const finalEl = matchedDeepEl || (cnt?.data ? el : null);
+      if (finalEl && !result.includes(finalEl)) {
+        result.push(finalEl);
       }
     }
     return result;
