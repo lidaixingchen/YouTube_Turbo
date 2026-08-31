@@ -81,10 +81,10 @@ export const Toolbar = (() => {
     const actions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
     if (!actions.length) return null;
 
-    const existingBox = document.querySelector("#yt_extension_toolbox_root");
-    if (existingBox) existingBox.remove();
-    const existingContainer = document.querySelector("#toolbox_extension_container");
-    if (existingContainer) existingContainer.remove();
+    const existingBox = document.getElementById("yt_extension_toolbox_root");
+    if (existingBox && existingBox.isConnected) {
+      return existingBox;
+    }
 
     const boxContainer = document.createElement("div");
     boxContainer.id = "yt_extension_toolbox_root";
@@ -93,6 +93,9 @@ export const Toolbar = (() => {
 
     const iconSvg = IconRegistry.createSvg("toolbox", { size: TOOLBAR_CONSTANTS.ICON_SIZE_PX });
     boxContainer.appendChild(iconSvg);
+
+    const existingContainer = document.getElementById("toolbox_extension_container");
+    if (existingContainer) existingContainer.remove();
 
     const toolBoxContainer = document.createElement("div");
     toolBoxContainer.id = "toolbox_extension_container";
@@ -143,17 +146,20 @@ export const Toolbar = (() => {
   };
 
   const createShortsSlotElement = (): HTMLElement | null => {
-    const existing = document.querySelector("#script_download_shorts");
-    if (existing) existing.remove();
-
     if (window.location.href.indexOf("/shorts/") === -1) {
       return null;
+    }
+
+    const existing = document.getElementById("script_download_shorts");
+    if (existing && existing.isConnected) {
+      return existing;
     }
 
     const download = document.createElement("div");
     download.id = "script_download_shorts";
     download.className = "navigation-button style-scope ytd-shorts";
-    download.setAttribute("style", "cursor: pointer; display: flex; justify-content: center; align-items: center;");
+    download.setAttribute("style", "cursor: pointer; display: flex; justify-content: center; align-items: center; margin-top: 16px;");
+    download.title = "下载 Shorts 视频";
     download.appendChild(IconRegistry.createSvg("shortDownload", { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE }));
     download.addEventListener("click", () => {
       downloadCurrentVideo();
@@ -163,16 +169,25 @@ export const Toolbar = (() => {
 
   const createWatchMetadataSlotElement = (): HTMLElement | null => {
     const outerBoxId = "script_outer_box";
-    const existing = document.querySelector("#" + outerBoxId);
-    if (existing) existing.remove();
+    const existing = document.getElementById(outerBoxId);
+    if (existing && existing.isConnected) {
+      return existing;
+    }
 
     const outerBox = document.createElement("div");
     outerBox.id = outerBoxId;
-    outerBox.setAttribute("style", "margin-left: 10px; display: inline-flex; border-radius: 10px; overflow: hidden;");
+    outerBox.setAttribute("style", "margin-left: 10px; display: inline-flex; border-radius: 18px; overflow: hidden; align-items: center; justify-content: center;");
 
     const download = document.createElement("div");
-    download.setAttribute("style", "width: 36px; height: 36px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;");
+    download.setAttribute("style", "width: 36px; height: 36px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s, transform 0.1s;");
+    download.title = "下载视频";
     download.appendChild(IconRegistry.createSvg("shortDownload", { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE }));
+    download.addEventListener("mouseenter", () => {
+      download.style.opacity = "0.85";
+    });
+    download.addEventListener("mouseleave", () => {
+      download.style.opacity = "1";
+    });
     download.addEventListener("click", () => {
       downloadCurrentVideo();
     });
@@ -286,15 +301,25 @@ export const Toolbar = (() => {
           Theme.setTheme(theme, false);
         }
         this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
+        if (FeatureRegistry.isEnabled("isOpenYoutubedownloading")) {
+          this.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
+          this.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
+        }
       });
 
-      window.addEventListener("yt-navigate-finish", () => {
+      document.addEventListener("yt-navigate-finish", () => {
         this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
         if (FeatureRegistry.isEnabled("isOpenYoutubedownloading")) {
           this.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
           this.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
         }
       });
+
+      this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
+      if (FeatureRegistry.isEnabled("isOpenYoutubedownloading")) {
+        this.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
+        this.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
+      }
     },
 
     registerAction: (action: any) => ActionRegistry.register(action),
