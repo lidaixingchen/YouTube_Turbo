@@ -67,7 +67,13 @@ export const PAGE_CONSTANTS = {
     RESIZABLE_RENDERERS_INFO: "#tab-info ytd-video-description-infocards-section-renderer, #tab-info yt-chip-cloud-renderer, #tab-info ytd-horizontal-card-list-renderer, #tab-info yt-horizontal-list-renderer",
     AYTHL_SANDBOX: "noscript#aythl",
     TEMPLATE_SANDBOX: "ytd-watch-flexy noscript[ns-template]",
-    EXTRA_CONTENT_SOURCES: 'ytd-watch-metadata.ytd-watch-flexy div[slot="extra-content"] > *, ytd-watch-metadata.ytd-watch-flexy #extra-content > *'
+    EXTRA_CONTENT_SOURCES: 'ytd-watch-metadata.ytd-watch-flexy div[slot="extra-content"] > *, ytd-watch-metadata.ytd-watch-flexy #extra-content > *',
+    UPLOAD_INFO: "#primary.ytd-watch-flexy ytd-watch-metadata #upload-info",
+    MOVIE_PLAYER: "#movie_player",
+    HIDDEN_CONTAINER: "[hidden]",
+    BROWSE_WITH_SUBTYPE: "ytd-page-manager#page-manager > ytd-browse[page-subtype]",
+    DESCRIPTION_PREVIEW_VIEW_MODEL: "yt-description-preview-view-model",
+    YTD_APP: "ytd-app"
   },
   CLASSES: {
     SECONDARY_WRAPPER: "tabview-secondary-wrapper",
@@ -80,7 +86,9 @@ export const PAGE_CONSTANTS = {
     FONT_SIZE_BTN: "font-size-btn",
     FONT_SIZE_PLUS: "font-size-plus",
     FONT_SIZE_MINUS: "font-size-minus",
-    PLACEHOLDER_ANCHOR: "tyt-relocator-anchor"
+    PLACEHOLDER_ANCHOR: "tyt-relocator-anchor",
+    METADATA_HOVER: "tyt-metadata-hover",
+    METADATA_HOVER_RESIZED: "tyt-metadata-hover-resized"
   },
   ATTRIBUTES: {
     TYT_DI: "tyt-di",
@@ -129,12 +137,26 @@ export const PAGE_CONSTANTS = {
   ANIMATIONS: {
     RELATED_ELEMENT_PROVIDED: "relatedElementProvided"
   },
+  PATTERNS: {
+    CHANNEL_ID_ABOUT: /\/channel\/UC[-_a-zA-Z0-9+=.]{22}\/about/,
+    CHANNEL_HANDLE_ABOUT: /\/@[a-zA-Z0-9_.-]+\/about/,
+    CHANNEL_CUSTOM_ABOUT: /\/(?:c|user)\/[a-zA-Z0-9_.-]+\/about/
+  },
   MASKS: {
     TOKEN_MASK: 0x3fffffff
   },
+  THRESHOLDS: {
+    MINIPLAYER_MIN_TIME_SEC: 3,
+    PLAYLIST_PROTECT_MAX_ACCESS: 3
+  },
   TIMEOUTS: {
     ELEMENT_WAIT_MS: 5000,
-    CHAT_FRAME_READY_MS: 700
+    CHAT_FRAME_READY_MS: 700,
+    HOVER_RESIZE_DEADLINE_MS: 300,
+    ABOUT_POPUP_TRIGGER_MS: 80
+  },
+  HOVER: {
+    OVERFLOW_TOLERANCE_PX: 4
   },
   FONT_SIZE: {
     MIN_PX: 10,

@@ -143,3 +143,39 @@ export interface PolymerElementInstance {
   is?: string;
   [key: string]: unknown;
 }
+
+export interface WebCommandMetadata {
+  url?: string;
+  webPageType?: string;
+  rootVe?: number;
+}
+
+export interface WatchEndpoint {
+  videoId?: string;
+  playlistId?: string;
+  index?: number;
+  params?: string;
+  playerParams?: string;
+}
+
+export interface BrowseEndpoint {
+  browseId?: string;
+  params?: string;
+  canonicalBaseUrl?: string;
+}
+
+export interface NavigationEndpoint {
+  commandMetadata?: {
+    webCommandMetadata?: WebCommandMetadata;
+  };
+  watchEndpoint?: WatchEndpoint;
+  browseEndpoint?: BrowseEndpoint;
+  searchEndpoint?: Record<string, unknown>;
+  urlEndpoint?: { url: string };
+}
+
+export interface AppNavigateRequest {
+  command?: NavigationEndpoint;
+  endpoint?: NavigationEndpoint;
+  navigationEndpoint?: NavigationEndpoint;
+}

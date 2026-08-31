@@ -5,6 +5,7 @@ import { PolymerHelper } from "./polymer-helper";
 import { DOMRelocator } from "./relocator";
 import { ExpanderFixer } from "./expander-fixer";
 import { InfoMirrorEngine } from "./info-mirror-engine";
+import { ChannelHoverAdapter } from "./channel-hover-adapter";
 import type { NavigationState, PageType, LocaleSnapshot, TabKey } from "./types";
 
 export class NavigationCoordinator {
@@ -12,6 +13,7 @@ export class NavigationCoordinator {
   private observerRegistry: ObserverRegistry = ObserverRegistry.getInstance();
   private polymerPatcher: PolymerPatcher = PolymerPatcher.getInstance();
   private relocator: DOMRelocator = DOMRelocator.getInstance();
+  private channelHoverAdapter: ChannelHoverAdapter = ChannelHoverAdapter.getInstance();
   private expanderFixer: ExpanderFixer | null = null;
 
   private currentState: NavigationState = {
@@ -51,6 +53,7 @@ export class NavigationCoordinator {
     this.onFontSizeChangedCallback = callbacks?.onFontSizeChanged;
 
     this.polymerPatcher.applyPatches();
+    this.channelHoverAdapter.activate();
     this.bindNavigationEvents();
     this.startGuardian();
     this.handleRouteChange();
@@ -83,6 +86,7 @@ export class NavigationCoordinator {
       clearInterval(this.guardianTimer);
       this.guardianTimer = null;
     }
+    this.channelHoverAdapter.destroy();
     this.unmountTabview();
     this.relocator.destroy();
     this.polymerPatcher.restorePatches();
@@ -183,7 +187,8 @@ export class NavigationCoordinator {
       this.expanderFixer?.updateCommentsCounter();
       this.expanderFixer?.fixForTabDisplay(false);
       this.relocator.checkAndHandleLinkedComment();
-      InfoMirrorEngine.getInstance().runInfoFix();
+      InfoMirrorEngine.getInstance().syncMainDescriptionData();
+      this.channelHoverAdapter.onNavigateFinish();
     } else if (prevPageType === "watch") {
       this.unmountTabview();
     }

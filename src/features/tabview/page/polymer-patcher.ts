@@ -4,6 +4,8 @@ import { ObserverRegistry } from "./observer-registry";
 import { DOMRelocator } from "./relocator";
 import { funcCanCollapse, fixInlineExpanderMethods, ExpanderFixer } from "./expander-fixer";
 import { InfoMirrorEngine } from "./info-mirror-engine";
+import { ChannelHoverAdapter } from "./channel-hover-adapter";
+import { MinibrowserRouter } from "./minibrowser-router";
 import type { PolymerElementInstance, AnyFunction } from "./types";
 
 interface PrototypeRestoreEntry {
@@ -59,6 +61,7 @@ export class PolymerPatcher {
     }
     this.isPatched = true;
 
+    this.patchYtdApp();
     this.patchWatchFlexy();
     this.patchExpander();
     this.patchWatchNextSecondaryResults();
@@ -85,6 +88,20 @@ export class PolymerPatcher {
         originalMethod: rawMethod as AnyFunction
       });
       proto[methodName] = patchedMethod;
+    }
+  }
+
+  private makeInitAttached(selector: string, handler: (hostElement: HTMLElement) => void): void {
+    const elements = document.querySelectorAll<HTMLElement>(selector);
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      if (el.isConnected) {
+        try {
+          handler(el);
+        } catch {
+          // 忽略初始化异常
+        }
+      }
     }
   }
 
@@ -426,6 +443,17 @@ export class PolymerPatcher {
     });
   }
 
+  private async patchYtdApp(): Promise<void> {
+    const proto = await PolymerHelper.retrieveCE(PAGE_CONSTANTS.SELECTORS.YTD_APP);
+    if (!proto) {
+      return;
+    }
+
+    this.hookMethod(proto, "handleNavigate", (rawMethod) => {
+      return MinibrowserRouter.getInstance().createPatchedHandleNavigate(rawMethod as AnyFunction);
+    });
+  }
+
   private async patchWatchMetadata(): Promise<void> {
     const proto = await PolymerHelper.retrieveCE(PAGE_CONSTANTS.SELECTORS.WATCH_METADATA);
     if (!proto) {
@@ -434,8 +462,13 @@ export class PolymerPatcher {
 
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
+        ChannelHoverAdapter.getInstance().bindHoverEvents();
         return rawMethod.apply(this, args);
       };
+    });
+
+    this.makeInitAttached(PAGE_CONSTANTS.SELECTORS.WATCH_METADATA, () => {
+      ChannelHoverAdapter.getInstance().bindHoverEvents();
     });
   }
 
@@ -470,45 +503,64 @@ export class PolymerPatcher {
       return;
     }
 
+    const onAttached = (hostElement: HTMLElement): void => {
+      if (!(hostElement instanceof HTMLElement) || !hostElement.isConnected) {
+        return;
+      }
+      if (hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER)) {
+        // 通道 1：镜像节点挂载完成
+        hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO, "");
+        hostElement.classList.add(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO);
+        const inlineExpander = hostElement.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
+        if (inlineExpander) {
+          const inlineCnt = PolymerHelper.insp(inlineExpander);
+          if (inlineCnt) {
+            fixInlineExpanderMethods(inlineCnt);
+          }
+        }
+        const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
+        if (tabInfo && !hostElement.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER)) {
+          tabInfo.insertBefore(hostElement, tabInfo.firstChild);
+        }
+        InfoMirrorEngine.getInstance().runInfoFix();
+      } else if (!hostElement.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER) && !hostElement.closest("noscript")) {
+        // 通道 2：原生节点挂载完成，创建/同步镜像节点
+        const sandbox = InfoMirrorEngine.getInstance().getOrCreateTemplateSandbox();
+        let mirrorNode = document.querySelector<HTMLElement>(
+          `${PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER}[${PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER}]`
+        );
+        if (!mirrorNode) {
+          mirrorNode = document.createElement(PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER);
+          mirrorNode.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER, "");
+          mirrorNode.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER_FRONT, "");
+          sandbox.appendChild(mirrorNode);
+        }
+        hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER_BACK, "");
+        const mirrorCnt = PolymerHelper.insp(mirrorNode);
+        const rawCnt = PolymerHelper.insp(hostElement);
+        if (mirrorCnt && rawCnt?.data) {
+          mirrorCnt.data = Object.assign({}, rawCnt.data);
+        }
+        const inlineExpander = mirrorNode.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
+        if (inlineExpander) {
+          const inlineCnt = PolymerHelper.insp(inlineExpander);
+          if (inlineCnt) {
+            fixInlineExpanderMethods(inlineCnt);
+          }
+        }
+        const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
+        if (tabInfo && mirrorNode && !mirrorNode.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER)) {
+          tabInfo.insertBefore(mirrorNode, tabInfo.firstChild);
+        }
+        InfoMirrorEngine.getInstance().runInfoFix();
+      }
+    };
+
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
-        if (hostElement instanceof HTMLElement && hostElement.isConnected) {
-          if (hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER)) {
-            // 通道 1：镜像节点挂载完成
-            hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO, "");
-            const inlineExpander = hostElement.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
-            if (inlineExpander) {
-              const inlineCnt = PolymerHelper.insp(inlineExpander);
-              if (inlineCnt) {
-                fixInlineExpanderMethods(inlineCnt);
-              }
-            }
-            InfoMirrorEngine.getInstance().runInfoFix();
-          } else if (!hostElement.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER) && !hostElement.closest("noscript")) {
-            // 通道 2：原生节点挂载完成，创建/同步镜像节点
-            const sandbox = InfoMirrorEngine.getInstance().getOrCreateTemplateSandbox();
-            let mirrorNode = document.querySelector<HTMLElement>(
-              `${PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER}[${PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER}]`
-            );
-            if (!mirrorNode) {
-              mirrorNode = document.createElement(PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER);
-              mirrorNode.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER, "");
-              sandbox.appendChild(mirrorNode);
-            }
-            const mirrorCnt = PolymerHelper.insp(mirrorNode);
-            const rawCnt = PolymerHelper.insp(hostElement);
-            if (mirrorCnt && rawCnt?.data) {
-              mirrorCnt.data = Object.assign({}, rawCnt.data);
-            }
-            const inlineExpander = mirrorNode.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
-            if (inlineExpander) {
-              const inlineCnt = PolymerHelper.insp(inlineExpander);
-              if (inlineCnt) {
-                fixInlineExpanderMethods(inlineCnt);
-              }
-            }
-          }
+        if (hostElement instanceof HTMLElement) {
+          onAttached(hostElement);
         }
         return rawMethod.apply(this, args);
       };
@@ -523,6 +575,8 @@ export class PolymerPatcher {
         return rawMethod.apply(this, args);
       };
     });
+
+    this.makeInitAttached(PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER, onAttached);
   }
 
   public restorePatches(): void {
