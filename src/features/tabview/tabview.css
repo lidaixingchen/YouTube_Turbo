@@ -22,7 +22,44 @@ ytd-watch-flexy[theater] secondary-wrapper {
   display: flex !important;
 }
 
-/* 彻底杜绝未迁移的原生推荐流直接露在 secondary-wrapper 根部导致视觉重叠 */
+/* 彻底杜绝未迁移的原生推荐流直接露在 secondary-inner 或 secondary-wrapper 根部导致视觉重叠 */
+#secondary-inner > :not(secondary-wrapper):not(ytd-live-chat-frame):not([tyt-chat-container]):not(#chat):not(#chat-container),
 secondary-wrapper > :not(#right-tabs):not(ytd-live-chat-frame):not([tyt-chat-container]):not(#chat):not(#chat-container) {
   display: none !important;
+}
+
+/* 确保隐藏的 Tab 按钮绝对不渲染 */
+#right-tabs .tab-btn.tab-btn-hidden,
+ytd-watch-flexy #right-tabs .tab-btn.tab-btn-hidden {
+  display: none !important;
+}
+
+/* 资讯 Tab 内部：强制完全展开视频描述正文，隐藏截断的预览与按钮 */
+#tab-info ytd-text-inline-expander,
+#tab-info ytd-text-inline-expander * {
+  max-height: none !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+}
+
+#tab-info ytd-text-inline-expander #snippet,
+#tab-info ytd-text-inline-expander [id="snippet"],
+#tab-info ytd-text-inline-expander #expand,
+#tab-info ytd-text-inline-expander #collapse,
+#tab-info ytd-text-inline-expander [id="expand"],
+#tab-info ytd-text-inline-expander [id="collapse"],
+#tab-info ytd-text-inline-expander #expand-sizer,
+#tab-info ytd-text-inline-expander [id="expand-sizer"],
+#tab-info ytd-text-inline-expander tp-yt-paper-button {
+  display: none !important;
+}
+
+#tab-info ytd-text-inline-expander #content,
+#tab-info ytd-text-inline-expander [id="content"],
+#tab-info ytd-text-inline-expander #plain-snippet-text,
+#tab-info ytd-text-inline-expander #expanded-text,
+#tab-info ytd-text-inline-expander yt-attributed-string {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }

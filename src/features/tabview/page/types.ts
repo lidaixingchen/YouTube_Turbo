@@ -49,6 +49,18 @@ export interface RelocationSlot {
   placeholderClass: string;
 }
 
+export interface LcCommentResult {
+  lc: string;
+  commentRendererElm: HTMLElement;
+}
+
+export interface ContentsRendererLocation {
+  parent: HTMLElement;
+  index: number;
+}
+
+export type AnyFunction = (...args: unknown[]) => unknown;
+
 export interface PrototypePatchDescriptor {
   elementTag: string;
   methodName: string;
@@ -73,11 +85,50 @@ export interface PolymerElementInstance {
   constructor: {
     prototype?: PolymerControllerPrototype;
   };
+  content?: HTMLElement;
+  $?: {
+    content?: HTMLElement;
+    chatframe?: HTMLIFrameElement;
+    [key: string]: unknown;
+  };
+  chatframe?: HTMLIFrameElement;
+  canToggle?: boolean;
+  shouldUseNumberOfLines?: boolean;
+  alwaysCollapsed?: boolean;
+  collapsed?: boolean;
+  isToggled?: boolean;
+  alwaysToggleable?: boolean;
+  collapsedHeight?: number;
+  videoId?: string;
+  isAttached?: boolean;
+  hidden?: boolean;
+  showCollapseButton?: boolean;
+  showExpandButton?: boolean;
+  expandButton?: HTMLElement | null;
+  isExpanded?: boolean;
+  isResetMutation?: boolean;
+  collapseLabel?: string;
+  calculateCanCollapse?: (force?: boolean) => void;
   resize?: (flag?: boolean) => void;
   updateStyles?: () => void;
   notifyResize?: () => void;
   updatePageMediaQueries?: () => void;
   schedulePlayerSizeUpdate_?: () => void;
+  updateIsAttributedExpanded?: () => void;
+  updateIsFormattedExpanded?: () => void;
+  updateTextOnSnippetTypeChange?: () => void;
+  set?: (key: string, value: unknown) => void;
+  isExpandedChanged?: () => void;
+  isTwoColumnsChanged_?: (arg1: unknown, arg2: unknown, ...args: unknown[]) => unknown;
+  defaultTwoColumnLayoutChanged?: (...args: unknown[]) => unknown;
+  updatePlayerLocation?: (...args: unknown[]) => unknown;
+  updateCinematicsLocation?: (...args: unknown[]) => unknown;
+  updatePanelsLocation?: (...args: unknown[]) => unknown;
+  swatcherooUpdatePanelsLocation?: (...args: unknown[]) => unknown;
+  updateErrorScreenLocation?: (...args: unknown[]) => unknown;
+  updateFullBleedElementLocations?: (...args: unknown[]) => unknown;
+  updateChatLocation?: (...args: unknown[]) => unknown;
+  _createPropertyObserver?: (property: string, observerMethod: string, options?: unknown) => void;
   is?: string;
   [key: string]: unknown;
 }

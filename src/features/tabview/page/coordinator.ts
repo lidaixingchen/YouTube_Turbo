@@ -69,6 +69,8 @@ export class NavigationCoordinator {
 
   public setActiveTab(tabKey: TabKey): void {
     this.relocator.getTabsView().setActiveTab(tabKey);
+    const contentSelector = `#tab-${tabKey === "playlist" ? "list" : tabKey}`;
+    this.expanderFixer?.fixForTabDisplay(false, contentSelector);
   }
 
   public setFontSize(tabKey: TabKey, fontSize: number): void {
@@ -98,7 +100,10 @@ export class NavigationCoordinator {
         if (!this.relocator.isContainerMounted()) {
           this.tryMount();
         } else {
+          this.relocator.sweepSecondary();
+          this.updatePlaylistTabVisibility();
           this.expanderFixer?.updateCommentsCounter();
+          this.relocator.checkAndHandleLinkedComment();
         }
       }
     }, 1000);
@@ -161,14 +166,16 @@ export class NavigationCoordinator {
   private handleRouteChange(): void {
     const nextState = this.resolveNavigationState();
     const prevPageType = this.currentState.pageType;
-    const prevVideoId = this.currentState.videoId;
     this.currentState = nextState;
 
     if (nextState.pageType === "watch") {
       this.tryMount();
-      if (prevVideoId !== nextState.videoId) {
-        this.relocator.refreshAllSlots();
-      }
+      this.relocator.resetSlotState();
+      this.relocator.refreshAllSlots();
+      this.updatePlaylistTabVisibility();
+      this.expanderFixer?.updateCommentsCounter();
+      this.expanderFixer?.fixForTabDisplay(false);
+      this.relocator.checkAndHandleLinkedComment();
     } else if (prevPageType === "watch") {
       this.unmountTabview();
     }
@@ -198,16 +205,21 @@ export class NavigationCoordinator {
         PAGE_CONSTANTS.VALUES.TABVIEW_LOADED_ICP
       );
 
-      this.relocator.mountTabsContainer(secondaryInner, {
+      const rightTabs = this.relocator.mountTabsContainer(secondaryInner, {
         localeSnapshot: this.localeSnapshot,
         onTabSelected: (tabKey) => {
           this.onTabChangedCallback?.(tabKey);
-          this.expanderFixer?.fixExpanders();
+          const contentSelector = `#tab-${tabKey === "playlist" ? "list" : tabKey}`;
+          this.expanderFixer?.fixForTabDisplay(false, contentSelector);
         },
         onFontSizeChanged: (tabKey, delta) => {
           this.onFontSizeChangedCallback?.(tabKey, delta);
         }
       });
+
+      if (rightTabs) {
+        this.observerRegistry.observeRightTabs(rightTabs);
+      }
 
       this.relocator.registerDefaultSlots();
       this.relocator.refreshAllSlots();
@@ -221,25 +233,46 @@ export class NavigationCoordinator {
         this.fixInitialTabState(flexy);
       }
       this.observerRegistry.activate();
+      this.relocator.checkAndHandleLinkedComment();
     } finally {
       this.isMounting = false;
     }
   }
 
-  private fixInitialTabState(flexy: HTMLElement): void {
-    const initialTab: TabKey = "info";
-    this.relocator.getTabsView().setActiveTab(initialTab);
-    flexy.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB, PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
-
-    const playlistPanel = document.querySelector(PAGE_CONSTANTS.SELECTORS.PLAYLIST_PANEL);
-    const playlistTabBtn = document.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_BTN_PLAYLIST);
-    if (playlistTabBtn) {
-      playlistTabBtn.classList.toggle(PAGE_CONSTANTS.CLASSES.TAB_BTN_HIDDEN, !playlistPanel);
+  public updatePlaylistTabVisibility(): void {
+    const playlistTabBtn = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_BTN_PLAYLIST);
+    if (!playlistTabBtn) {
+      return;
     }
 
+    const playlistPanel = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.PLAYLIST_PANEL);
+    const hasListParam = /[?&]list=[^&]+/.test(window.location.search);
+    const isPanelAvailable =
+      Boolean(playlistPanel) &&
+      !playlistPanel?.hasAttribute("hidden") &&
+      !playlistPanel?.hasAttribute("collapsed") &&
+      !playlistPanel?.closest("[hidden]");
+
+    const shouldShow = Boolean(hasListParam && isPanelAvailable);
+    playlistTabBtn.classList.toggle(PAGE_CONSTANTS.CLASSES.TAB_BTN_HIDDEN, !shouldShow);
+
+    if (!shouldShow && this.relocator.getTabsView().getActiveTab() === "playlist") {
+      this.setActiveTab("info");
+    }
+  }
+
+  private fixInitialTabState(flexy: HTMLElement): void {
+    const searchParams = new URLSearchParams(window.location.search);
+    const initialTab: TabKey = searchParams.has("lc") ? "comments" : "info";
+    this.setActiveTab(initialTab);
+    flexy.setAttribute(
+      PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB,
+      initialTab === "comments" ? PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER : PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER
+    );
+
+    this.updatePlaylistTabVisibility();
     this.expanderFixer?.updateCommentsCounter();
-    this.expanderFixer?.syncDescriptionData();
-    this.expanderFixer?.fixExpanders();
+    this.expanderFixer?.fixForTabDisplay(false);
   }
 
   private unmountTabview(): void {
@@ -285,3 +318,4 @@ export class NavigationCoordinator {
     };
   }
 }
+

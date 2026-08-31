@@ -1,11 +1,176 @@
 import { PAGE_CONSTANTS } from "./constants";
+import { PolymerHelper } from "./polymer-helper";
 import { TabsView } from "./tabs-view";
-import type { TabKey, RelocationSlot, TabsViewOptions } from "./types";
+import type { TabKey, RelocationSlot, TabsViewOptions, LcCommentResult, ContentsRendererLocation } from "./types";
 
 interface ActiveSlotState {
   slot: RelocationSlot;
   element: HTMLElement | null;
   anchor: HTMLElement | null;
+}
+
+export function findLcComment(targetLc?: string): LcCommentResult | null {
+  if (targetLc) {
+    const element = document.querySelector<HTMLElement>(
+      `#tab-comments ytd-comments ytd-comment-renderer #header-author a[href*="lc=${targetLc}"]`
+    );
+    if (element) {
+      const commentRendererElm = element.closest<HTMLElement>("ytd-comment-renderer");
+      if (commentRendererElm) {
+        return {
+          lc: targetLc,
+          commentRendererElm
+        };
+      }
+    }
+  } else {
+    const element = document.querySelector<HTMLElement>(
+      `#tab-comments ytd-comments ytd-comment-renderer > #linked-comment-badge span:not(:empty)`
+    );
+    if (element) {
+      const commentRendererElm = element.closest<HTMLElement>("ytd-comment-renderer");
+      if (commentRendererElm) {
+        const header = commentRendererElm.querySelector<HTMLElement>("#header-author");
+        if (header) {
+          const anchor = header.querySelector<HTMLAnchorElement>('a[href*="lc="]');
+          if (anchor) {
+            const href = anchor.getAttribute("href") || "";
+            const match = /[&?]lc=([\w_.-]+)/.exec(href);
+            if (match && match[1]) {
+              return {
+                lc: match[1],
+                commentRendererElm
+              };
+            }
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export function findContentsRenderer(commentRendererElm: HTMLElement): ContentsRendererLocation | null {
+  const parent = commentRendererElm.closest<HTMLElement>(
+    "ytd-comments, ytd-item-section-renderer, ytd-comment-thread-renderer, ytd-comment-replies-renderer"
+  );
+  if (!parent) {
+    return null;
+  }
+
+  const parentCnt = PolymerHelper.insp(parent);
+  const data = parentCnt?.data as { contents?: unknown[] } | undefined;
+  const contents = data?.contents;
+
+  let index = -1;
+  if (Array.isArray(contents)) {
+    const commentCnt = PolymerHelper.insp(commentRendererElm);
+    const commentData = commentCnt?.data;
+
+    for (let i = 0; i < contents.length; i++) {
+      const item = contents[i] as Record<string, any> | undefined;
+      if (
+        item === commentData ||
+        item?.commentThreadRenderer?.comment?.commentRenderer === commentData ||
+        item?.commentRenderer === commentData
+      ) {
+        index = i;
+        break;
+      }
+    }
+
+    if (index === -1) {
+      const childElements = Array.from(parent.children);
+      const hostItem = commentRendererElm.closest<HTMLElement>("ytd-comment-thread-renderer") || commentRendererElm;
+      index = childElements.indexOf(hostItem);
+    }
+  }
+
+  return {
+    parent,
+    index
+  };
+}
+
+export function lcSwapFuncB(targetLcId: string, currentLcId: string, badgeData: Record<string, unknown>): boolean {
+  try {
+    const r1 = findLcComment(currentLcId)?.commentRendererElm;
+    const r2 = findLcComment(targetLcId)?.commentRendererElm;
+    if (!r1 || !r2) {
+      return false;
+    }
+
+    const r1cnt = PolymerHelper.insp(r1);
+    const r2cnt = PolymerHelper.insp(r2);
+    if (!r1cnt?.data || !r2cnt?.data) {
+      return false;
+    }
+
+    const r1d = r1cnt.data as Record<string, unknown>;
+    delete r1d.linkedCommentBadge;
+    r1cnt.data = { ...r1d };
+
+    const r2d = r2cnt.data as Record<string, unknown>;
+    r2cnt.data = { ...r2d, linkedCommentBadge: { ...badgeData } };
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function lcSwapFuncA(targetLcId: string, currentLcId: string): boolean {
+  try {
+    const r1 = findLcComment(currentLcId)?.commentRendererElm;
+    const r2 = findLcComment(targetLcId)?.commentRendererElm;
+    if (!r1 || !r2) {
+      return false;
+    }
+
+    const r1cnt = PolymerHelper.insp(r1);
+    const r2cnt = PolymerHelper.insp(r2);
+    const r1Badge = (r1cnt?.data as Record<string, any> | undefined)?.linkedCommentBadge;
+    const r2Badge = (r2cnt?.data as Record<string, any> | undefined)?.linkedCommentBadge;
+
+    if (typeof r1Badge === "object" && typeof r2Badge === "undefined") {
+      const badgeCopy = { ...r1Badge };
+      if (badgeCopy.metadataBadgeRenderer?.trackingParams) {
+        delete badgeCopy.metadataBadgeRenderer.trackingParams;
+      }
+
+      const v1 = findContentsRenderer(r1);
+      const v2 = findContentsRenderer(r2);
+      if (!v1 || !v2 || v1.parent !== v2.parent) {
+        return false;
+      }
+
+      if (v2.index >= 0) {
+        if (v2.parent.nodeName === "YTD-COMMENT-REPLIES-RENDERER") {
+          return lcSwapFuncB(targetLcId, currentLcId, badgeCopy);
+        } else {
+          const v2pCnt = PolymerHelper.insp(v2.parent);
+          if (v2pCnt) {
+            const v2Contents = (v2pCnt.data as { contents?: unknown[] } | undefined)?.contents;
+            if (Array.isArray(v2Contents)) {
+              const targetItem = v2Contents[v2.index];
+              const nextContents = [
+                targetItem,
+                ...v2Contents.slice(0, v2.index),
+                ...v2Contents.slice(v2.index + 1)
+              ];
+              v2pCnt.data = {
+                ...(v2pCnt.data as Record<string, unknown>),
+                contents: nextContents
+              };
+            }
+          }
+          return lcSwapFuncB(targetLcId, currentLcId, badgeCopy);
+        }
+      }
+    }
+  } catch {
+    // 忽略异常
+  }
+  return false;
 }
 
 export class DOMRelocator {
@@ -30,7 +195,8 @@ export class DOMRelocator {
       wrapper.className = PAGE_CONSTANTS.CLASSES.SECONDARY_WRAPPER;
 
       const children = Array.from(secondaryInner.childNodes);
-      for (const child of children) {
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
         if (child !== wrapper) {
           wrapper.appendChild(child);
         }
@@ -77,6 +243,31 @@ export class DOMRelocator {
     });
   }
 
+  public checkAndHandleLinkedComment(specifiedLcId?: string): boolean {
+    const searchParams = new URLSearchParams(window.location.search);
+    const lcParam = specifiedLcId || searchParams.get("lc");
+    if (!lcParam) {
+      return false;
+    }
+
+    const targetLc = findLcComment(lcParam);
+    const currentLc = targetLc ? findLcComment() : null;
+
+    if (targetLc && currentLc) {
+      if (targetLc.lc === currentLc.lc) {
+        return true;
+      }
+      return lcSwapFuncA(targetLc.lc, currentLc.lc);
+    }
+    return false;
+  }
+
+  public resetSlotState(): void {
+    for (const slotState of this.slots.values()) {
+      slotState.element = null;
+    }
+  }
+
   public bindSlot(slot: RelocationSlot): void {
     if (!this.slots.has(slot.tabKey)) {
       this.slots.set(slot.tabKey, {
@@ -106,10 +297,6 @@ export class DOMRelocator {
       return false;
     }
 
-    if (slotState.element && targetContainer.contains(slotState.element)) {
-      return true;
-    }
-
     const candidates = document.querySelectorAll<HTMLElement>(slot.sourceSelector);
     let sourceElement: HTMLElement | null = null;
     for (let i = 0; i < candidates.length; i++) {
@@ -126,7 +313,7 @@ export class DOMRelocator {
     }
 
     if (!sourceElement) {
-      return false;
+      return Boolean(slotState.element && targetContainer.contains(slotState.element));
     }
 
     const parent = sourceElement.parentNode;
@@ -143,34 +330,40 @@ export class DOMRelocator {
       slotState.anchor = anchor;
     }
 
-    targetContainer.appendChild(sourceElement);
+    targetContainer.replaceChildren(sourceElement);
     slotState.element = sourceElement;
     return true;
   }
 
-  public sweepSecondaryWrapper(): void {
+  public sweepSecondary(): void {
+    const secondaryInner = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_EXACT);
     const wrapper = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
     const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
     const tabVideos = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER);
 
-    if (!wrapper || !rightTabs || !tabVideos) {
+    if (!tabVideos) {
       return;
     }
 
-    const children = Array.from(wrapper.children);
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i] as HTMLElement;
-      if (
-        child === rightTabs ||
-        child.matches("ytd-live-chat-frame, [tyt-chat-container], #chat, #chat-container, .tyt-relocator-anchor")
-      ) {
-        continue;
-      }
-      if (
-        child.matches(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION) ||
-        child.querySelector(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION)
-      ) {
-        tabVideos.appendChild(child);
+    const containersToScan = [secondaryInner, wrapper].filter(Boolean) as HTMLElement[];
+    for (let cIdx = 0; cIdx < containersToScan.length; cIdx++) {
+      const container = containersToScan[cIdx];
+      const children = Array.from(container.children);
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i] as HTMLElement;
+        if (
+          child === wrapper ||
+          child === rightTabs ||
+          child.matches("secondary-wrapper, ytd-live-chat-frame, [tyt-chat-container], #chat, #chat-container, .tyt-relocator-anchor")
+        ) {
+          continue;
+        }
+        if (
+          child.matches(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION) ||
+          child.querySelector(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION)
+        ) {
+          tabVideos.replaceChildren(child);
+        }
       }
     }
   }
@@ -179,7 +372,7 @@ export class DOMRelocator {
     for (const tabKey of this.slots.keys()) {
       this.tryRelocateSlot(tabKey);
     }
-    this.sweepSecondaryWrapper();
+    this.sweepSecondary();
   }
 
   public restoreAll(): void {
@@ -235,3 +428,4 @@ export class DOMRelocator {
     }
   }
 }
+

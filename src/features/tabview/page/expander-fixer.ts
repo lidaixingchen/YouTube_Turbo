@@ -1,48 +1,157 @@
 import { PAGE_CONSTANTS } from "./constants";
 import { PolymerHelper } from "./polymer-helper";
-import { ObserverRegistry } from "./observer-registry";
 import { TabsView } from "./tabs-view";
+import type { PolymerElementInstance } from "./types";
+
+export function funcCanCollapse(this: PolymerElementInstance, _force?: boolean): void {
+  const content = this.content || (this.$ && this.$.content);
+  const shouldUseLines = Boolean(this.shouldUseNumberOfLines);
+  const isCollapsedState = Boolean(this.alwaysCollapsed || this.collapsed || this.isToggled === false);
+
+  if (shouldUseLines && isCollapsedState) {
+    this.canToggle = Boolean(
+      this.alwaysToggleable ||
+      this.isToggled ||
+      (content && content.offsetHeight < content.scrollHeight)
+    );
+  } else {
+    const minHeight = typeof this.collapsedHeight === "number" ? this.collapsedHeight : 0;
+    this.canToggle = Boolean(
+      this.alwaysToggleable ||
+      this.isToggled ||
+      (content && content.scrollHeight > minHeight)
+    );
+  }
+}
+
+export function fixInlineExpanderDisplay(cnt: PolymerElementInstance): void {
+  try {
+    cnt.updateIsAttributedExpanded?.();
+  } catch {
+    // 忽略异常
+  }
+  try {
+    cnt.updateIsFormattedExpanded?.();
+  } catch {
+    // 忽略异常
+  }
+  try {
+    cnt.updateTextOnSnippetTypeChange?.();
+  } catch {
+    // 忽略异常
+  }
+  try {
+    cnt.updateStyles?.();
+  } catch {
+    // 忽略异常
+  }
+}
+
+export function fixInlineExpanderMethods(cnt: PolymerElementInstance): void {
+  if (!cnt || cnt.__isInlineExpanderFixed) {
+    return;
+  }
+  cnt.__isInlineExpanderFixed = true;
+  cnt.collapse = (): void => {};
+  cnt.computeExpandButtonOffset = (): number => 0;
+
+  if (typeof cnt.isResetMutation === "boolean") {
+    cnt.isResetMutation = true;
+  }
+  if (typeof cnt.collapseLabel === "string") {
+    cnt.collapseLabel = "";
+  }
+  fixInlineExpanderDisplay(cnt);
+}
 
 export class ExpanderFixer {
-  private observerRegistry: ObserverRegistry = ObserverRegistry.getInstance();
+  private static instance: ExpanderFixer | null = null;
   private tabsView: TabsView;
   private isFixing: boolean = false;
 
+  public static getInstance(tabsView?: TabsView): ExpanderFixer | null {
+    if (!ExpanderFixer.instance && tabsView) {
+      ExpanderFixer.instance = new ExpanderFixer(tabsView);
+    }
+    return ExpanderFixer.instance;
+  }
+
   constructor(tabsView: TabsView) {
     this.tabsView = tabsView;
+    ExpanderFixer.instance = this;
   }
 
   public init(): void {
-    const commentsObserverId = "comments-count-watcher";
-    this.observerRegistry.register({
-      id: commentsObserverId,
-      type: "mutation",
-      getTarget: () => document.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER) || document.body,
-      options: { childList: true, subtree: true, characterData: true },
-      callback: () => {
-        this.updateCommentsCounter();
-      }
-    });
-    this.observerRegistry.activate(commentsObserverId);
-
-    const expanderObserverId = "description-expander-watcher";
-    this.observerRegistry.register({
-      id: expanderObserverId,
-      type: "mutation",
-      getTarget: () => document.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER),
-      options: { childList: true, subtree: true },
-      callback: () => {
-        this.fixExpanders();
-      }
-    });
-    this.observerRegistry.activate(expanderObserverId);
-
     this.updateCommentsCounter();
-    this.syncDescriptionData();
+    this.fixForTabDisplay(false, PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
   }
 
-  public syncDescriptionData(): void {
-    this.fixExpanders();
+  public fixForTabDisplay(isResize: boolean = false, activeTabSelector?: string): void {
+    const intersectedElements = document.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.IO_INTERSECTED_ITEMS);
+    for (let i = 0; i < intersectedElements.length; i++) {
+      const el = intersectedElements[i];
+      const cnt = PolymerHelper.insp(el);
+      if (cnt && typeof cnt.calculateCanCollapse === "function") {
+        try {
+          cnt.calculateCanCollapse(true);
+        } catch {
+          // 忽略异常
+        }
+      }
+    }
+
+    const currentTab = activeTabSelector || `#${this.tabsView.getActiveTab()}`;
+
+    if (!isResize && (currentTab === PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER || currentTab === "#tab-info")) {
+      const resizableRenderers = document.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RESIZABLE_RENDERERS_INFO);
+      for (let i = 0; i < resizableRenderers.length; i++) {
+        const renderer = resizableRenderers[i];
+        const cnt = PolymerHelper.insp(renderer);
+        if (cnt && typeof cnt.notifyResize === "function") {
+          try {
+            cnt.notifyResize();
+          } catch {
+            // 忽略异常
+          }
+        }
+      }
+
+      const inlineExpanders = document.querySelectorAll<HTMLElement>(
+        `${PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER} ${PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER}`
+      );
+      for (let i = 0; i < inlineExpanders.length; i++) {
+        const expander = inlineExpanders[i];
+        const cnt = PolymerHelper.insp(expander);
+        if (cnt) {
+          if (typeof cnt.resize === "function") {
+            try {
+              cnt.resize(false);
+            } catch {
+              // 忽略异常
+            }
+          }
+          fixInlineExpanderDisplay(cnt);
+          fixInlineExpanderMethods(cnt);
+        }
+      }
+    }
+
+    if (!isResize && typeof currentTab === "string" && currentTab.startsWith("#tab-")) {
+      const activeContent = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_ACTIVE_CONTENT);
+      if (activeContent) {
+        const chips = activeContent.querySelectorAll<HTMLElement>("yt-chip-cloud-renderer");
+        for (let i = 0; i < chips.length; i++) {
+          const cnt = PolymerHelper.insp(chips[i]);
+          if (cnt && typeof cnt.notifyResize === "function") {
+            try {
+              cnt.notifyResize();
+            } catch {
+              // 忽略异常
+            }
+          }
+        }
+      }
+    }
   }
 
   public fixExpanders(): void {
@@ -64,34 +173,27 @@ export class ExpanderFixer {
           if (typeof cnt.resize === "function") {
             try {
               cnt.resize(false);
-            } catch (err) {
-              console.warn("[ExpanderFixer] Failed to resize expander", err);
+            } catch {
+              // 忽略异常
             }
           }
-          if (typeof cnt.updateStyles === "function") {
-            try {
-              cnt.updateStyles();
-            } catch (err) {
-              console.warn("[ExpanderFixer] Failed to update expander styles", err);
-            }
-          }
+          fixInlineExpanderDisplay(cnt);
+          fixInlineExpanderMethods(cnt);
         }
       }
     } finally {
       this.isFixing = false;
     }
 
-    const resizableRenderers = infoContainer.querySelectorAll<HTMLElement>(
-      "ytd-video-description-infocards-section-renderer, yt-chip-cloud-renderer, ytd-horizontal-card-list-renderer, yt-horizontal-list-renderer"
-    );
+    const resizableRenderers = infoContainer.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RESIZABLE_RENDERERS_INFO);
     for (let i = 0; i < resizableRenderers.length; i++) {
       const renderer = resizableRenderers[i];
       const cnt = PolymerHelper.insp(renderer);
       if (cnt && typeof cnt.notifyResize === "function") {
         try {
           cnt.notifyResize();
-        } catch (err) {
-          console.warn("[ExpanderFixer] Failed to notifyResize", err);
+        } catch {
+          // 忽略异常
         }
       }
     }
@@ -113,8 +215,8 @@ export class ExpanderFixer {
       const runs = (data.commentsCount?.runs || data.countText?.runs) as Array<{ text?: string }> | undefined;
       if (Array.isArray(runs) && runs.length > 0) {
         let maxDigits = -1;
-        for (const item of runs) {
-          const text = item.text || "";
+        for (let i = 0; i < runs.length; i++) {
+          const text = runs[i].text || "";
           const digitCount = text.replace(/\D+/g, "").length;
           if (digitCount > maxDigits) {
             maxDigits = digitCount;
@@ -125,7 +227,7 @@ export class ExpanderFixer {
     }
 
     if (!extractedCount) {
-      const countEl = header.querySelector("#count, .count-text, ytd-comments-header-renderer yt-formatted-string");
+      const countEl = header.querySelector<HTMLElement>("#count, .count-text, yt-formatted-string");
       if (countEl && countEl.textContent) {
         const match = countEl.textContent.match(/[\d,.]+[KMBkmb]?/);
         if (match) {
@@ -140,12 +242,11 @@ export class ExpanderFixer {
   }
 
   public destroy(): void {
-    this.observerRegistry.deactivate("comments-count-watcher");
-    this.observerRegistry.deactivate("description-expander-watcher");
-
     const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
     if (tabInfo) {
       tabInfo.innerHTML = "";
     }
   }
 }
+
+
