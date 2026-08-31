@@ -1,0 +1,96 @@
+.yt-modal-backdrop {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background-color: rgba(0, 0, 0, 0.6);
+          z-index: ${MODAL_CONSTANTS.Z_INDEX_BACKDROP};
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-sizing: border-box;
+        }
+        .yt-modal-container {
+          position: relative;
+          background-color: #fff;
+          border-radius: 8px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+          max-width: 90%;
+          width: 360px;
+          z-index: ${MODAL_CONSTANTS.Z_INDEX_MODAL};
+          box-sizing: border-box;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          color: #000;
+        }
+        .yt-modal-title {
+          height: 42px;
+          line-height: 42px;
+          background-color: #dedede;
+          color: #000;
+          text-align: center;
+          font-weight: 700;
+          font-size: 16px;
+          position: relative;
+          padding: 0 40px;
+          user-select: none;
+          box-sizing: border-box;
+        }
+        .yt-modal-close-btn {
+          position: absolute;
+          inset-inline-end: 12px;
+          top: 0;
+          font-size: 24px;
+          line-height: 42px;
+          cursor: pointer;
+          color: #555;
+          transition: color 0.2s;
+          border: none;
+          background: transparent;
+          padding: 0;
+          outline: none;
+        }
+        .yt-modal-close-btn:hover {
+          color: #000;
+        }
+        .yt-modal-content {
+          padding: 16px;
+          max-height: 450px;
+          overflow-y: auto;
+          box-sizing: border-box;
+        }
+        .yt-modal-confirm-message {
+          font-size: 15px;
+          line-height: 1.5;
+          margin-bottom: 18px;
+          text-align: left;
+          color: #222;
+        }
+        .yt-modal-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+        }
+        .yt-modal-btn {
+          padding: 8px 16px;
+          border-radius: 4px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          border: none;
+          outline: none;
+          transition: opacity 0.2s, background-color 0.2s;
+        }
+        .yt-modal-btn:hover {
+          opacity: 0.88;
+        }
+        .yt-modal-btn-confirm {
+          background-color: #000;
+          color: #fff;
+        }
+        .yt-modal-btn-cancel {
+          background-color: #ccc;
+          color: #222;
+        }
