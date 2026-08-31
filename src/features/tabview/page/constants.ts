@@ -3,7 +3,8 @@ export const PAGE_CONSTANTS = {
     SECONDARY_WRAPPER: "secondary-wrapper",
     RIGHT_TABS_CONTAINER: "div",
     EXPANDABLE_DESC_BODY_RENDERER: "ytd-expandable-video-description-body-renderer",
-    PLACEHOLDER_ANCHOR: "div"
+    PLACEHOLDER_ANCHOR: "div",
+    NOSCRIPT: "noscript"
   },
   IDS: {
     RIGHT_TABS: "right-tabs",
@@ -19,7 +20,8 @@ export const PAGE_CONSTANTS = {
     TAB_BTN_INFO: "tab-btn1",
     TAB_BTN_COMMENTS: "tab-btn3",
     TAB_BTN_VIDEOS: "tab-btn4",
-    TAB_BTN_PLAYLIST: "tab-btn5"
+    TAB_BTN_PLAYLIST: "tab-btn5",
+    AYTHL: "aythl"
   },
   SELECTORS: {
     RIGHT_TABS: "#right-tabs",
@@ -62,7 +64,10 @@ export const PAGE_CONSTANTS = {
     TYT_COMMENTS_HEADER_RENDERER: "[tyt-comments-area] ytd-comments-header-renderer",
     IO_INTERSECTED_ITEMS: "[io-intersected]",
     COMMENT_ENTRY_EXPANDER: "[tyt-comments-area] #contents ytd-expander#expander",
-    RESIZABLE_RENDERERS_INFO: "#tab-info ytd-video-description-infocards-section-renderer, #tab-info yt-chip-cloud-renderer, #tab-info ytd-horizontal-card-list-renderer, #tab-info yt-horizontal-list-renderer"
+    RESIZABLE_RENDERERS_INFO: "#tab-info ytd-video-description-infocards-section-renderer, #tab-info yt-chip-cloud-renderer, #tab-info ytd-horizontal-card-list-renderer, #tab-info yt-horizontal-list-renderer",
+    AYTHL_SANDBOX: "noscript#aythl",
+    TEMPLATE_SANDBOX: "ytd-watch-flexy noscript[ns-template]",
+    EXTRA_CONTENT_SOURCES: 'ytd-watch-metadata.ytd-watch-flexy div[slot="extra-content"] > *, ytd-watch-metadata.ytd-watch-flexy #extra-content > *'
   },
   CLASSES: {
     SECONDARY_WRAPPER: "tabview-secondary-wrapper",
@@ -86,6 +91,10 @@ export const PAGE_CONSTANTS = {
     TYT_MAIN_INFO: "tyt-main-info",
     TYT_INFO_RENDERER_FRONT: "tyt-info-renderer-front",
     TYT_INFO_RENDERER_BACK: "tyt-info-renderer-back",
+    NS_TEMPLATE: "ns-template",
+    TYT_DATA_OBSERVED: "tyt-data-observed",
+    TYT_DATA_CHANGE_COUNTER: "tyt-data-change-counter",
+    TYT_CLONE_REFRESH_COUNT: "tyt-clone-refresh-count",
     HIDE_DEFAULT_TEXT_INLINE_EXPANDER: "hide-default-text-inline-expander",
     USERSCRIPT_SCROLLBAR: "userscript-scrollbar-render",
     THEATER: "theater",

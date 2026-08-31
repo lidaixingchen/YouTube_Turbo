@@ -129,6 +129,17 @@ export interface PolymerElementInstance {
   updateFullBleedElementLocations?: (...args: unknown[]) => unknown;
   updateChatLocation?: (...args: unknown[]) => unknown;
   _createPropertyObserver?: (property: string, observerMethod: string, options?: unknown) => void;
+  signalProxy?: {
+    signalCache?: {
+      data?: {
+        setWithPath?: (...args: unknown[]) => unknown;
+        __patched?: boolean;
+        [key: string]: unknown;
+      };
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
   is?: string;
   [key: string]: unknown;
 }
