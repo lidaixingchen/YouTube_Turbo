@@ -1,17 +1,18 @@
-import { PolymerHelper } from "./polymer-helper";
 import { PAGE_CONSTANTS } from "./constants";
 
-type MethodPatchRecord = {
-  proto: Record<string, any>;
-  methodName: string;
-  originalMethod: (...args: unknown[]) => unknown;
-};
+export interface PolymerElementInstance extends HTMLElement {
+  polymerController?: Record<string, unknown>;
+  inst?: Record<string, unknown>;
+}
+
+export type AnyFunction = (...args: unknown[]) => unknown;
 
 export class PolymerPatcher {
   private static instance: PolymerPatcher | null = null;
-  private patches: MethodPatchRecord[] = [];
-  private secondaryInnerHold: number = 0;
   private isPatched: boolean = false;
+  private protectionDepth: number = 0;
+  private originalMethods: Map<string, AnyFunction> = new Map();
+  private targetPrototype: Record<string, unknown> | null = null;
 
   public static getInstance(): PolymerPatcher {
     if (!PolymerPatcher.instance) {
@@ -21,122 +22,90 @@ export class PolymerPatcher {
   }
 
   public runInProtectedContext<R>(callback: () => R): R {
-    if (this.secondaryInnerHold > 0) {
-      this.secondaryInnerHold++;
+    if (this.protectionDepth > 0) {
+      this.protectionDepth++;
       try {
         return callback();
       } finally {
-        this.secondaryInnerHold--;
+        this.protectionDepth--;
       }
     }
 
-    const primarySecondaryInner = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER);
-    const wrapperSecondaryInner = document.querySelector<HTMLElement>("secondary-wrapper#secondary-inner-wrapper");
-
-    if (primarySecondaryInner && wrapperSecondaryInner) {
-      this.secondaryInnerHold++;
-      primarySecondaryInner.id = "secondary-inner-";
-      wrapperSecondaryInner.id = "secondary-inner";
+    const ea = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER);
+    const eb = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
+    if (ea && eb) {
+      this.protectionDepth++;
+      ea.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER_TEMP;
+      eb.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
       try {
         return callback();
       } finally {
-        primarySecondaryInner.id = "secondary-inner";
-        wrapperSecondaryInner.id = "secondary-inner-wrapper";
-        this.secondaryInnerHold--;
+        ea.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
+        eb.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER_WRAPPER;
+        this.protectionDepth--;
       }
     }
 
     return callback();
   }
 
-  public async applyPatches(): Promise<void> {
+  public applyPatches(): void {
     if (this.isPatched) {
       return;
     }
-
-    const flexyProto = await PolymerHelper.retrieveCE(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
-    if (!flexyProto) {
-      return;
-    }
-
-    this.patchFlexyLayoutMethods(flexyProto);
     this.isPatched = true;
+
+    if (typeof customElements !== "undefined") {
+      customElements
+        .whenDefined(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY)
+        .then(() => {
+          const dummy = (document.querySelector(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY) ||
+            document.createElement(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY)) as PolymerElementInstance;
+          const cnt = dummy.polymerController || dummy.inst || dummy;
+          const proto = Object.getPrototypeOf(cnt) as Record<string, unknown> | null;
+          if (!proto) {
+            return;
+          }
+
+          this.targetPrototype = proto;
+          const methodsToWrap: ReadonlyArray<string> = [
+            "isTwoColumnsChanged_",
+            "defaultTwoColumnLayoutChanged"
+          ];
+
+          const patcher = this;
+          for (const method of methodsToWrap) {
+            const rawMethod = proto[method];
+            if (typeof rawMethod === "function" && !this.originalMethods.has(method)) {
+              this.originalMethods.set(method, rawMethod as AnyFunction);
+              proto[method] = function (this: unknown, ...args: unknown[]): unknown {
+                return patcher.runInProtectedContext(() => {
+                  return (rawMethod as AnyFunction).apply(this, args);
+                });
+              };
+            }
+          }
+        })
+        .catch((err: unknown) => {
+          console.warn("[PolymerPatcher] Failed to patch custom elements:", err);
+        });
+    }
   }
 
   public restorePatches(): void {
-    for (const record of this.patches) {
-      try {
-        record.proto[record.methodName] = record.originalMethod;
-      } catch (err) {
-        console.warn(`[PolymerPatcher] Failed to restore method '${record.methodName}':`, err);
+    if (this.targetPrototype && this.originalMethods.size > 0) {
+      for (const [method, rawMethod] of this.originalMethods.entries()) {
+        this.targetPrototype[method] = rawMethod;
       }
+      this.originalMethods.clear();
+      this.targetPrototype = null;
     }
-    this.patches = [];
     this.isPatched = false;
-    this.secondaryInnerHold = 0;
+    this.protectionDepth = 0;
   }
 
-  private patchFlexyLayoutMethods(proto: Record<string, any>): void {
-    if (typeof proto.updateChatLocation === "function") {
-      this.hookMethod(proto, "updateChatLocation", (originalFn) => {
-        const self = this;
-        return function (this: any, ...args: unknown[]) {
-          if (this.is !== "ytd-watch-grid") {
-            return self.runInProtectedContext(() => {
-              if (typeof this.updatePageMediaQueries === "function") {
-                this.updatePageMediaQueries();
-              }
-              if (typeof this.schedulePlayerSizeUpdate_ === "function") {
-                this.schedulePlayerSizeUpdate_();
-              }
-            });
-          }
-          return originalFn.apply(this, args);
-        };
-      });
-    }
-
-    const protectedMethods = [
-      "isTwoColumnsChanged_",
-      "defaultTwoColumnLayoutChanged",
-      "updatePlayerLocation",
-      "updateCinematicsLocation",
-      "updatePanelsLocation",
-      "swatcherooUpdatePanelsLocation",
-      "updateErrorScreenLocation",
-      "updateFullBleedElementLocations"
-    ];
-
-    for (const methodName of protectedMethods) {
-      if (typeof proto[methodName] === "function") {
-        this.hookMethod(proto, methodName, (originalFn) => {
-          const self = this;
-          return function (this: any, ...args: unknown[]) {
-            return self.runInProtectedContext(() => {
-              return originalFn.apply(this, args);
-            });
-          };
-        });
-      }
-    }
-  }
-
-  private hookMethod(
-    proto: Record<string, any>,
-    methodName: string,
-    factory: (original: (...args: unknown[]) => unknown) => (...args: unknown[]) => unknown
-  ): void {
-    const originalMethod = proto[methodName];
-    if (typeof originalMethod !== "function") {
-      return;
-    }
-
-    this.patches.push({
-      proto,
-      methodName,
-      originalMethod
-    });
-
-    proto[methodName] = factory(originalMethod);
+  public patchFlexyInstance(_element: HTMLElement): void {
+    this.applyPatches();
   }
 }
+

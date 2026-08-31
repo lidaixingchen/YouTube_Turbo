@@ -1,22 +1,24 @@
+import { setupConfigHacks } from "../../../core/config-hacks";
 import { NavigationCoordinator } from "./coordinator";
 import { PageBridgeAdapter } from "./bridge-adapter";
 import type { LocaleSnapshot } from "../types";
 
 function initTrustedTypesPolicy(): void {
-  if (typeof window !== "undefined" && typeof window.trustedTypes !== "undefined") {
+  if (typeof window !== "undefined" && typeof window.trustedTypes !== "undefined" && window.trustedTypes.defaultPolicy === null) {
     try {
-      window.trustedTypes.createPolicy("yt-tabview-policy", {
+      window.trustedTypes.createPolicy("default", {
         createHTML: (s: string) => s,
         createScriptURL: (s: string) => s,
         createScript: (s: string) => s
       });
     } catch {
-      // 忽略已存在或受限的策略创建异常
+      // ignore
     }
   }
 }
 
 export function main(communicationKey: string, initialLocaleData: LocaleSnapshot): void {
+  setupConfigHacks(window);
   initTrustedTypesPolicy();
 
   const coordinator = NavigationCoordinator.getInstance();

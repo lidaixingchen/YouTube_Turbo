@@ -61,8 +61,23 @@ export interface TabsViewOptions {
   onFontSizeChanged: (tabKey: TabKey, delta: number) => void;
 }
 
+export interface PolymerControllerPrototype {
+  [methodName: string]: ((...args: unknown[]) => unknown) | unknown;
+}
+
 export interface PolymerElementInstance {
-  polymerController?: unknown;
-  inst?: unknown;
+  polymerController?: PolymerElementInstance | null;
+  inst?: PolymerElementInstance | null;
+  data?: Record<string, unknown>;
+  hostElement?: HTMLElement;
+  constructor: {
+    prototype?: PolymerControllerPrototype;
+  };
+  resize?: (flag?: boolean) => void;
+  updateStyles?: () => void;
+  notifyResize?: () => void;
+  updatePageMediaQueries?: () => void;
+  schedulePlayerSizeUpdate_?: () => void;
+  is?: string;
   [key: string]: unknown;
 }

@@ -6,6 +6,7 @@ import { TabsView } from "./tabs-view";
 export class ExpanderFixer {
   private observerRegistry: ObserverRegistry = ObserverRegistry.getInstance();
   private tabsView: TabsView;
+  private isFixing: boolean = false;
 
   constructor(tabsView: TabsView) {
     this.tabsView = tabsView;
@@ -28,7 +29,7 @@ export class ExpanderFixer {
     this.observerRegistry.register({
       id: expanderObserverId,
       type: "mutation",
-      getTarget: () => document.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER) || document.body,
+      getTarget: () => document.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER),
       options: { childList: true, subtree: true },
       callback: () => {
         this.fixExpanders();
@@ -37,40 +38,54 @@ export class ExpanderFixer {
     this.observerRegistry.activate(expanderObserverId);
 
     this.updateCommentsCounter();
+    this.syncDescriptionData();
+  }
+
+  public syncDescriptionData(): void {
     this.fixExpanders();
   }
 
   public fixExpanders(): void {
+    if (this.isFixing) {
+      return;
+    }
     const infoContainer = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
     if (!infoContainer) {
       return;
     }
 
-    const inlineExpanders = infoContainer.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
-    for (const expander of inlineExpanders) {
-      const cnt = PolymerHelper.insp(expander);
-      if (cnt) {
-        if (typeof cnt.resize === "function") {
-          try {
-            cnt.resize(false);
-          } catch (err) {
-            console.warn("[ExpanderFixer] Failed to resize expander", err);
+    this.isFixing = true;
+    try {
+      const inlineExpanders = infoContainer.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
+      for (let i = 0; i < inlineExpanders.length; i++) {
+        const expander = inlineExpanders[i];
+        const cnt = PolymerHelper.insp(expander);
+        if (cnt) {
+          if (typeof cnt.resize === "function") {
+            try {
+              cnt.resize(false);
+            } catch (err) {
+              console.warn("[ExpanderFixer] Failed to resize expander", err);
+            }
           }
-        }
-        if (typeof cnt.updateStyles === "function") {
-          try {
-            cnt.updateStyles();
-          } catch (err) {
-            console.warn("[ExpanderFixer] Failed to update expander styles", err);
+          if (typeof cnt.updateStyles === "function") {
+            try {
+              cnt.updateStyles();
+            } catch (err) {
+              console.warn("[ExpanderFixer] Failed to update expander styles", err);
+            }
           }
         }
       }
+    } finally {
+      this.isFixing = false;
     }
 
     const resizableRenderers = infoContainer.querySelectorAll<HTMLElement>(
       "ytd-video-description-infocards-section-renderer, yt-chip-cloud-renderer, ytd-horizontal-card-list-renderer, yt-horizontal-list-renderer"
     );
-    for (const renderer of resizableRenderers) {
+    for (let i = 0; i < resizableRenderers.length; i++) {
+      const renderer = resizableRenderers[i];
       const cnt = PolymerHelper.insp(renderer);
       if (cnt && typeof cnt.notifyResize === "function") {
         try {
@@ -91,11 +106,11 @@ export class ExpanderFixer {
     }
 
     const cnt = PolymerHelper.insp(header);
-    const data = cnt?.data;
+    const data = cnt?.data as Record<string, any> | undefined;
     let extractedCount = "";
 
     if (data) {
-      const runs = data.commentsCount?.runs || data.countText?.runs;
+      const runs = (data.commentsCount?.runs || data.countText?.runs) as Array<{ text?: string }> | undefined;
       if (Array.isArray(runs) && runs.length > 0) {
         let maxDigits = -1;
         for (const item of runs) {
@@ -127,5 +142,10 @@ export class ExpanderFixer {
   public destroy(): void {
     this.observerRegistry.deactivate("comments-count-watcher");
     this.observerRegistry.deactivate("description-expander-watcher");
+
+    const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
+    if (tabInfo) {
+      tabInfo.innerHTML = "";
+    }
   }
 }

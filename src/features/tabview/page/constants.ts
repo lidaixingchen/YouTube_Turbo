@@ -1,4 +1,26 @@
 export const PAGE_CONSTANTS = {
+  TAGS: {
+    SECONDARY_WRAPPER: "secondary-wrapper",
+    RIGHT_TABS_CONTAINER: "div",
+    EXPANDABLE_DESC_BODY_RENDERER: "ytd-expandable-video-description-body-renderer",
+    PLACEHOLDER_ANCHOR: "div"
+  },
+  IDS: {
+    RIGHT_TABS: "right-tabs",
+    MATERIAL_TABS: "material-tabs",
+    SECONDARY_INNER: "secondary-inner",
+    SECONDARY_INNER_TEMP: "secondary-inner-",
+    SECONDARY_INNER_WRAPPER: "secondary-inner-wrapper",
+    TAB_INFO: "tab-info",
+    TAB_COMMENTS: "tab-comments",
+    TAB_VIDEOS: "tab-videos",
+    TAB_PLAYLIST: "tab-list",
+    COMMENT_COUNT_BADGE: "tyt-cm-count",
+    TAB_BTN_INFO: "tab-btn1",
+    TAB_BTN_COMMENTS: "tab-btn3",
+    TAB_BTN_VIDEOS: "tab-btn4",
+    TAB_BTN_PLAYLIST: "tab-btn5"
+  },
   SELECTORS: {
     RIGHT_TABS: "#right-tabs",
     MATERIAL_TABS: "#material-tabs",
@@ -13,8 +35,13 @@ export const PAGE_CONSTANTS = {
     YTD_WATCH_FLEXY: "ytd-watch-flexy",
     PRIMARY_INNER: "#primary-inner",
     SECONDARY_INNER: "#secondary-inner",
+    SECONDARY_INNER_SCOPED: "#secondary-inner.style-scope.ytd-watch-flexy",
+    SECONDARY_INNER_EXACT: "#columns.ytd-watch-flexy > #secondary.ytd-watch-flexy > #secondary-inner, #secondary.ytd-watch-flexy > #secondary-inner, #secondary-inner.style-scope.ytd-watch-flexy",
+    SECONDARY_WRAPPER_EXACT: "#secondary-inner.style-scope.ytd-watch-flexy > secondary-wrapper",
+    SECONDARY_INNER_WRAPPER: "secondary-wrapper#secondary-inner-wrapper",
     COMMENTS_SECTION: "ytd-comments#comments",
-    RELATED_SECTION: "#related",
+    RELATED_SECTION: "ytd-watch-next-secondary-results-renderer, #columns #secondary #related, #related",
+    DESCRIPTION_SECTION: "ytd-expandable-video-description-body-renderer, #below ytd-expandable-video-description-body-renderer, ytd-structured-description-content-renderer",
     WATCH_METADATA: "ytd-watch-metadata",
     EXPANDABLE_DESCRIPTION: "ytd-expandable-video-description-body-renderer",
     TEXT_INLINE_EXPANDER: "ytd-text-inline-expander",
@@ -22,11 +49,18 @@ export const PAGE_CONSTANTS = {
     LIVE_CHAT_FRAME: "ytd-live-chat-frame#chat",
     PLAYLIST_PANEL: "ytd-playlist-panel-renderer",
     ENGAGEMENT_PANEL: "ytd-engagement-panel-section-list-renderer",
-    SIZE_BUTTON: "ytd-watch-flexy #ytd-player button.ytp-size-button"
+    SIZE_BUTTON: "ytd-watch-flexy #ytd-player button.ytp-size-button",
+    TYT_INFO_RENDERER: "ytd-expandable-video-description-body-renderer[tyt-info-renderer]",
+    TYT_MAIN_INFO: "[tyt-main-info]",
+    TAB_BTN_COMMENTS: "#tab-btn3",
+    TAB_BTN_PLAYLIST: "#tab-btn5",
+    TAB_BTN_INFO: "#tab-btn1",
+    TAB_BTN_VIDEOS: "#tab-btn4"
   },
   CLASSES: {
+    SECONDARY_WRAPPER: "tabview-secondary-wrapper",
     TAB_BTN: "tab-btn",
-    TAB_BTN_ACTIVE: "tab-btn-active",
+    TAB_BTN_ACTIVE: "active",
     TAB_BTN_HIDDEN: "tab-btn-hidden",
     TAB_CONTENT_CLD: "tab-content-cld",
     TAB_CONTENT_HIDDEN: "tab-content-hidden",
@@ -38,12 +72,27 @@ export const PAGE_CONSTANTS = {
   },
   ATTRIBUTES: {
     TYT_DI: "tyt-di",
+    TYT_TAB: "tyt-tab",
     TYT_TAB_CONTENT: "tyt-tab-content",
     TYT_HIDDEN: "tyt-hidden",
+    TYT_INFO_RENDERER: "tyt-info-renderer",
+    TYT_MAIN_INFO: "tyt-main-info",
+    TYT_INFO_RENDERER_FRONT: "tyt-info-renderer-front",
+    TYT_INFO_RENDERER_BACK: "tyt-info-renderer-back",
+    HIDE_DEFAULT_TEXT_INLINE_EXPANDER: "hide-default-text-inline-expander",
     USERSCRIPT_SCROLLBAR: "userscript-scrollbar-render",
     THEATER: "theater",
     COLLAPSED: "collapsed",
     TABVIEW_LOADED: "tabview-loaded"
+  },
+  VALUES: {
+    TABVIEW_LOADED_ICP: "icp"
+  },
+  ANIMATIONS: {
+    RELATED_ELEMENT_PROVIDED: "relatedElementProvided"
+  },
+  TIMEOUTS: {
+    ELEMENT_WAIT_MS: 5000
   },
   FONT_SIZE: {
     MIN_PX: 10,
@@ -61,6 +110,7 @@ export const PAGE_CONSTANTS = {
     YT_NAVIGATE_FINISH: "yt-navigate-finish",
     YT_NAVIGATE_START: "yt-navigate-start",
     YT_PAGE_TYPE_CHANGED: "yt-page-type-changed",
-    YT_ACTION: "yt-action"
+    YT_ACTION: "yt-action",
+    ANIMATION_START: "animationstart"
   }
 } as const;

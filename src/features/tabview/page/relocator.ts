@@ -1,6 +1,4 @@
 import { PAGE_CONSTANTS } from "./constants";
-import { PolymerPatcher } from "./polymer-patcher";
-import { ObserverRegistry } from "./observer-registry";
 import { TabsView } from "./tabs-view";
 import type { TabKey, RelocationSlot, TabsViewOptions } from "./types";
 
@@ -13,11 +11,7 @@ interface ActiveSlotState {
 export class DOMRelocator {
   private static instance: DOMRelocator | null = null;
   private tabsView: TabsView = new TabsView();
-  private rightTabsContainer: HTMLElement | null = null;
-  private secondaryWrapper: HTMLElement | null = null;
   private slots: Map<TabKey, ActiveSlotState> = new Map();
-  private observerRegistry: ObserverRegistry = ObserverRegistry.getInstance();
-  private polymerPatcher: PolymerPatcher = PolymerPatcher.getInstance();
 
   public static getInstance(): DOMRelocator {
     if (!DOMRelocator.instance) {
@@ -26,42 +20,39 @@ export class DOMRelocator {
     return DOMRelocator.instance;
   }
 
-  public mountTabsContainer(tabsOptions: TabsViewOptions): HTMLElement | null {
-    if (this.rightTabsContainer && this.rightTabsContainer.isConnected) {
-      return this.rightTabsContainer;
+  public mountTabsContainer(secondaryInner: HTMLElement, tabsOptions: TabsViewOptions): HTMLElement {
+    let rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+    let wrapper = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
+
+    if (!wrapper || !wrapper.isConnected) {
+      wrapper = document.createElement(PAGE_CONSTANTS.TAGS.SECONDARY_WRAPPER);
+      wrapper.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER_WRAPPER;
+      wrapper.className = PAGE_CONSTANTS.CLASSES.SECONDARY_WRAPPER;
+
+      const children = Array.from(secondaryInner.childNodes);
+      for (const child of children) {
+        if (child !== wrapper) {
+          wrapper.appendChild(child);
+        }
+      }
+      secondaryInner.insertBefore(wrapper, secondaryInner.firstChild);
+    }
+    if (!rightTabs || !rightTabs.isConnected) {
+      rightTabs = document.createElement(PAGE_CONSTANTS.TAGS.RIGHT_TABS_CONTAINER);
+      rightTabs.id = PAGE_CONSTANTS.IDS.RIGHT_TABS;
+      wrapper.insertBefore(rightTabs, wrapper.firstChild);
+      this.tabsView.render(rightTabs, tabsOptions);
     }
 
-    const secondaryInner = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER);
-    if (!secondaryInner) {
-      return null;
-    }
-
-    let wrapper = secondaryInner.querySelector<HTMLElement>("secondary-wrapper#secondary-inner-wrapper");
-    if (!wrapper) {
-      wrapper = document.createElement("secondary-wrapper");
-      wrapper.id = "secondary-inner-wrapper";
-      secondaryInner.appendChild(wrapper);
-    }
-    this.secondaryWrapper = wrapper;
-
-    let rightTabs = wrapper.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
-    if (!rightTabs) {
-      rightTabs = document.createElement("div");
-      rightTabs.id = "right-tabs";
-      wrapper.appendChild(rightTabs);
-    }
-    this.rightTabsContainer = rightTabs;
-
-    this.tabsView.render(rightTabs, tabsOptions);
     return rightTabs;
   }
 
   public registerDefaultSlots(): void {
     this.bindSlot({
-      tabKey: "comments",
-      sourceSelector: PAGE_CONSTANTS.SELECTORS.COMMENTS_SECTION,
-      targetContainerSelector: PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER,
-      placeholderClass: `${PAGE_CONSTANTS.CLASSES.PLACEHOLDER_ANCHOR}-comments`
+      tabKey: "info",
+      sourceSelector: PAGE_CONSTANTS.SELECTORS.DESCRIPTION_SECTION,
+      targetContainerSelector: PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER,
+      placeholderClass: `${PAGE_CONSTANTS.CLASSES.PLACEHOLDER_ANCHOR}-info`
     });
 
     this.bindSlot({
@@ -72,17 +63,17 @@ export class DOMRelocator {
     });
 
     this.bindSlot({
+      tabKey: "comments",
+      sourceSelector: PAGE_CONSTANTS.SELECTORS.COMMENTS_SECTION,
+      targetContainerSelector: PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER,
+      placeholderClass: `${PAGE_CONSTANTS.CLASSES.PLACEHOLDER_ANCHOR}-comments`
+    });
+
+    this.bindSlot({
       tabKey: "playlist",
       sourceSelector: PAGE_CONSTANTS.SELECTORS.PLAYLIST_PANEL,
       targetContainerSelector: PAGE_CONSTANTS.SELECTORS.TAB_PLAYLIST_CONTAINER,
       placeholderClass: `${PAGE_CONSTANTS.CLASSES.PLACEHOLDER_ANCHOR}-playlist`
-    });
-
-    this.bindSlot({
-      tabKey: "info",
-      sourceSelector: PAGE_CONSTANTS.SELECTORS.WATCH_METADATA,
-      targetContainerSelector: PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER,
-      placeholderClass: `${PAGE_CONSTANTS.CLASSES.PLACEHOLDER_ANCHOR}-info`
     });
   }
 
@@ -96,61 +87,99 @@ export class DOMRelocator {
     }
 
     this.tryRelocateSlot(slot.tabKey);
-
-    const observerId = `slot-watcher-${slot.tabKey}`;
-    this.observerRegistry.register({
-      id: observerId,
-      type: "mutation",
-      getTarget: () => document.querySelector(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY) || document.body,
-      options: { childList: true, subtree: true },
-      callback: () => {
-        this.tryRelocateSlot(slot.tabKey);
-      }
-    });
-    this.observerRegistry.activate(observerId);
   }
 
   public tryRelocateSlot(tabKey: TabKey): boolean {
     const slotState = this.slots.get(tabKey);
-    if (!slotState || !this.rightTabsContainer) {
+    if (!slotState) {
+      return false;
+    }
+
+    const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+    if (!rightTabs) {
       return false;
     }
 
     const { slot } = slotState;
-    const targetContainer = this.rightTabsContainer.querySelector<HTMLElement>(slot.targetContainerSelector);
+    const targetContainer = rightTabs.querySelector<HTMLElement>(slot.targetContainerSelector);
     if (!targetContainer) {
       return false;
     }
 
-    const sourceElement = document.querySelector<HTMLElement>(slot.sourceSelector);
+    if (slotState.element && targetContainer.contains(slotState.element)) {
+      return true;
+    }
+
+    const candidates = document.querySelectorAll<HTMLElement>(slot.sourceSelector);
+    let sourceElement: HTMLElement | null = null;
+    for (let i = 0; i < candidates.length; i++) {
+      const el = candidates[i];
+      if (el.closest(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)) {
+        continue;
+      }
+      const parentCandidate = el.parentElement?.closest<HTMLElement>(slot.sourceSelector);
+      if (parentCandidate && !parentCandidate.closest(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)) {
+        continue;
+      }
+      sourceElement = el;
+      break;
+    }
+
     if (!sourceElement) {
       return false;
     }
 
-    if (targetContainer.contains(sourceElement)) {
-      slotState.element = sourceElement;
-      return true;
+    const parent = sourceElement.parentNode;
+    if (!parent) {
+      return false;
     }
 
-    return this.polymerPatcher.runInProtectedContext(() => {
-      const parent = sourceElement.parentNode;
-      if (!parent) {
-        return false;
-      }
+    let anchor = slotState.anchor;
+    if (!anchor || !anchor.isConnected) {
+      anchor = document.createElement(PAGE_CONSTANTS.TAGS.PLACEHOLDER_ANCHOR);
+      anchor.className = `${PAGE_CONSTANTS.CLASSES.PLACEHOLDER_ANCHOR} ${slot.placeholderClass}`;
+      anchor.style.display = "none";
+      parent.insertBefore(anchor, sourceElement);
+      slotState.anchor = anchor;
+    }
 
-      let anchor = slotState.anchor;
-      if (!anchor || !anchor.isConnected) {
-        anchor = document.createElement("div");
-        anchor.className = `${PAGE_CONSTANTS.CLASSES.PLACEHOLDER_ANCHOR} ${slot.placeholderClass}`;
-        anchor.style.display = "none";
-        parent.insertBefore(anchor, sourceElement);
-        slotState.anchor = anchor;
-      }
+    targetContainer.appendChild(sourceElement);
+    slotState.element = sourceElement;
+    return true;
+  }
 
-      targetContainer.appendChild(sourceElement);
-      slotState.element = sourceElement;
-      return true;
-    });
+  public sweepSecondaryWrapper(): void {
+    const wrapper = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
+    const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+    const tabVideos = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER);
+
+    if (!wrapper || !rightTabs || !tabVideos) {
+      return;
+    }
+
+    const children = Array.from(wrapper.children);
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i] as HTMLElement;
+      if (
+        child === rightTabs ||
+        child.matches("ytd-live-chat-frame, [tyt-chat-container], #chat, #chat-container, .tyt-relocator-anchor")
+      ) {
+        continue;
+      }
+      if (
+        child.matches(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION) ||
+        child.querySelector(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION)
+      ) {
+        tabVideos.appendChild(child);
+      }
+    }
+  }
+
+  public refreshAllSlots(): void {
+    for (const tabKey of this.slots.keys()) {
+      this.tryRelocateSlot(tabKey);
+    }
+    this.sweepSecondaryWrapper();
   }
 
   public restoreAll(): void {
@@ -166,11 +195,9 @@ export class DOMRelocator {
     }
 
     const { element, anchor } = slotState;
-    if (element && anchor && anchor.parentNode) {
-      this.polymerPatcher.runInProtectedContext(() => {
-        anchor.parentNode?.insertBefore(element, anchor);
-        anchor.remove();
-      });
+    if (element && anchor && anchor.isConnected && anchor.parentNode) {
+      anchor.parentNode.insertBefore(element, anchor);
+      anchor.remove();
     }
 
     slotState.element = null;
@@ -181,19 +208,30 @@ export class DOMRelocator {
     return this.tabsView;
   }
 
+  public isContainerMounted(): boolean {
+    const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+    return Boolean(rightTabs && rightTabs.isConnected);
+  }
+
   public destroy(): void {
     this.restoreAll();
     this.slots.clear();
     this.tabsView.destroy();
 
-    if (this.rightTabsContainer && this.rightTabsContainer.parentNode) {
-      this.rightTabsContainer.remove();
-      this.rightTabsContainer = null;
+    const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+    if (rightTabs) {
+      rightTabs.remove();
     }
 
-    if (this.secondaryWrapper && this.secondaryWrapper.children.length === 0) {
-      this.secondaryWrapper.remove();
-      this.secondaryWrapper = null;
+    const wrapper = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
+    if (wrapper) {
+      const parent = wrapper.parentNode;
+      if (parent) {
+        while (wrapper.firstChild) {
+          parent.insertBefore(wrapper.firstChild, wrapper);
+        }
+      }
+      wrapper.remove();
     }
   }
 }

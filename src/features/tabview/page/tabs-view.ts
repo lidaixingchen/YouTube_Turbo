@@ -1,6 +1,36 @@
 import { PAGE_CONSTANTS } from "./constants";
 import type { TabKey, TabsViewOptions, LocaleSnapshot } from "./types";
 
+function parseHtmlSafely(html: string): DocumentFragment {
+  const template = document.createElement("template");
+  if (typeof window !== "undefined" && window.trustedTypes) {
+    try {
+      const policy =
+        window.trustedTypes.defaultPolicy ||
+        window.trustedTypes.createPolicy("yt-tabview-policy-" + Math.random().toString(36).slice(2, 6), {
+          createHTML: (s: string) => s
+        });
+      template.innerHTML = policy ? policy.createHTML(html) : html;
+      return template.content;
+    } catch {
+      // 忽略策略创建失败，进入 DOMParser 降级
+    }
+  }
+
+  try {
+    template.innerHTML = html;
+    return template.content;
+  } catch {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    const fragment = document.createDocumentFragment();
+    while (doc.body.firstChild) {
+      fragment.appendChild(doc.body.firstChild);
+    }
+    return fragment;
+  }
+}
+
 export class TabsView {
   private container: HTMLElement | null = null;
   private activeTab: TabKey = "info";
@@ -18,7 +48,8 @@ export class TabsView {
     const { localeSnapshot } = options;
 
     const tabsHtml = this.generateTabsHtml(localeSnapshot);
-    container.innerHTML = tabsHtml;
+    const fragment = parseHtmlSafely(tabsHtml);
+    container.replaceChildren(fragment);
 
     this.bindEvents();
     this.setActiveTab(this.activeTab);
@@ -35,7 +66,8 @@ export class TabsView {
 
     const targetContentSelector = this.getContentSelector(tabKey);
 
-    for (const btn of tabButtons) {
+    for (let i = 0; i < tabButtons.length; i++) {
+      const btn = tabButtons[i];
       const contentAttr = btn.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT);
       if (contentAttr === targetContentSelector) {
         btn.classList.add(PAGE_CONSTANTS.CLASSES.TAB_BTN_ACTIVE);
@@ -44,7 +76,8 @@ export class TabsView {
       }
     }
 
-    for (const panel of tabPanels) {
+    for (let i = 0; i < tabPanels.length; i++) {
+      const panel = tabPanels[i];
       if (`#${panel.id}` === targetContentSelector) {
         panel.classList.remove(PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN);
         panel.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN);
@@ -56,7 +89,7 @@ export class TabsView {
 
     const flexy = document.querySelector(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
     if (flexy) {
-      flexy.setAttribute("tyt-tab", targetContentSelector);
+      flexy.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB, targetContentSelector);
     }
   }
 
@@ -171,26 +204,26 @@ export class TabsView {
     return `
       <tabview-view-pos-thead></tabview-view-pos-thead>
       <header>
-        <div id="material-tabs">
-          <a id="tab-btn1" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
+        <div id="${PAGE_CONSTANTS.IDS.MATERIAL_TABS}">
+          <a id="${PAGE_CONSTANTS.IDS.TAB_BTN_INFO}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
             ${svgInfoElm}<span>${infoLabel}</span>${strRipple}${strFontBtns}
           </a>
-          <a id="tab-btn3" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
-            ${svgCommentsElm}<span id="tyt-cm-count"></span>${strRipple}${strFontBtns}
+          <a id="${PAGE_CONSTANTS.IDS.TAB_BTN_COMMENTS}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
+            ${svgCommentsElm}<span id="${PAGE_CONSTANTS.IDS.COMMENT_COUNT_BADGE}"></span>${strRipple}${strFontBtns}
           </a>
-          <a id="tab-btn4" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
+          <a id="${PAGE_CONSTANTS.IDS.TAB_BTN_VIDEOS}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
             ${svgVideosElm}<span>${videosLabel}</span>${strRipple}${strFontBtns}
           </a>
-          <a id="tab-btn5" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_PLAYLIST_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN} ${PAGE_CONSTANTS.CLASSES.TAB_BTN_HIDDEN}">
+          <a id="${PAGE_CONSTANTS.IDS.TAB_BTN_PLAYLIST}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_PLAYLIST_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN} ${PAGE_CONSTANTS.CLASSES.TAB_BTN_HIDDEN}">
             ${svgPlaylistElm}<span>${playlistLabel}</span>${strRipple}${strFontBtns}
           </a>
         </div>
       </header>
       <div class="tab-content">
-        <div id="tab-info" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
-        <div id="tab-comments" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
-        <div id="tab-videos" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
-        <div id="tab-list" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
+        <div id="${PAGE_CONSTANTS.IDS.TAB_INFO}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
+        <div id="${PAGE_CONSTANTS.IDS.TAB_COMMENTS}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
+        <div id="${PAGE_CONSTANTS.IDS.TAB_VIDEOS}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
+        <div id="${PAGE_CONSTANTS.IDS.TAB_PLAYLIST}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
       </div>
     `;
   }
