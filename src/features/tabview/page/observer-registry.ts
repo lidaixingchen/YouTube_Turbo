@@ -25,6 +25,7 @@ export class ObserverRegistry {
   private commentsObserver: MutationObserver | null = null;
   private commentIntersectionObserver: IntersectionObserver | null = null;
   private rightTabsResizeObserver: ResizeObserver | null = null;
+  private roChannelHover: ResizeObserver | null = null;
   private lastTabsWidth: number = 0;
 
   public static getInstance(): ObserverRegistry {
@@ -32,6 +33,26 @@ export class ObserverRegistry {
       ObserverRegistry.instance = new ObserverRegistry();
     }
     return ObserverRegistry.instance;
+  }
+
+  public registerChannelHoverObserver(callback: ResizeObserverCallback): void {
+    if (this.roChannelHover) {
+      this.roChannelHover.disconnect();
+    }
+    this.roChannelHover = new ResizeObserver(callback);
+  }
+
+  public observeChannelHover(element: HTMLElement): void {
+    this.roChannelHover?.observe(element);
+  }
+
+  public unobserveChannelHover(element: HTMLElement): void {
+    this.roChannelHover?.unobserve(element);
+  }
+
+  public clearChannelHoverObserver(): void {
+    this.roChannelHover?.disconnect();
+    this.roChannelHover = null;
   }
 
   public register(config: ObserverConfig): void {
@@ -365,6 +386,7 @@ export class ObserverRegistry {
       this.rightTabsResizeObserver.disconnect();
       this.rightTabsResizeObserver = null;
     }
+    this.clearChannelHoverObserver();
 
     for (let i = 0; i < this.eventCleanupFns.length; i++) {
       try {
