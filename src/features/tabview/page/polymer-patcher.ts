@@ -2,7 +2,8 @@ import { PAGE_CONSTANTS } from "./constants";
 import { PolymerHelper } from "./polymer-helper";
 import { ObserverRegistry } from "./observer-registry";
 import { DOMRelocator } from "./relocator";
-import { funcCanCollapse, ExpanderFixer } from "./expander-fixer";
+import { funcCanCollapse, fixInlineExpanderMethods, ExpanderFixer } from "./expander-fixer";
+import { InfoMirrorEngine } from "./info-mirror-engine";
 import type { PolymerElementInstance, AnyFunction } from "./types";
 
 interface PrototypeRestoreEntry {
@@ -415,10 +416,42 @@ export class PolymerPatcher {
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
-        if (hostElement instanceof HTMLElement) {
-          hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO, "");
-          DOMRelocator.getInstance().tryRelocateSlot("info");
-          ExpanderFixer.getInstance()?.fixForTabDisplay(false, PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
+        if (hostElement instanceof HTMLElement && hostElement.isConnected) {
+          if (hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER)) {
+            // 通道 1：镜像节点挂载完成
+            hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO, "");
+            const inlineExpander = hostElement.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
+            if (inlineExpander) {
+              const inlineCnt = PolymerHelper.insp(inlineExpander);
+              if (inlineCnt) {
+                fixInlineExpanderMethods(inlineCnt);
+              }
+            }
+            InfoMirrorEngine.getInstance().runInfoFix();
+          } else if (!hostElement.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER) && !hostElement.closest("noscript")) {
+            // 通道 2：原生节点挂载完成，创建/同步镜像节点
+            const sandbox = InfoMirrorEngine.getInstance().getOrCreateTemplateSandbox();
+            let mirrorNode = document.querySelector<HTMLElement>(
+              `${PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER}[${PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER}]`
+            );
+            if (!mirrorNode) {
+              mirrorNode = document.createElement(PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER);
+              mirrorNode.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER, "");
+              sandbox.appendChild(mirrorNode);
+            }
+            const mirrorCnt = PolymerHelper.insp(mirrorNode);
+            const rawCnt = PolymerHelper.insp(hostElement);
+            if (mirrorCnt && rawCnt?.data) {
+              mirrorCnt.data = Object.assign({}, rawCnt.data);
+            }
+            const inlineExpander = mirrorNode.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
+            if (inlineExpander) {
+              const inlineCnt = PolymerHelper.insp(inlineExpander);
+              if (inlineCnt) {
+                fixInlineExpanderMethods(inlineCnt);
+              }
+            }
+          }
         }
         return rawMethod.apply(this, args);
       };

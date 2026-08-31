@@ -52,8 +52,25 @@ export function fixInlineExpanderMethods(cnt: PolymerElementInstance): void {
     return;
   }
   cnt.__isInlineExpanderFixed = true;
+
   cnt.collapse = (): void => {};
   cnt.computeExpandButtonOffset = (): number => 0;
+  cnt.dataChanged = (): void => {};
+
+  cnt.updateTextOnSnippetTypeChange = function (this: PolymerElementInstance): void {
+    this.isResetMutation = true;
+    if (this.isExpanded === true) {
+      this.isExpanded = false;
+    }
+    if (typeof this.set === "function") {
+      this.set("isExpanded", true);
+      this.isExpandedChanged?.();
+    } else {
+      this.isExpanded = true;
+      this.isExpandedChanged?.();
+    }
+    this.isResetMutation = true;
+  };
 
   if (typeof cnt.isResetMutation === "boolean") {
     cnt.isResetMutation = true;

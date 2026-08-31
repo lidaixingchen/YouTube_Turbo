@@ -4,6 +4,7 @@ import { PolymerPatcher } from "./polymer-patcher";
 import { PolymerHelper } from "./polymer-helper";
 import { DOMRelocator } from "./relocator";
 import { ExpanderFixer } from "./expander-fixer";
+import { InfoMirrorEngine } from "./info-mirror-engine";
 import type { NavigationState, PageType, LocaleSnapshot, TabKey } from "./types";
 
 export class NavigationCoordinator {
@@ -104,6 +105,7 @@ export class NavigationCoordinator {
           this.updatePlaylistTabVisibility();
           this.expanderFixer?.updateCommentsCounter();
           this.relocator.checkAndHandleLinkedComment();
+          InfoMirrorEngine.getInstance().runInfoFix();
         }
       }
     }, 1000);
@@ -146,6 +148,7 @@ export class NavigationCoordinator {
           if (this.currentState.pageType === "watch") {
             this.tryMount();
             this.relocator.refreshAllSlots();
+            InfoMirrorEngine.getInstance().runInfoFix();
           }
         }
       },
@@ -176,6 +179,7 @@ export class NavigationCoordinator {
       this.expanderFixer?.updateCommentsCounter();
       this.expanderFixer?.fixForTabDisplay(false);
       this.relocator.checkAndHandleLinkedComment();
+      InfoMirrorEngine.getInstance().runInfoFix();
     } else if (prevPageType === "watch") {
       this.unmountTabview();
     }
@@ -234,6 +238,7 @@ export class NavigationCoordinator {
       }
       this.observerRegistry.activate();
       this.relocator.checkAndHandleLinkedComment();
+      InfoMirrorEngine.getInstance().runInfoFix();
     } finally {
       this.isMounting = false;
     }

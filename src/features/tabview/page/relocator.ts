@@ -215,13 +215,6 @@ export class DOMRelocator {
 
   public registerDefaultSlots(): void {
     this.bindSlot({
-      tabKey: "info",
-      sourceSelector: PAGE_CONSTANTS.SELECTORS.DESCRIPTION_SECTION,
-      targetContainerSelector: PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER,
-      placeholderClass: `${PAGE_CONSTANTS.CLASSES.PLACEHOLDER_ANCHOR}-info`
-    });
-
-    this.bindSlot({
       tabKey: "videos",
       sourceSelector: PAGE_CONSTANTS.SELECTORS.RELATED_SECTION,
       targetContainerSelector: PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER,
