@@ -40,6 +40,15 @@ pnpm run build
 
 打包产物将输出至 `dist/youtube-improvements.user.js`。
 
+## 致谢 (Acknowledgements)
+
+本项目在现代工程化重构过程中，参考与受益于多位开源作者的杰出工作与灵感，在此特别鸣谢：
+
+- **Thalrien.vx** & **CY Fung**：原 YouTube Improvements 脚本及其 Tabview 核心布局增强算法的创作者与贡献者。
+- **Benjamin Philipp**：提供 Trusted Types (TTP) 安全策略适配方案与参考实践。
+- **[vite-plugin-monkey](https://github.com/lisonge/vite-plugin-monkey)**：提供优秀的现代油猴脚本 Vite 构建工具链。
+
 ## 开源协议
 
 MIT License
+
