@@ -192,6 +192,16 @@ export class NavigationCoordinator {
       this.relocator.checkAndHandleLinkedComment();
       InfoMirrorEngine.getInstance().syncMainDescriptionData();
       this.channelHoverAdapter.onNavigateFinish();
+
+      const RETRY_DELAYS: ReadonlyArray<number> = [100, 300, 800, 1500];
+      for (let i = 0; i < RETRY_DELAYS.length; i++) {
+        const delay = RETRY_DELAYS[i];
+        setTimeout(() => {
+          if (this.currentState.pageType === "watch") {
+            InfoMirrorEngine.getInstance().syncMainDescriptionData();
+          }
+        }, delay);
+      }
     } else if (prevPageType === "watch") {
       this.unmountTabview();
     }

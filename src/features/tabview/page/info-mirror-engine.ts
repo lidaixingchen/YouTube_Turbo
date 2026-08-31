@@ -76,11 +76,16 @@ export class InfoMirrorEngine {
     }
 
     if (mirrorNode && nativeNode) {
+      this.bindDataReflection(nativeNode, mirrorNode);
+      this.sourceNodeCache.set(mirrorNode, new WeakRef(nativeNode));
+
       const mirrorCnt = PolymerHelper.insp(mirrorNode);
       const rawCnt = PolymerHelper.insp(nativeNode);
       const lastData = this.lastSyncedDataMap.get(mirrorNode);
       if (mirrorCnt && rawCnt?.data && rawCnt.data !== lastData) {
+        mirrorNode.replaceWith(this.dummyNode);
         mirrorCnt.data = Object.assign({}, rawCnt.data);
+        this.dummyNode.replaceWith(mirrorNode);
         this.lastSyncedDataMap.set(mirrorNode, rawCnt.data);
       }
       const inlineExpander = mirrorNode.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);

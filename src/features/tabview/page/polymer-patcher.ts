@@ -463,12 +463,14 @@ export class PolymerPatcher {
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         ChannelHoverAdapter.getInstance().bindHoverEvents();
+        InfoMirrorEngine.getInstance().syncMainDescriptionData();
         return rawMethod.apply(this, args);
       };
     });
 
     this.makeInitAttached(PAGE_CONSTANTS.SELECTORS.WATCH_METADATA, () => {
       ChannelHoverAdapter.getInstance().bindHoverEvents();
+      InfoMirrorEngine.getInstance().syncMainDescriptionData();
     });
   }
 
