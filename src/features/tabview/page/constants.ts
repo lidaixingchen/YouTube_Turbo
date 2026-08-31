@@ -129,8 +129,12 @@ export const PAGE_CONSTANTS = {
   ANIMATIONS: {
     RELATED_ELEMENT_PROVIDED: "relatedElementProvided"
   },
+  MASKS: {
+    TOKEN_MASK: 0x3fffffff
+  },
   TIMEOUTS: {
-    ELEMENT_WAIT_MS: 5000
+    ELEMENT_WAIT_MS: 5000,
+    CHAT_FRAME_READY_MS: 700
   },
   FONT_SIZE: {
     MIN_PX: 10,

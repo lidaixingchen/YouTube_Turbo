@@ -172,6 +172,10 @@ export class NavigationCoordinator {
     this.currentState = nextState;
 
     if (nextState.pageType === "watch") {
+      const flexy = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+      if (flexy) {
+        flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.KEEP_COMMENTS_SCROLLER);
+      }
       this.tryMount();
       this.relocator.resetSlotState();
       this.relocator.refreshAllSlots();
@@ -285,6 +289,7 @@ export class NavigationCoordinator {
     if (flexy) {
       flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.HIDE_DEFAULT_TEXT_INLINE_EXPANDER);
       flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB);
+      flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.KEEP_COMMENTS_SCROLLER);
     }
 
     this.expanderFixer?.destroy();

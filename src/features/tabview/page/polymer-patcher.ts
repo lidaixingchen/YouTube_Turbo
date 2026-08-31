@@ -102,8 +102,7 @@ export class PolymerPatcher {
       "updatePanelsLocation",
       "swatcherooUpdatePanelsLocation",
       "updateErrorScreenLocation",
-      "updateFullBleedElementLocations",
-      "updateChatLocation"
+      "updateFullBleedElementLocations"
     ];
 
     const patcher = this;
@@ -117,6 +116,17 @@ export class PolymerPatcher {
         };
       });
     }
+
+    this.hookMethod(proto, "updateChatLocation", () => {
+      return function (this: PolymerElementInstance): void {
+        if (this.is !== "ytd-watch-grid") {
+          patcher.runInProtectedContext(() => {
+            this.updatePageMediaQueries?.();
+            this.schedulePlayerSizeUpdate_?.();
+          });
+        }
+      };
+    });
   }
 
   private async patchExpander(): Promise<void> {
@@ -322,6 +332,53 @@ export class PolymerPatcher {
           }
         }
         return rawMethod.apply(this, args);
+      };
+    });
+
+    const chatFrameTokens = new WeakMap<PolymerElementInstance, number>();
+    this.hookMethod(proto, "urlChanged", (rawMethod) => {
+      return async function (this: PolymerElementInstance): Promise<void> {
+        const nextToken = ((chatFrameTokens.get(this) ?? 0) & PAGE_CONSTANTS.MASKS.TOKEN_MASK) + 1;
+        chatFrameTokens.set(this, nextToken);
+
+        const chatframe = (this.chatframe || (this.$ && this.$.chatframe)) as HTMLIFrameElement | undefined;
+
+        if (chatframe instanceof HTMLIFrameElement) {
+          if (!chatframe.contentDocument) {
+            await Promise.resolve();
+            if (chatFrameTokens.get(this) !== nextToken) return;
+          }
+
+          const isBlank = !this.data || Boolean(this.collapsed);
+          let activeObserver: IntersectionObserver | null = null;
+
+          try {
+            const timeoutPromise = new Promise<boolean>((resolve) =>
+              setTimeout(() => resolve(false), PAGE_CONSTANTS.TIMEOUTS.CHAT_FRAME_READY_MS)
+            );
+            const intersectionPromise = new Promise<boolean>((resolve) => {
+              activeObserver = new IntersectionObserver((entries) => {
+                for (let i = 0; i < entries.length; i++) {
+                  const rect = entries[i].boundingClientRect;
+                  if (isBlank || (rect.width > 0 && rect.height > 0)) {
+                    resolve(true);
+                    break;
+                  }
+                }
+              });
+              activeObserver.observe(chatframe);
+            });
+
+            await Promise.race([timeoutPromise, intersectionPromise]);
+          } finally {
+            if (activeObserver) {
+              (activeObserver as IntersectionObserver).disconnect();
+            }
+          }
+
+          if (chatFrameTokens.get(this) !== nextToken) return;
+        }
+        rawMethod.apply(this);
       };
     });
 
