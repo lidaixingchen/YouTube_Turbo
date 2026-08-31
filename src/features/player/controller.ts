@@ -1,6 +1,17 @@
-import { YouTubeDOMAdapter } from "../../core/dom-adapter";
+import { YouTubeDOMAdapter, commonUtil } from "../../core/dom-adapter";
 import { StorageUtil } from "../../core/storage";
 import { PlaybackHUD } from "../../core/hud";
+import {
+  DEFAULT_PLAYBACK_SPEED,
+  DEFAULT_SCREENSHOT_FORMAT,
+  DEFAULT_SCREENSHOT_QUALITY,
+  PLAYBACK_RATE_EPSILON,
+  SCREENSHOT_OBJECT_URL_REVOKE_DELAY_MS,
+  SECONDS_PER_HOUR,
+  SECONDS_PER_MINUTE,
+  VIDEO_RETRY_INTERVAL_MS,
+  VIDEO_RETRY_MAX_TIMEOUT_MS
+} from "../../core/constants";
 
 export interface PlayerState {
   speed: number;
@@ -16,13 +27,16 @@ export interface ScreenshotOptions {
 }
 
 export const PlayerController = (() => {
-  let targetSpeed = 1;
-  let targetLoop = false;
+  let targetSpeed: number = DEFAULT_PLAYBACK_SPEED;
+  let targetLoop: boolean = false;
   const readyCallbacks = new Set<(state: PlayerState) => void>();
   const stateCallbacks = new Set<(state: PlayerState) => void>();
   let boundVideo: HTMLVideoElement | null = null;
   let observer: MutationObserver | null = null;
-  let isInitialized = false;
+  let observedContainer: HTMLElement | null = null;
+  let isInitialized: boolean = false;
+  let navigationToken: number = 0;
+  let navigateHandler: (() => void) | null = null;
 
   const getState = (): PlayerState => ({
     speed: targetSpeed,
@@ -35,21 +49,40 @@ export const PlayerController = (() => {
   const notifyStateChange = (): void => {
     const state = getState();
     stateCallbacks.forEach((cb) => {
-      try { cb(state); } catch (e) { console.error(e); }
+      try {
+        cb(state);
+      } catch (e) {
+        console.error("[PlayerController] stateCallback error:", e);
+      }
     });
   };
 
   const notifyReady = (): void => {
     const state = getState();
     readyCallbacks.forEach((cb) => {
-      try { cb(state); } catch (e) { console.error(e); }
+      try {
+        cb(state);
+      } catch (e) {
+        console.error("[PlayerController] readyCallback error:", e);
+      }
     });
   };
 
+  const applyPlaybackSettings = (video: HTMLVideoElement): void => {
+    if (Math.abs(video.playbackRate - targetSpeed) > PLAYBACK_RATE_EPSILON) {
+      video.playbackRate = targetSpeed;
+    }
+    if (targetLoop) {
+      video.setAttribute("loop", "true");
+    } else {
+      video.removeAttribute("loop");
+    }
+  };
+
   const handleRateChange = (): void => {
-    const video = YouTubeDOMAdapter.getVideoElement();
+    const video = boundVideo || YouTubeDOMAdapter.getVideoElement();
     if (!video) return;
-    if (Math.abs(video.playbackRate - targetSpeed) > 0.01) {
+    if (Math.abs(video.playbackRate - targetSpeed) > PLAYBACK_RATE_EPSILON) {
       video.playbackRate = targetSpeed;
     }
     notifyStateChange();
@@ -57,7 +90,7 @@ export const PlayerController = (() => {
 
   const handleEnded = (): void => {
     if (targetLoop) {
-      const video = YouTubeDOMAdapter.getVideoElement();
+      const video = boundVideo || YouTubeDOMAdapter.getVideoElement();
       if (video) {
         video.currentTime = 0;
         video.play().catch(() => {});
@@ -66,20 +99,18 @@ export const PlayerController = (() => {
   };
 
   const handleLoadedMetadata = (): void => {
-    const video = YouTubeDOMAdapter.getVideoElement();
+    const video = boundVideo || YouTubeDOMAdapter.getVideoElement();
     if (!video) return;
-    video.playbackRate = targetSpeed;
-    if (targetLoop) {
-      video.setAttribute("loop", "true");
-    } else {
-      video.removeAttribute("loop");
-    }
+    applyPlaybackSettings(video);
     notifyStateChange();
     notifyReady();
   };
 
   const bindVideoListeners = (video: HTMLVideoElement | null): void => {
-    if (boundVideo === video) return;
+    if (boundVideo === video && video !== null) {
+      applyPlaybackSettings(video);
+      return;
+    }
     if (boundVideo) {
       boundVideo.removeEventListener("ratechange", handleRateChange);
       boundVideo.removeEventListener("ended", handleEnded);
@@ -92,53 +123,92 @@ export const PlayerController = (() => {
       video.addEventListener("ended", handleEnded);
       video.addEventListener("loadedmetadata", handleLoadedMetadata);
       video.addEventListener("play", handleLoadedMetadata);
-      video.playbackRate = targetSpeed;
-      if (targetLoop) {
-        video.setAttribute("loop", "true");
-      }
+      applyPlaybackSettings(video);
       notifyReady();
       notifyStateChange();
     }
   };
 
   const setupObserver = (): void => {
-    if (observer) return;
+    const container =
+      YouTubeDOMAdapter.getPlayerContainer() ||
+      document.querySelector<HTMLElement>("ytd-player, #player, #player-container, #player-container-outer");
+    if (!container) return;
+    if (observedContainer === container && observer) return;
+
+    if (observer) {
+      observer.disconnect();
+    }
+    observedContainer = container;
     observer = new MutationObserver(() => {
       const video = YouTubeDOMAdapter.getVideoElement();
       if (video && video !== boundVideo) {
         bindVideoListeners(video);
       }
     });
-    observer.observe(document.documentElement || document.body, {
+    observer.observe(container, {
       childList: true,
       subtree: true
     });
+  };
+
+  const syncVideoOnNavigate = async (): Promise<void> => {
+    const currentToken = ++navigationToken;
+    const directVideo = YouTubeDOMAdapter.getVideoElement();
+    if (directVideo) {
+      bindVideoListeners(directVideo);
+      setupObserver();
+      return;
+    }
+
+    const video = await commonUtil.waitForElementByInterval<HTMLVideoElement>(
+      "#movie_player video, video.video-stream, video",
+      document.body,
+      true,
+      VIDEO_RETRY_INTERVAL_MS,
+      VIDEO_RETRY_MAX_TIMEOUT_MS
+    );
+
+    if (currentToken !== navigationToken) {
+      return;
+    }
+
+    if (video) {
+      bindVideoListeners(video);
+      setupObserver();
+    }
   };
 
   return {
     init(): void {
       if (isInitialized) return;
       isInitialized = true;
-      const savedSpeed = StorageUtil.getValue(StorageUtil.keys.youtube.videoPlaySpeed, 1);
-      targetSpeed = typeof savedSpeed === "number" ? savedSpeed : parseFloat(String(savedSpeed)) || 1;
-      targetLoop = !!StorageUtil.getValue(StorageUtil.keys.youtube.videoLoop, false);
-      setupObserver();
-      const video = YouTubeDOMAdapter.getVideoElement();
-      if (video) {
-        bindVideoListeners(video);
-      }
-      window.addEventListener("yt-navigate-finish", () => {
-        const v = YouTubeDOMAdapter.getVideoElement();
-        if (v) {
-          bindVideoListeners(v);
-        }
+      const savedSpeed = StorageUtil.getValue(StorageUtil.keys.youtube.videoPlaySpeed, DEFAULT_PLAYBACK_SPEED);
+      targetSpeed = typeof savedSpeed === "number" ? savedSpeed : parseFloat(String(savedSpeed)) || DEFAULT_PLAYBACK_SPEED;
+      targetLoop = Boolean(StorageUtil.getValue(StorageUtil.keys.youtube.videoLoop, false));
+
+      syncVideoOnNavigate().catch((err: unknown) => {
+        console.error("[PlayerController] Initial video sync error:", err);
       });
+
+      if (!navigateHandler) {
+        navigateHandler = () => {
+          syncVideoOnNavigate().catch((err: unknown) => {
+            console.error("[PlayerController] Navigation sync error:", err);
+          });
+        };
+        window.addEventListener("yt-navigate-finish", navigateHandler);
+      }
     },
 
     onReady(callback: (state: PlayerState) => void): () => void {
       readyCallbacks.add(callback);
       if (YouTubeDOMAdapter.getVideoElement()) {
-        try { callback(getState()); } catch (e) { console.error(e); }
+        try {
+          callback(getState());
+        } catch (e) {
+          console.error("[PlayerController] onReady callback error:", e);
+        }
       }
       return () => readyCallbacks.delete(callback);
     },
@@ -151,7 +221,7 @@ export const PlayerController = (() => {
     setSpeed(rate: number, showToast: boolean = true): void {
       targetSpeed = rate;
       StorageUtil.setValue(StorageUtil.keys.youtube.videoPlaySpeed, rate);
-      const video = YouTubeDOMAdapter.getVideoElement();
+      const video = boundVideo || YouTubeDOMAdapter.getVideoElement();
       if (video) {
         video.playbackRate = rate;
       }
@@ -189,8 +259,8 @@ export const PlayerController = (() => {
           notifyStateChange();
           return true;
         }
-      } catch (err) {
-        console.warn("PiP toggle error:", err);
+      } catch (err: unknown) {
+        console.warn("[PlayerController] PiP toggle error:", err);
         return false;
       }
     },
@@ -202,14 +272,23 @@ export const PlayerController = (() => {
           return resolve(null);
         }
         try {
-          const format = options.format || "image/png";
-          const quality = options.quality ?? 0.95;
+          const format = options.format || DEFAULT_SCREENSHOT_FORMAT;
+          const quality = options.quality ?? DEFAULT_SCREENSHOT_QUALITY;
           const extension = format.split("/")[1] || "png";
           const title = YouTubeDOMAdapter.getVideoTitle();
           const currentTime = YouTubeDOMAdapter.getCurrentTime();
-          const minutes = Math.floor(currentTime / 60);
-          const seconds = Math.floor(currentTime % 60);
-          const timeStr = `${String(minutes).padStart(2, "0")}-${String(seconds).padStart(2, "0")}`;
+
+          const totalSeconds = Math.floor(currentTime);
+          const hours = Math.floor(totalSeconds / SECONDS_PER_HOUR);
+          const minutes = Math.floor((totalSeconds % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
+          const seconds = totalSeconds % SECONDS_PER_MINUTE;
+
+          const paddedMinutes = String(minutes).padStart(2, "0");
+          const paddedSeconds = String(seconds).padStart(2, "0");
+          const timeStr = hours > 0
+            ? `${String(hours).padStart(2, "0")}-${paddedMinutes}-${paddedSeconds}`
+            : `${paddedMinutes}-${paddedSeconds}`;
+
           const filename = `${title} ${timeStr} screenshot.${extension}`;
 
           const { width, height } = YouTubeDOMAdapter.getVideoResolution();
@@ -220,7 +299,7 @@ export const PlayerController = (() => {
           if (!ctx) return resolve(null);
           ctx.drawImage(video, 0, 0, width, height);
 
-          canvas.toBlob((blob) => {
+          canvas.toBlob((blob: Blob | null) => {
             if (!blob) return resolve(null);
             const objectUrl = URL.createObjectURL(blob);
             const downloadLink = document.createElement("a");
@@ -229,11 +308,11 @@ export const PlayerController = (() => {
             downloadLink.click();
             setTimeout(() => {
               URL.revokeObjectURL(objectUrl);
-            }, 1000);
+            }, SCREENSHOT_OBJECT_URL_REVOKE_DELAY_MS);
             resolve(blob);
           }, format, quality);
-        } catch (err) {
-          console.error("Screenshot failed:", err);
+        } catch (err: unknown) {
+          console.error("[PlayerController] Screenshot failed:", err);
           reject(err);
         }
       });
@@ -246,9 +325,15 @@ export const PlayerController = (() => {
     getState,
 
     destroy(): void {
+      navigationToken++;
       if (observer) {
         observer.disconnect();
         observer = null;
+      }
+      observedContainer = null;
+      if (navigateHandler) {
+        window.removeEventListener("yt-navigate-finish", navigateHandler);
+        navigateHandler = null;
       }
       if (boundVideo) {
         boundVideo.removeEventListener("ratechange", handleRateChange);
