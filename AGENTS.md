@@ -6,7 +6,7 @@
 
 ## 1. 项目概览
 
-- **核心产物**：`dist/youtube-improvements.user.js`
+- **核心产物**：`dist/youtube-turbo.user.js`
 - **运行环境**：Tampermonkey / Violentmonkey 等主流油猴脚本管理器（在 `*://*.youtube.com/**` 上 `document-start` 阶段注入运行）
 - **核心能力**：
   - 视频详情页 Tabview 标签页布局重构（评论区、推荐列表、简介分栏）
@@ -37,17 +37,17 @@ YouTube_Improvements/
 │   │   └── virtual.d.ts         # 虚拟模块类型声明
 │   ├── core/                    # 底层基础设施与核心引擎
 │   │   ├── bridge.ts            # 沙箱（Sandbox）与主页面（Page）跨上下文事件桥梁
-│   │   ├── constants.ts         # 全局通用常量（事件名、策略名、轮询阈值等）
+│   │   ├── constants.ts         # 全局通用常量（事件名、策略名、轮询阈值、时间/分辨率换算等）
 │   │   ├── dom-adapter.ts       # DOM 操作与 YouTube 原生播放器/页面适配器
 │   │   ├── hud.ts               # 屏幕平视提示浮层（HUD）动画与生命周期
-│   │   ├── shortcuts.ts         # 全局快捷键调度器（支持输入上下文防冲突过滤）
+│   │   ├── shortcuts.ts         # 全局快捷键调度器（支持输入上下文防冲突过滤与精确修饰键匹配）
 │   │   ├── storage.ts           # GM 存储封装与 StorageKey 统一命名空间
 │   │   ├── style-engine.ts      # 动态样式注入与安全卸载引擎（单例管理）
 │   │   └── trusted-types.ts     # YouTube Trusted Types (TTP) 隔离策略
 │   ├── features/                # 业务特性模块（高内聚、支持独立生命周期）
 │   │   ├── adblock/             # 广告/推广元素视觉标记
 │   │   ├── grid/                # 首页与订阅页响应式 4 列网格自适应
-│   │   ├── player/              # 播放器控制、调速面板与无损截图
+│   │   ├── player/              # 播放器控制、调速面板与高保真截图
 │   │   ├── tabview/             # 详情页多 Tab 结构重构（Sub-bundle 注入主页面）
 │   │   │   ├── index.ts         # 沙箱端挂载入口与 Bridge 调度
 │   │   │   ├── constants.ts     # 模块常量与通信事件标识
@@ -59,11 +59,11 @@ YouTube_Improvements/
 │   │   │       ├── types.ts             # 页面端内部类型契约
 │   │   │       ├── coordinator.ts       # NavigationCoordinator (SPA 路由与生命周期调度)
 │   │   │       ├── observer-registry.ts # ObserverRegistry (统管 Mutation/Resize/Intersection 观察者总线)
-│   │   │       ├── polymer-patcher.ts   # PolymerPatcher (Custom Elements 原型拦截沙盒)
+│   │   │       ├── polymer-patcher.ts   # PolymerPatcher (Custom Elements 原型拦截沙盒与位置保护)
 │   │   │       ├── polymer-helper.ts    # PolymerHelper (元素反射与安全查询)
-│   │   │       ├── relocator.ts         # DOMRelocator (Slot 声明式迁移与占位复原)
+│   │   │       ├── relocator.ts         # DOMRelocator (Slot 声明式迁移、占位复原与 Linked Comment 重排)
 │   │   │       ├── tabs-view.ts         # TabsView (Tab 头部渲染、字号缩放与徽标)
-│   │   │       ├── expander-fixer.ts    # ExpanderFixer (展开器排版与评论计数同步)
+│   │   │       ├── expander-fixer.ts    # ExpanderFixer (展开器原型计算与评论计数同步)
 │   │   │       └── bridge-adapter.ts    # PageBridgeAdapter (页面端跨上下文事件对接)
 │   │   └── theme/               # 深浅色主题切换与彩虹进度条
 │   ├── registry/                # 特性生命周期注册与配置中心
@@ -87,26 +87,36 @@ YouTube_Improvements/
 
 ## 3. 核心机制与关键路径
 
-### 3.1 跨上下文通信机制 (`src/core/bridge.ts`)
-部分业务（如 `src/features/tabview`）需要深度介入主页面 Polymer/Custom Elements 内部状态，代码通过注入 `<script>` 进入主页面上下文执行。主页面与油猴沙箱上下文通过 `CustomEvent`（`RuntimeBridge`）进行强类型消息传递，保证权限隔离与数据安全。
+### 3.1 跨上下文通信与 Polymer 原型拦截机制 (`src/features/tabview/page/polymer-patcher.ts`)
+- **跨上下文隔离**：部分业务（如 `src/features/tabview`）需深度介入主页面 Polymer / Custom Elements 内部状态，通过注入 `<script>` 进入主页面上下文执行。主页面与油猴沙箱通过 `CustomEvent`（`RuntimeBridge`）进行类型安全的消息传递。
+- **Custom Elements 原型拦截**：`PolymerPatcher` 统一在 `customElements.whenDefined` 阶段拦截 10 个核心组件（`ytd-watch-flexy`、`ytd-expander`、`ytd-watch-next-secondary-results-renderer`、`ytd-comments`、`ytd-comments-header-renderer`、`ytd-live-chat-frame`、`ytd-engagement-panel-section-list-renderer`、`ytd-watch-metadata`、`ytd-playlist-panel-renderer`、`ytd-expandable-video-description-body-renderer`）。
+- **位置保护上下文 (`runInProtectedContext`)**：在 `ytd-watch-flexy` 执行位置同步方法（`updateChatLocation`、`updatePlayerLocation`、`updateCinematicsLocation`、`updatePanelsLocation`、`swatcherooUpdatePanelsLocation` 等）时，临时切换 `#secondary-inner` ID 映射，保证在剧院模式、全屏模式或侧边栏重排时官方 Polymer 计算不塌陷。
 
-### 3.2 特性注册与生命周期管理 (`src/registry/`)
-所有业务特性统一通过 `FeatureDescriptor` 描述符规范实现标准化接入：
-- **`setup()` / `teardown()`**：必须成对支持启动与销毁逻辑，确保用户在设置面板（Settings Modal）中切换开关时可即时热生效，或通过 `requiresReload` 标记强制触发刷新。
-- **配置持久化**：特性启用状态统一保存在 `StorageKeys.youtube.functionState` 中，由 `FeatureRegistry` 统一调度。
+### 3.2 观察者总线与响应式联动 (`src/features/tabview/page/observer-registry.ts`)
+- `ObserverRegistry` 单例统管 6 大专用观察者：
+  - `aoChat`：监听聊天室 `collapsed` 属性变动，动态设置/移除 flexy 上的 `tyt-chat-collapsed` 和 `tyt-chat` 标识；
+  - `aoPlayList`：监听播放列表 `hidden` / `collapsed` 状态，自适应同步高度与折叠表现；
+  - `aoEgmPanels`：监听互动面板（Engagement Panels）的展开/收起适配与 `visibility`；
+  - `aoComment` & `ioComment`：监听评论区显示状态及视口交错计算；
+  - `roRightTabs`：监听 Tab 容器宽度变化，自适应触发字号与排版重绘。
 
-### 3.3 YouTube SPA 页面导航与 DOM 适配
-YouTube 属于重度 Single Page Application (SPA)，页面跳转基于 `yt-navigate-finish` 自定义事件。
-- 涉及播放器或工具栏挂载的代码需在主入口或模块内部同时监听 `yt-navigate-finish` 与 `commonUtil.onPageLoad`。
-- 视频元素获取与监听使用 `PlayerController` 内置的 `MutationObserver` 机制，自动处理播放器节点重建与无缝重绑定。
+### 3.3 展开器与数据驱动计算 (`src/features/tabview/page/expander-fixer.ts`)
+- 基于 Polymer 原型拦截 `calculateCanCollapse`（`funcCanCollapse`），在渲染管线中动态计算 `content.offsetHeight < content.scrollHeight`。
+- 保留原生 DOM 结构、数据绑定与事件通道，确保展开/收起按钮、时间戳跳转与富文本链接原生可用。
 
-### 3.4 样式注入规范 (`src/core/style-engine.ts`)
+### 3.4 播放器控制与 SPA 导航生命周期 (`src/features/player/controller.ts`)
+- **局部容器监听**：`MutationObserver` 仅在播放器局部容器挂载监听，避免全树扫描造成的性能开销。
+- **SPA 异步轮询与防竞态**：在 `yt-navigate-finish` 与初始化阶段通过异步轮询等待 `<video>` 节点就绪，结合 `navigationToken` 防竞态保护，确保页面路由切换后目标播放速率（Target Speed）与单曲循环状态精准还原。
+- **高保真截图**：锁定 `video.videoWidth` 与 `video.videoHeight` 真实物理分辨率，时间戳自动支持 `HH-MM-SS` 与 `MM-SS` 格式化。
+
+### 3.5 快捷键调度系统 (`src/core/shortcuts.ts`)
+- 所有全局键盘监听统一由 `ShortcutDispatcher` 调度。
+- 严格进行修饰键（`shiftKey`、`ctrlKey`、`altKey`、`metaKey`）布尔精确匹配，防止单键与组合键冲突。
+- 内置 `isTypingContext` 防御机制，在用户聚焦在输入区域（`input`、`textarea`、`contenteditable`、`tp-yt-paper-*`、`ytd-searchbox`）时自动抑制快捷键。
+
+### 3.6 样式注入规范 (`src/core/style-engine.ts`)
 - 严禁直接使用原生 `document.head.appendChild` 散落创建 `<style>`。
 - 必须使用 `StyleEngine.inject(id, cssText)` 和 `StyleEngine.remove(id)` 进行管理，确保特性禁用（teardown）时能精准清理样式，避免样式污染。
-
-### 3.5 快捷键处理 (`src/core/shortcuts.ts`)
-- 所有全局键盘监听统一由 `ShortcutDispatcher` 调度。
-- 调度器内置 `isTypingContext` 防御机制，在用户聚焦在 `input`、`textarea`、`contenteditable`、`tp-yt-paper-*`、`ytd-searchbox` 等输入区域时自动抑制快捷键触发。
 
 ---
 
@@ -130,7 +140,7 @@ pnpm run dev
 ```
 
 ### 4.2 构建产物验证
-构建完成后，确认 `dist/youtube-improvements.user.js` 生成正常。在浏览器油猴插件中加载该文件，检查在 YouTube 页面上的各功能表现。
+构建完成后，确认 `dist/youtube-turbo.user.js` 生成正常。在浏览器油猴插件中加载该文件，检查在 YouTube 页面上的各功能表现。
 
 ---
 
@@ -140,9 +150,9 @@ pnpm run dev
    - 必须显式声明所有变量、函数入参及返回值类型，禁止使用隐式 `any`。
    - 接口与公共契约定义放置于 `src/types/` 或对应模块的类型文件中。
 2. **禁止魔法数字与硬编码**：
-   - 尺寸、超时时间、存储键名、选择器常量统一收敛至对应模块的 `constants.ts`（如 `src/core/constants.ts`、`src/ui/toolbar/constants.ts`、`src/features/grid/constants.ts`）。
+   - 尺寸、超时时间、存储键名、选择器常量统一收敛至对应模块的 `constants.ts`（如 `src/core/constants.ts`、`src/ui/toolbar/constants.ts`、`src/features/tabview/page/constants.ts`、`src/features/grid/constants.ts`）。
 3. **国际化与多语言**：
-   - 凡涉及用户界面展示的文案，均需在 `src/i18n/locales.ts` 中补充词条，并通过 `Locale.t()` 或 `LangueUtil.getLanguage()` 读取。
+   - 凡涉及用户界面展示的文案，均需在 `src/i18n/locales.ts` 中补充词条，并通过 `Locale.t()` 读取。
 4. **终态无痕原则**：
    - 提交的代码与注释仅保留当前业务逻辑与关键边界说明，禁止在代码内部记录历史版本演进、修复记录或讨论过程。
 5. **Git 提交信息**：
