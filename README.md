@@ -1,6 +1,6 @@
-# YouTube Improvements – Layout & Video Enhancer
+# YouTube Turbo – 效率与视觉增强全家桶
 
-YouTube 体验增强油猴脚本（Userscript），基于 **Vite + TypeScript + vite-plugin-monkey** 现代工程化架构构建。
+全能型 YouTube 体验增强油猴脚本（Userscript），基于 **Vite + TypeScript + vite-plugin-monkey** 现代工程化架构构建。
 
 ## 功能特性
 
@@ -38,7 +38,7 @@ pnpm run check
 pnpm run build
 ```
 
-打包产物将输出至 `dist/youtube-improvements.user.js`。
+打包产物将输出至 `dist/youtube-turbo.user.js`。
 
 ## 致谢 (Acknowledgements)
 

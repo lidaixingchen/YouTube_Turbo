@@ -1,4 +1,4 @@
-# YouTube Improvements – 开发者与 Agent 指南
+# YouTube Turbo – 开发者与 Agent 指南
 
 本项目是一个专为 YouTube 桌面端量身定制的用户脚本（Userscript），基于 **Vite 6 + TypeScript 5 + vite-plugin-monkey** 工程化体系构建。本文档旨在为协同开发的 Agent 及开发者提供高密度、权威的代码库架构索引与协作规范。
 
@@ -6,7 +6,7 @@
 
 ## 1. 项目概览
 
-- **核心产物**：`dist/youtube-improvements.user.js`
+- **核心产物**：`dist/youtube-turbo.user.js`
 - **运行环境**：Tampermonkey / Violentmonkey 等主流油猴脚本管理器（在 `*://*.youtube.com/**` 上 `document-start` 阶段注入运行）
 - **核心能力**：
   - 视频详情页 Tabview 标签页布局重构（评论区、推荐列表、简介分栏）
@@ -60,7 +60,8 @@ YouTube_Improvements/
 │       └── locales.ts           # 30+ 种语言字典定义与文本方向（LTR/RTL）
 ├── package.json                 # 依赖声明与脚本命令
 ├── tsconfig.json                # 严格模式 TypeScript 编译配置
-└── vite.config.ts               # Vite + vite-plugin-monkey 构建配置
+├── vite.config.ts               # Vite + vite-plugin-monkey 构建配置
+└── tampermonkey.original.user.js # 原始单文件脚本（作为历史对照与特性对齐的基准源码）
 ```
 
 ---

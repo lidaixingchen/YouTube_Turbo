@@ -10,7 +10,7 @@ export default defineConfig({
       entry: "src/main.ts",
       userscript: userscriptMetadata,
       build: {
-        fileName: "youtube-improvements.user.js"
+        fileName: "youtube-turbo.user.js"
       }
     })
   ]
