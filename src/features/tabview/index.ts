@@ -1,16 +1,18 @@
 import tabviewCss from "./tabview.css?raw";
-import executionScriptRaw from "./execution.js?raw";
+import pageBundleCode from "virtual:tabview-page-bundle";
 import { TABVIEW_CONSTANTS } from "./constants";
 import { Locale } from "../../i18n";
-import { RuntimeBridge } from "../../core/bridge";
+import { RuntimeBridge, type BridgeInstance } from "../../core/bridge";
 import { StyleEngine } from "../../core/style-engine";
+
+let sandboxBridge: BridgeInstance | null = null;
 
 export const Tabview = {
   async setup(): Promise<void> {
     if (!/youtube\.com/.test(window.location.host)) {
       return;
     }
-    const communicationKey = "ck-" + Date.now() + "-" + Math.floor(Math.random() * 314159265359 + 314159265359).toString(36);
+    const communicationKey = `ck-${Date.now()}-${Math.floor(Math.random() * 1e12).toString(36)}`;
 
     if (!document.documentElement) {
       while (!document.documentElement) {
@@ -19,10 +21,10 @@ export const Tabview = {
     }
 
     const activeLocaleData = Locale.exportActiveSnapshot();
-    const sandboxBridge = RuntimeBridge.create(communicationKey, "sandbox");
+    sandboxBridge = RuntimeBridge.create(communicationKey, "sandbox");
     window.__YTI_SANDBOX_BRIDGE__ = sandboxBridge;
 
-    const scriptToRun = `(${executionScriptRaw})("${communicationKey}", ${JSON.stringify(activeLocaleData)});\n\n//# sourceURL=${TABVIEW_CONSTANTS.SOURCE_URL_SCRIPT}\n`;
+    const scriptToRun = `(function(){\n${pageBundleCode}\nif (typeof window.__YTI_TABVIEW_MAIN__ === "function") {\n  window.__YTI_TABVIEW_MAIN__("${communicationKey}", ${JSON.stringify(activeLocaleData)});\n}\n})();\n\n//# sourceURL=${TABVIEW_CONSTANTS.SOURCE_URL_SCRIPT}\n`;
 
     if (typeof GM_addElement === "function") {
       GM_addElement(document.head || document.documentElement, "script", { textContent: scriptToRun });
@@ -33,10 +35,14 @@ export const Tabview = {
     }
 
     const styledCSS = tabviewCss.trim() + "\n\n/*# sourceURL=" + TABVIEW_CONSTANTS.SOURCE_URL_CSS + " */\n";
-    StyleEngine.inject("tabview-main", styledCSS);
+    StyleEngine.inject(TABVIEW_CONSTANTS.STYLE_ID_MAIN, styledCSS);
   },
 
   destroy(): void {
-    StyleEngine.remove("tabview-main");
+    if (sandboxBridge) {
+      sandboxBridge.emit(TABVIEW_CONSTANTS.BRIDGE_MSG_TEARDOWN, {});
+      sandboxBridge = null;
+    }
+    StyleEngine.remove(TABVIEW_CONSTANTS.STYLE_ID_MAIN);
   }
 };

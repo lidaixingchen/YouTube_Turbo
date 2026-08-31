@@ -3,3 +3,8 @@ dist/
 .DS_Store
 *.local
 .gemini/
+
+# Legacy single files
+tampermonkey.js
+tampermonkey - 备份.js
+legacy/

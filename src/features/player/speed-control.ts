@@ -6,20 +6,36 @@ import { HUD_CONSTANTS, PlaybackHUD } from "../../core/hud";
 
 export const SpeedControl = {
   shortcutCleanups: [] as (() => void)[],
+  stateUnbind: null as (() => void) | null,
+  navigateHandler: null as (() => void) | null,
 
-  run(): Promise<void> {
+  run(): void {
     if (!/youtube\.com/.test(window.location.host)) {
-      return Promise.resolve();
+      return;
     }
-    return new Promise<void>((resolve) => {
-      PlayerController.init();
-      this.insertStyle();
-      this.bindShortcuts();
-      commonUtil.onPageLoad(async () => {
-        await this.genrate();
-        resolve();
+    PlayerController.init();
+    this.insertStyle();
+    this.bindShortcuts();
+
+    if (!this.stateUnbind) {
+      this.stateUnbind = PlayerController.onStateChange((state) => {
+        const btn = document.querySelector<HTMLElement>(".SpeedControl_Extension_Btn_X span");
+        if (btn) {
+          btn.textContent = `${state.speed}×`;
+        }
       });
+    }
+
+    commonUtil.onPageLoad(() => {
+      this.genrate();
     });
+
+    if (!this.navigateHandler) {
+      this.navigateHandler = () => {
+        this.genrate();
+      };
+      window.addEventListener("yt-navigate-finish", this.navigateHandler);
+    }
   },
 
   bindShortcuts(): void {
@@ -127,31 +143,37 @@ export const SpeedControl = {
   },
 
   async genrate(): Promise<void> {
-    const speedControlBtn = document.createElement("div");
-    speedControlBtn.className = "ytp-button SpeedControl_Extension_Btn_X";
-    const speedText = document.createElement("span");
-    speedText.textContent = `${PlayerController.getSpeed()}×`;
-    speedControlBtn.appendChild(speedText);
+    const existingBtn = document.querySelector(".SpeedControl_Extension_Btn_X");
+    if (existingBtn) return;
 
-    const player = await commonUtil.waitForElementByInterval<HTMLElement>("#player-container-outer .html5-video-player");
-    if (player) {
-      const rightControls = player.querySelector<HTMLElement>(".ytp-right-controls");
-      const existingBtn = document.querySelector(".SpeedControl_Extension_Btn_X");
-      if (rightControls && !existingBtn) {
-        rightControls.prepend(speedControlBtn);
-        this.genrateOptions(speedControlBtn, player);
-      }
+    const player = await commonUtil.waitForElementByInterval<HTMLElement>(
+      "#movie_player, #player-container-outer .html5-video-player",
+      document.body,
+      true,
+      50,
+      3000
+    );
+    if (!player) return;
+
+    const rightControls = player.querySelector<HTMLElement>(".ytp-right-controls");
+    if (rightControls && !document.querySelector(".SpeedControl_Extension_Btn_X")) {
+      const speedControlBtn = document.createElement("div");
+      speedControlBtn.className = "ytp-button SpeedControl_Extension_Btn_X";
+      const speedText = document.createElement("span");
+      speedText.textContent = `${PlayerController.getSpeed()}×`;
+      speedControlBtn.appendChild(speedText);
+
+      rightControls.prepend(speedControlBtn);
+      this.genrateOptions(speedControlBtn, player);
     }
-
-    PlayerController.onStateChange((state) => {
-      const btn = document.querySelector<HTMLElement>(".SpeedControl_Extension_Btn_X span");
-      if (btn) {
-        btn.textContent = `${state.speed}×`;
-      }
-    });
   },
 
   genrateOptions(button: HTMLElement, player: HTMLElement): void {
+    const existingOptions = document.getElementById("SpeedControl_Extension_Speed-Options");
+    if (existingOptions) {
+      existingOptions.remove();
+    }
+
     const speedOptions = document.createElement("div");
     speedOptions.id = "SpeedControl_Extension_Speed-Options";
     speedOptions.className = "SpeedControl_Extension_Speed-Options";
@@ -211,6 +233,14 @@ export const SpeedControl = {
 
   destroy(): void {
     this.clearShortcuts();
+    if (this.stateUnbind) {
+      this.stateUnbind();
+      this.stateUnbind = null;
+    }
+    if (this.navigateHandler) {
+      window.removeEventListener("yt-navigate-finish", this.navigateHandler);
+      this.navigateHandler = null;
+    }
     StyleEngine.remove("speed-control");
     const btn = document.querySelector(".SpeedControl_Extension_Btn_X");
     if (btn && btn.parentNode) {

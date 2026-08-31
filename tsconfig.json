@@ -21,7 +21,8 @@
     "noFallthroughCasesInSwitch": true,
     "types": [
       "vite/client",
-      "@types/tampermonkey"
+      "@types/tampermonkey",
+      "node"
     ]
   },
   "include": [

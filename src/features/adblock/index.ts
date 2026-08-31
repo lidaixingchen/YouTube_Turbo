@@ -5,22 +5,22 @@ export const MarkOrRemoveAd = {
   markADHTMLElement(): void {
     const cssMarkSelectorArr = [
       "#masthead-ad",
-      "ytd-rich-item-renderer.style-scope.ytd-rich-grid-row #content:has(.ytd-display-ad-renderer)",
       ".video-ads.ytp-ad-module",
-      "tp-yt-paper-dialog:has(yt-mealbar-promo-renderer)",
-      "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-ads\"]",
+      "ytd-ad-slot-renderer",
+      "ad-slot-renderer",
+      "yt-mealbar-promo-renderer",
+      "ytm-companion-ad-renderer",
       "#related #player-ads",
       "#related ytd-ad-slot-renderer",
-      "ytd-ad-slot-renderer",
-      "yt-mealbar-promo-renderer",
-      "ytd-popup-container:has(a[href=\"/premium\"])",
-      "ad-slot-renderer",
-      "ytm-companion-ad-renderer"
+      "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-ads\"]",
+      "ytd-rich-item-renderer:has(.ytd-display-ad-renderer)",
+      "tp-yt-paper-dialog:has(yt-mealbar-promo-renderer)"
     ];
+
     const formattedRules = cssMarkSelectorArr.map(
-      (selector) => `${selector} *{text-decoration:line-through!important;text-decoration-thickness:2px!important;}`
+      (selector) => `${selector} { opacity: 0.4 !important; text-decoration: line-through !important; text-decoration-thickness: 2px !important; }`
     );
-    const cssText = formattedRules.join(" ");
+    const cssText = formattedRules.join("\n");
     StyleEngine.inject("mark-or-remove-ad", cssText);
   },
 

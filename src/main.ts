@@ -7,6 +7,6 @@ import "./core/trusted-types";
     return;
   }
   FeatureRegistry.registerAll(defaultFeatureDescriptors);
-  await Toolbar.init();
+  Toolbar.init();
   await FeatureRegistry.initAll();
 })();

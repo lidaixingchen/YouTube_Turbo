@@ -102,7 +102,10 @@ export class ModalInstance {
 
 export const Modal = {
   injectStyles(): void {
-    StyleEngine.inject(MODAL_CONSTANTS.STYLE_ELEMENT_ID, modalCss);
+    const formattedCss = modalCss
+      .replace("__Z_INDEX_BACKDROP__", String(MODAL_CONSTANTS.Z_INDEX_BACKDROP))
+      .replace("__Z_INDEX_MODAL__", String(MODAL_CONSTANTS.Z_INDEX_MODAL));
+    StyleEngine.inject(MODAL_CONSTANTS.STYLE_ELEMENT_ID, formattedCss);
   },
 
   open(options: ModalOpenOptions): ModalInstance {

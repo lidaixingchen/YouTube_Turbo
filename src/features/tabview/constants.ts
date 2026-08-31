@@ -1,5 +1,16 @@
 export const TABVIEW_CONSTANTS = {
   VAL_ROUNDED_A1: 12,
-  SOURCE_URL_SCRIPT: "debug://tabview-youtube/tabview.execution.js",
-  SOURCE_URL_CSS: "debug://tabview-youtube/tabview.main.css"
+  SOURCE_URL_SCRIPT: "debug://tabview-youtube/tabview.page.js",
+  SOURCE_URL_CSS: "debug://tabview-youtube/tabview.main.css",
+  STYLE_ID_MAIN: "tabview-main",
+  STORAGE_KEY_ACTIVE_TAB: "tabview.activeTab",
+  STORAGE_KEY_FONT_SIZES: "tabview.fontSizes",
+  BRIDGE_MSG_PING: "TABVIEW_PING",
+  BRIDGE_MSG_READY: "TABVIEW_READY",
+  BRIDGE_MSG_TEARDOWN: "TABVIEW_TEARDOWN",
+  BRIDGE_MSG_SET_TAB: "TABVIEW_SET_ACTIVE_TAB",
+  BRIDGE_MSG_TAB_CHANGED: "TABVIEW_TAB_CHANGED",
+  BRIDGE_MSG_SET_FONT_SIZE: "TABVIEW_SET_FONT_SIZE",
+  BRIDGE_MSG_FONT_SIZE_CHANGED: "TABVIEW_FONT_SIZE_UPDATED",
+  BRIDGE_MSG_LOCALE_UPDATED: "TABVIEW_LOCALE_UPDATED"
 } as const;

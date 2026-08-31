@@ -21,10 +21,12 @@ let needsTrustedHTML = false;
     if (typeof window.isSecureContext !== "undefined" && window.isSecureContext) {
       if (window.trustedTypes && typeof window.trustedTypes.createPolicy === "function") {
         needsTrustedHTML = true;
-        if (window.trustedTypes.defaultPolicy) {
+        try {
           TTP = window.trustedTypes.createPolicy(TTP_POLICY_NAME, TTP);
-        } else {
-          TTP = window.trustedTypes.createPolicy("default", TTP);
+        } catch {
+          if (window.trustedTypes.defaultPolicy) {
+            TTP = window.trustedTypes.defaultPolicy;
+          }
         }
       }
     }

@@ -261,42 +261,39 @@ export const Toolbar = (() => {
   };
 
   return {
-    init(): Promise<void> {
-      return new Promise<void>((resolve) => {
-        if (!/youtube\.com/.test(window.location.host)) {
-          return resolve();
-        }
-        if (isInitialized) {
-          this.mount();
-          return resolve();
-        }
-        isInitialized = true;
+    init(): void {
+      if (!/youtube\.com/.test(window.location.host)) {
+        return;
+      }
+      if (isInitialized) {
+        this.mount();
+        return;
+      }
+      isInitialized = true;
 
-        registerDefaultActions();
-        insertStyle();
+      registerDefaultActions();
+      insertStyle();
 
-        if (typeof GM_registerMenuCommand === "function") {
-          GM_registerMenuCommand("Setting", () => {
-            FeatureRegistry.openSettingsModal();
-          });
-        }
-
-        commonUtil.onPageLoad(() => {
-          const theme = StorageUtil.getValue<string | null>(StorageUtil.keys.youtube.theme, null);
-          if (theme) {
-            Theme.setTheme(theme, false);
-          }
-          this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
-          resolve();
+      if (typeof GM_registerMenuCommand === "function") {
+        GM_registerMenuCommand("Setting", () => {
+          FeatureRegistry.openSettingsModal();
         });
+      }
 
-        window.addEventListener("yt-navigate-finish", () => {
-          this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
-          if (FeatureRegistry.isEnabled("isOpenYoutubedownloading")) {
-            this.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
-            this.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
-          }
-        });
+      commonUtil.onPageLoad(() => {
+        const theme = StorageUtil.getValue<string | null>(StorageUtil.keys.youtube.theme, null);
+        if (theme) {
+          Theme.setTheme(theme, false);
+        }
+        this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
+      });
+
+      window.addEventListener("yt-navigate-finish", () => {
+        this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
+        if (FeatureRegistry.isEnabled("isOpenYoutubedownloading")) {
+          this.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
+          this.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
+        }
       });
     },
 

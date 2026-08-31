@@ -10,5 +10,5 @@ export const ToolBox = {
   genrateOuterBox: (): void => Toolbar.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA),
   downloadVideo: (): Promise<void> => Toolbar.downloadCurrentVideo(),
   showSettingDialog: (): void => FeatureRegistry.openSettingsModal(),
-  run: (): Promise<void> => Toolbar.init()
+  run: (): void => Toolbar.init()
 };
