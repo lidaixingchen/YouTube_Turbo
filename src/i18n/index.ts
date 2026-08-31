@@ -92,9 +92,10 @@ export const LangueUtil = {
   getLang(): string {
     return Locale.getShortsLangCode();
   },
-  getLanguage(): { direction: "ltr" | "rtl"; content: Record<string, string> } {
+  getLanguage(): { lang: string; direction: "ltr" | "rtl"; content: Record<string, string> } {
     const snap = Locale.exportActiveSnapshot();
     return {
+      lang: snap.locale,
       direction: snap.direction,
       content: snap.messages
     };

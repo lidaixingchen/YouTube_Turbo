@@ -33,7 +33,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "Loop Playback: Off",
       function_is_subtitle_offset_open: "Enable subtitle timing adjustment (Alt+[ advance, Alt+] delay, Alt+\\ reset).",
       subtitle_offset_label: "Subtitle Offset",
-      subtitle_offset_reset_suffix: "(Reset)"
+      subtitle_offset_reset_suffix: "(Reset)",
+      subtitle_global_offset_title: "Global Baseline Offset",
+      subtitle_global_offset_desc: "All new videos will start with this baseline. Shortcuts Alt+[ / Alt+] adjust the current video temporarily and reset on video change.",
+      subtitle_offset_reset_btn: "Reset 0s",
+      subtitle_offset_unit: "s"
     }
   },
   "zh-CN": {
@@ -65,7 +69,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "单曲循环: 关闭",
       function_is_subtitle_offset_open: "启用字幕时间轴微调与校准（Alt+[ 提前, Alt+] 延后, Alt+\\ 重置）。",
       subtitle_offset_label: "字幕时间轴",
-      subtitle_offset_reset_suffix: "(已重置)"
+      subtitle_offset_reset_suffix: "(已重置)",
+      subtitle_global_offset_title: "全局默认基准偏移",
+      subtitle_global_offset_desc: "新打开的视频将以此基准开始。播放中按 Alt+[ / Alt+] 仅对当前视频临时生效，切视频自动复位。",
+      subtitle_offset_reset_btn: "重置为 0s",
+      subtitle_offset_unit: "秒"
     }
   },
   "zh-TW": {
@@ -97,7 +105,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "循環播放: 關閉",
       function_is_subtitle_offset_open: "啟用字幕時間軸微調與校準（Alt+[ 提前, Alt+] 延後, Alt+\\ 重設）。",
       subtitle_offset_label: "字幕時間軸",
-      subtitle_offset_reset_suffix: "(已重設)"
+      subtitle_offset_reset_suffix: "(已重設)",
+      subtitle_global_offset_title: "全域預設基準偏移",
+      subtitle_global_offset_desc: "新開啟的影片將以此基準開始。播放中按 Alt+[ / Alt+] 僅對當前影片臨時生效，切換影片自動重設。",
+      subtitle_offset_reset_btn: "重設為 0s",
+      subtitle_offset_unit: "秒"
     }
   },
   "ja": {
@@ -129,7 +141,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "ループ再生: オフ",
       function_is_subtitle_offset_open: "字幕タイミング微調整を有効にする（Alt+[ 早める, Alt+] 遅らせる, Alt+\\ リセット）。",
       subtitle_offset_label: "字幕オフセット",
-      subtitle_offset_reset_suffix: "(リセット)"
+      subtitle_offset_reset_suffix: "(リセット)",
+      subtitle_global_offset_title: "グローバル基準オフセット",
+      subtitle_global_offset_desc: "新しく開く動画はこの基準で始まります。再生中にAlt+[ / Alt+]で一時調整でき、動画切替時にリセットされます。",
+      subtitle_offset_reset_btn: "0秒にリセット",
+      subtitle_offset_unit: "秒"
     }
   },
   "ko": {
@@ -161,7 +177,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "반복 재생: 꺼짐",
       function_is_subtitle_offset_open: "자막 싱크 미세 조정 활성화 (Alt+[ 당기기, Alt+] 미루기, Alt+\\ 초기화).",
       subtitle_offset_label: "자막 싱크",
-      subtitle_offset_reset_suffix: "(초기화)"
+      subtitle_offset_reset_suffix: "(초기화)",
+      subtitle_global_offset_title: "전역 기본 싱크 오프셋",
+      subtitle_global_offset_desc: "새 동영상은 이 기준으로 시작됩니다. 재생 중 Alt+[ / Alt+]는 현재 동영상에만 임시 적용되며 변경 시 초기화됩니다.",
+      subtitle_offset_reset_btn: "0초 초기화",
+      subtitle_offset_unit: "초"
     }
   },
   "ru": {
@@ -193,7 +213,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "Повтор: Выкл",
       function_is_subtitle_offset_open: "Включить калибровку тайминга субтитров (Alt+[ вперед, Alt+] назад, Alt+\\ сброс).",
       subtitle_offset_label: "Сдвиг субтитров",
-      subtitle_offset_reset_suffix: "(Сброшено)"
+      subtitle_offset_reset_suffix: "(Сброшено)",
+      subtitle_global_offset_title: "Глобальный базовый сдвиг",
+      subtitle_global_offset_desc: "Новые видео будут начинаться с этого сдвига. Alt+[ / Alt+] временно меняют тайминг текущего видео.",
+      subtitle_offset_reset_btn: "Сброс в 0с",
+      subtitle_offset_unit: "сек"
     }
   },
   "fr": {
@@ -225,7 +249,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "Lecture en boucle: Désactivé",
       function_is_subtitle_offset_open: "Activer le décalage des sous-titres (Alt+[ avancer, Alt+] retarder, Alt+\\ réinitialiser).",
       subtitle_offset_label: "Décalage des sous-titres",
-      subtitle_offset_reset_suffix: "(Réinitialisé)"
+      subtitle_offset_reset_suffix: "(Réinitialisé)",
+      subtitle_global_offset_title: "Décalage de base global",
+      subtitle_global_offset_desc: "Toutes les nouvelles vidéos démarrent avec cette valeur. Alt+[ / Alt+] ajustent temporairement la vidéo active.",
+      subtitle_offset_reset_btn: "Réinitialiser à 0s",
+      subtitle_offset_unit: "s"
     }
   },
   "de": {
@@ -257,7 +285,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "Endlosschleife: Aus",
       function_is_subtitle_offset_open: "Untertitel-Synchronisation aktivieren (Alt+[ vorverlegen, Alt+] verzögern, Alt+\\ zurücksetzen).",
       subtitle_offset_label: "Untertitel-Versatz",
-      subtitle_offset_reset_suffix: "(Zurückgesetzt)"
+      subtitle_offset_reset_suffix: "(Zurückgesetzt)",
+      subtitle_global_offset_title: "Globaler Basisversatz",
+      subtitle_global_offset_desc: "Neue Videos starten mit diesem Versatz. Alt+[ / Alt+] passen nur das aktuelle Video vorübergehend an.",
+      subtitle_offset_reset_btn: "Auf 0s zurücksetzen",
+      subtitle_offset_unit: "Sek"
     }
   },
   "es": {
@@ -289,7 +321,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "Bucle: Desactivado",
       function_is_subtitle_offset_open: "Activar ajuste de sincronización de subtítulos (Alt+[ adelantar, Alt+] retrasar, Alt+\\ restablecer).",
       subtitle_offset_label: "Desfase de subtítulos",
-      subtitle_offset_reset_suffix: "(Restablecido)"
+      subtitle_offset_reset_suffix: "(Restablecido)",
+      subtitle_global_offset_title: "Desfase base global",
+      subtitle_global_offset_desc: "Los nuevos videos iniciarán con esta base. Alt+[ / Alt+] ajustan temporalmente el video actual.",
+      subtitle_offset_reset_btn: "Restablecer a 0s",
+      subtitle_offset_unit: "s"
     }
   },
   "id": {
@@ -321,7 +357,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "Putar Ulang: Nonaktif",
       function_is_subtitle_offset_open: "Aktifkan penyesuaian sinkronisasi subtitle (Alt+[ majukan, Alt+] mundurkan, Alt+\\ reset).",
       subtitle_offset_label: "Offset Subtitle",
-      subtitle_offset_reset_suffix: "(Direset)"
+      subtitle_offset_reset_suffix: "(Direset)",
+      subtitle_global_offset_title: "Offset Dasar Global",
+      subtitle_global_offset_desc: "Semua video baru akan dimulai dengan offset ini. Alt+[ / Alt+] menyesuaikan video saat ini sementara.",
+      subtitle_offset_reset_btn: "Reset ke 0s",
+      subtitle_offset_unit: "dtk"
     }
   },
   "pt": {
@@ -353,7 +393,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "Repetir: Desativado",
       function_is_subtitle_offset_open: "Ativar ajuste de sincronização de legendas (Alt+[ avançar, Alt+] atrasar, Alt+\\ redefinir).",
       subtitle_offset_label: "Deslocamento de Legenda",
-      subtitle_offset_reset_suffix: "(Redefinido)"
+      subtitle_offset_reset_suffix: "(Redefinido)",
+      subtitle_global_offset_title: "Deslocamento Base Global",
+      subtitle_global_offset_desc: "Novos vídeos começarão com essa base. Alt+[ / Alt+] ajustam temporariamente o vídeo atual.",
+      subtitle_offset_reset_btn: "Redefinir para 0s",
+      subtitle_offset_unit: "s"
     }
   },
   "tr": {
@@ -385,7 +429,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "Döngü: Kapalı",
       function_is_subtitle_offset_open: "Altyazı zamanlama ayarını etkinleştir (Alt+[ öne al, Alt+] geciktir, Alt+\\ sıfırla).",
       subtitle_offset_label: "Altyazı Ofseti",
-      subtitle_offset_reset_suffix: "(Sıfırlandı)"
+      subtitle_offset_reset_suffix: "(Sıfırlandı)",
+      subtitle_global_offset_title: "Genel Temel Ofset",
+      subtitle_global_offset_desc: "Yeni videolar bu ofsetle başlar. Alt+[ / Alt+] yalnızca mevcut videoyu geçici olarak ayarlar.",
+      subtitle_offset_reset_btn: "0s Sıfırla",
+      subtitle_offset_unit: "sn"
     }
   },
   "ar": {
@@ -417,7 +465,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       hud_loop_disabled: "تكرار التشغيل: معطل",
       function_is_subtitle_offset_open: "تفعيل تعديل توقيت الترجمة (Alt+[ تقديم, Alt+] تأخير, Alt+\\ إعادة ضبط).",
       subtitle_offset_label: "إزاحة الترجمة",
-      subtitle_offset_reset_suffix: "(تمت إعادة الضبط)"
+      subtitle_offset_reset_suffix: "(تمت إعادة الضبط)",
+      subtitle_global_offset_title: "إزاحة الأساس العامة",
+      subtitle_global_offset_desc: "ستبدأ جميع الفيديوهات الجديدة بهذه الإزاحة. يضبط Alt+[ / Alt+] الفيديو الحالي مؤقتًا.",
+      subtitle_offset_reset_btn: "إعادة ضبط إلى 0 ث",
+      subtitle_offset_unit: "ث"
     }
   }
 };

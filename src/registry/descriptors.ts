@@ -69,6 +69,7 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     defaultValue: true,
     order: 70,
     setup: () => SubtitleOffset.run(),
-    teardown: () => SubtitleOffset.destroy()
+    teardown: () => SubtitleOffset.destroy(),
+    renderExtraConfig: (container, language) => SubtitleOffset.renderSettingsConfig(container, language)
   }
 ];

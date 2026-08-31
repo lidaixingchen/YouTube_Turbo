@@ -6,6 +6,7 @@ export interface FeatureDescriptor {
   requiresReload?: boolean;
   setup: () => void | Promise<void>;
   teardown?: () => void | Promise<void>;
+  renderExtraConfig?: (container: HTMLElement, language: LanguageDefinition) => void;
 }
 
 export interface BridgePacket<T = any> {
@@ -22,7 +23,7 @@ export interface LocaleContent {
 }
 
 export interface LanguageDefinition {
-  lang: string;
+  lang?: string;
   isRTL?: boolean;
   direction?: "rtl" | "ltr";
   content: LocaleContent;

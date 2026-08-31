@@ -10,6 +10,10 @@ export const SubtitleOffset = {
 
   destroy(): void {
     CaptionController.getInstance().destroy();
+  },
+
+  renderSettingsConfig(container: HTMLElement, language: any): void {
+    CaptionController.getInstance().renderSettingsConfig(container, language);
   }
 };
 
