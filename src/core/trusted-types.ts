@@ -1,9 +1,7 @@
-import { TTP_POLICY_NAME } from "./constants";
-
 export interface TrustedTypePolicy {
-  createHTML: (s: string) => string;
-  createScript: (s: string) => string;
-  createScriptURL: (s: string) => string;
+  createHTML: (s: string) => any;
+  createScript: (s: string) => any;
+  createScriptURL: (s: string) => any;
 }
 
 const passThroughFunc = (string: string): string => string;
@@ -18,23 +16,42 @@ let needsTrustedHTML = false;
 
 (() => {
   try {
-    if (typeof window.isSecureContext !== "undefined" && window.isSecureContext) {
-      if (window.trustedTypes && typeof window.trustedTypes.createPolicy === "function") {
-        needsTrustedHTML = true;
+    const w = typeof unsafeWindow !== "undefined" ? (unsafeWindow as unknown as Window) : window;
+    if (w && w.trustedTypes && typeof w.trustedTypes.createPolicy === "function") {
+      needsTrustedHTML = true;
+      if (w.trustedTypes.defaultPolicy === null) {
         try {
-          TTP = window.trustedTypes.createPolicy(TTP_POLICY_NAME, TTP);
+          TTP = w.trustedTypes.createPolicy("default", {
+            createHTML: passThroughFunc,
+            createScript: passThroughFunc,
+            createScriptURL: passThroughFunc
+          });
         } catch {
-          if (window.trustedTypes.defaultPolicy) {
-            TTP = window.trustedTypes.defaultPolicy;
-          }
+          // ignore if already created
         }
+      } else if (w.trustedTypes.defaultPolicy) {
+        TTP = w.trustedTypes.defaultPolicy;
       }
     }
   } catch {
     // Trusted Types policy already exists or blocked
   } finally {
-    window.TTP = TTP;
+    if (typeof window !== "undefined") {
+      (window as any).TTP = TTP;
+    }
   }
 })();
+
+export function createHTML(html: string): any {
+  return TTP.createHTML(html);
+}
+
+export function createScript(script: string): any {
+  return TTP.createScript(script);
+}
+
+export function createScriptURL(url: string): any {
+  return TTP.createScriptURL(url);
+}
 
 export { TTP, needsTrustedHTML };
