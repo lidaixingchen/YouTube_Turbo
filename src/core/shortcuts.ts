@@ -25,7 +25,10 @@ export const ShortcutDispatcher = (() => {
           node.isContentEditable ||
           node.getAttribute("role") === "textbox" ||
           tagName.startsWith("tp-yt-paper-") ||
-          tagName === "ytd-searchbox"
+          tagName === "ytd-searchbox" ||
+          tagName === "ytd-commentbox" ||
+          tagName.startsWith("yt-live-chat-") ||
+          node.hasAttribute("contenteditable")
         );
       });
     }
@@ -36,8 +39,20 @@ export const ShortcutDispatcher = (() => {
         tagName === "input" ||
         tagName === "textarea" ||
         target.isContentEditable ||
-        target.getAttribute("role") === "textbox"
+        target.getAttribute("role") === "textbox" ||
+        target.hasAttribute("contenteditable")
       );
+    }
+    return false;
+  };
+
+  const isKeyMatched = (bindingKey: string, eventKey: string, hasShift: boolean): boolean => {
+    const bKey = bindingKey.toLowerCase();
+    const eKey = eventKey.toLowerCase();
+    if (bKey === eKey) return true;
+    if (hasShift) {
+      if ((bKey === ">" || bKey === ".") && (eKey === ">" || eKey === ".")) return true;
+      if ((bKey === "<" || bKey === ",") && (eKey === "<" || eKey === ",")) return true;
     }
     return false;
   };
@@ -48,8 +63,8 @@ export const ShortcutDispatcher = (() => {
     }
 
     for (const binding of bindings) {
-      const matchKey = binding.key.toLowerCase() === event.key.toLowerCase();
       const matchShift = Boolean(binding.shiftKey) === Boolean(event.shiftKey);
+      const matchKey = isKeyMatched(binding.key, event.key, Boolean(event.shiftKey));
       const matchCtrl = Boolean(binding.ctrlKey) === Boolean(event.ctrlKey);
       const matchAlt = Boolean(binding.altKey) === Boolean(event.altKey);
       const matchMeta = Boolean(binding.metaKey) === Boolean(event.metaKey);

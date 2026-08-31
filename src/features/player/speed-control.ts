@@ -2,7 +2,8 @@ import { PlayerController } from "./controller";
 import { ShortcutDispatcher } from "../../core/shortcuts";
 import { StyleEngine } from "../../core/style-engine";
 import { commonUtil } from "../../core/dom-adapter";
-import { HUD_CONSTANTS, PlaybackHUD } from "../../core/hud";
+import { PlaybackHUD } from "../../core/hud";
+import { PLAYBACK_RATE_EPSILON } from "../../core/constants";
 
 export const SpeedControl = {
   shortcutCleanups: [] as (() => void)[],
@@ -23,6 +24,16 @@ export const SpeedControl = {
         if (btn) {
           btn.textContent = `${state.speed}×`;
         }
+
+        const options = document.querySelectorAll<HTMLElement>(".SpeedControl_Extension_Speed-Options > .SpeedControl_Extension_Speed-Option-Item");
+        options.forEach((opt) => {
+          const optSpeed = parseFloat(opt.dataset.speed || "0");
+          if (Math.abs(optSpeed - state.speed) < PLAYBACK_RATE_EPSILON) {
+            opt.classList.add("SpeedControl_Extension_Speed-Option-Item-Active");
+          } else {
+            opt.classList.remove("SpeedControl_Extension_Speed-Option-Item-Active");
+          }
+        });
       });
     }
 
@@ -64,7 +75,50 @@ export const SpeedControl = {
       }
     });
 
-    this.shortcutCleanups.push(unbindSpeedUp, unbindSpeedDown);
+    const unbindResetSpeed = ShortcutDispatcher.register({
+      key: "r",
+      shiftKey: true,
+      description: "Reset playback speed to 1.0x",
+      handler: () => {
+        PlayerController.setSpeed(1.0, true);
+      }
+    });
+
+    const unbindScreenshot = ShortcutDispatcher.register({
+      key: "s",
+      shiftKey: true,
+      description: "Capture screenshot",
+      handler: () => {
+        PlayerController.captureScreenshot();
+      }
+    });
+
+    const unbindPiP = ShortcutDispatcher.register({
+      key: "p",
+      shiftKey: true,
+      description: "Toggle Picture-in-Picture",
+      handler: () => {
+        PlayerController.togglePictureInPicture();
+      }
+    });
+
+    const unbindLoop = ShortcutDispatcher.register({
+      key: "l",
+      shiftKey: true,
+      description: "Toggle Loop playback",
+      handler: () => {
+        PlayerController.toggleLoop();
+      }
+    });
+
+    this.shortcutCleanups.push(
+      unbindSpeedUp,
+      unbindSpeedDown,
+      unbindResetSpeed,
+      unbindScreenshot,
+      unbindPiP,
+      unbindLoop
+    );
   },
 
   clearShortcuts(): void {
@@ -93,27 +147,6 @@ export const SpeedControl = {
       }
     `;
 
-    const speedShowStyle = `
-      #youtube-extension-text-box {
-        position: absolute !important;
-        margin: auto !important;
-        top: 0px !important;
-        right: 0px !important;
-        bottom: 0px !important;
-        left: 0px !important;
-        border-radius: 20px !important;
-        font-size: 30px !important;
-        color: #f3f3f3 !important;
-        z-index: ${HUD_CONSTANTS.Z_INDEX} !important;
-        opacity: ${HUD_CONSTANTS.PEAK_OPACITY} !important;
-        width: 80px !important;
-        height: 80px !important;
-        line-height: 80px !important;
-        text-align: center !important;
-        padding: 0px !important;
-      }
-    `;
-
     const speedOptionsStyle = `
       .SpeedControl_Extension_Speed-Options {
         position: absolute !important;
@@ -139,7 +172,7 @@ export const SpeedControl = {
       }
     `;
 
-    StyleEngine.inject("speed-control", speedBtnStyle + speedShowStyle + speedOptionsStyle);
+    StyleEngine.inject("speed-control", speedBtnStyle + speedOptionsStyle);
   },
 
   async genrate(): Promise<void> {

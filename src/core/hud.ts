@@ -1,7 +1,9 @@
 import { YouTubeDOMAdapter } from "./dom-adapter";
+import { StyleEngine } from "./style-engine";
 
 export const HUD_CONSTANTS = {
   ELEMENT_ID: "youtube-extension-text-box",
+  STYLE_ID: "playback-hud",
   DEFAULT_DURATION_MS: 1200,
   PEAK_OPACITY: 0.8,
   Z_INDEX: 2147483640
@@ -15,8 +17,47 @@ export interface HUDShowOptions {
 export const PlaybackHUD = (() => {
   let activeAnimationId: number | null = null;
   let cachedElement: HTMLElement | null = null;
+  let isStyleInjected = false;
+
+  const ensureStyleInjected = (): void => {
+    if (isStyleInjected) return;
+    const hudStyle = `
+      #${HUD_CONSTANTS.ELEMENT_ID} {
+        position: absolute !important;
+        margin: auto !important;
+        top: 0px !important;
+        right: 0px !important;
+        bottom: 0px !important;
+        left: 0px !important;
+        min-width: 80px !important;
+        width: max-content !important;
+        max-width: 80% !important;
+        min-height: 80px !important;
+        height: auto !important;
+        padding: 0 20px !important;
+        border-radius: 20px !important;
+        font-size: 24px !important;
+        font-weight: bold !important;
+        color: #f3f3f3 !important;
+        background: rgba(0, 0, 0, 0.7) !important;
+        z-index: ${HUD_CONSTANTS.Z_INDEX} !important;
+        opacity: ${HUD_CONSTANTS.PEAK_OPACITY} !important;
+        display: none;
+        box-sizing: border-box !important;
+        text-align: center !important;
+        align-items: center !important;
+        justify-content: center !important;
+        pointer-events: none !important;
+        user-select: none !important;
+        white-space: nowrap !important;
+      }
+    `;
+    StyleEngine.inject(HUD_CONSTANTS.STYLE_ID, hudStyle);
+    isStyleInjected = true;
+  };
 
   const getOrCreateElement = (): HTMLElement | null => {
+    ensureStyleInjected();
     let element = document.getElementById(HUD_CONSTANTS.ELEMENT_ID);
     if (!element) {
       const container = YouTubeDOMAdapter.getPlayerContainer();
@@ -38,7 +79,7 @@ export const PlaybackHUD = (() => {
     if (!element) return;
 
     element.textContent = message;
-    element.style.display = "block";
+    element.style.display = "inline-flex";
     element.style.opacity = String(peakOpacity);
 
     if (activeAnimationId) {
@@ -82,6 +123,8 @@ export const PlaybackHUD = (() => {
       element.parentNode.removeChild(element);
     }
     cachedElement = null;
+    StyleEngine.remove(HUD_CONSTANTS.STYLE_ID);
+    isStyleInjected = false;
   };
 
   return {

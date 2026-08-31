@@ -26,6 +26,11 @@ export interface ScreenshotOptions {
   quality?: number;
 }
 
+export function sanitizeFileName(name: string, fallback = "YouTube_Video"): string {
+  const cleaned = name.replace(/[/\\:*?"<>|]/g, "_").trim();
+  return cleaned.length > 0 ? cleaned : fallback;
+}
+
 export const PlayerController = (() => {
   let targetSpeed: number = DEFAULT_PLAYBACK_SPEED;
   let targetLoop: boolean = false;
@@ -239,6 +244,7 @@ export const PlayerController = (() => {
       targetLoop = typeof forceState === "boolean" ? forceState : !targetLoop;
       StorageUtil.setValue(StorageUtil.keys.youtube.videoLoop, targetLoop);
       YouTubeDOMAdapter.setLoop(targetLoop);
+      PlaybackHUD.show(targetLoop ? "单曲循环: 开启" : "单曲循环: 关闭");
       notifyStateChange();
       return targetLoop;
     },
@@ -252,10 +258,12 @@ export const PlayerController = (() => {
       try {
         if (YouTubeDOMAdapter.isPictureInPictureActive()) {
           await YouTubeDOMAdapter.exitPictureInPicture();
+          PlaybackHUD.show("画中画: 关闭");
           notifyStateChange();
           return false;
         } else {
           await YouTubeDOMAdapter.requestPictureInPicture();
+          PlaybackHUD.show("画中画: 开启");
           notifyStateChange();
           return true;
         }
@@ -275,7 +283,8 @@ export const PlayerController = (() => {
           const format = options.format || DEFAULT_SCREENSHOT_FORMAT;
           const quality = options.quality ?? DEFAULT_SCREENSHOT_QUALITY;
           const extension = format.split("/")[1] || "png";
-          const title = YouTubeDOMAdapter.getVideoTitle();
+          const rawTitle = YouTubeDOMAdapter.getVideoTitle();
+          const title = sanitizeFileName(rawTitle);
           const currentTime = YouTubeDOMAdapter.getCurrentTime();
 
           const totalSeconds = Math.floor(currentTime);
@@ -309,6 +318,7 @@ export const PlayerController = (() => {
             setTimeout(() => {
               URL.revokeObjectURL(objectUrl);
             }, SCREENSHOT_OBJECT_URL_REVOKE_DELAY_MS);
+            PlaybackHUD.show("截图已保存");
             resolve(blob);
           }, format, quality);
         } catch (err: unknown) {
