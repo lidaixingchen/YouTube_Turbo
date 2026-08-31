@@ -81,13 +81,13 @@ export const Toolbar = (() => {
     const actions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
     if (!actions.length) return null;
 
-    const existingBox = document.querySelector("#toolBox_extension_codehemu_x");
+    const existingBox = document.querySelector("#yt_extension_toolbox_root");
     if (existingBox) existingBox.remove();
     const existingContainer = document.querySelector("#toolbox_extension_container");
     if (existingContainer) existingContainer.remove();
 
     const boxContainer = document.createElement("div");
-    boxContainer.id = "toolBox_extension_codehemu_x";
+    boxContainer.id = "yt_extension_toolbox_root";
     boxContainer.className = "ytp-button";
     boxContainer.style.cssText = "display: flex; justify-content: center; align-items: center; cursor: pointer;";
 
@@ -319,7 +319,7 @@ export const Toolbar = (() => {
       if (slot) {
         MountAdapter.unmountSlot(slot);
         if (slot === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS) {
-          document.querySelector("#toolBox_extension_codehemu_x")?.remove();
+          document.querySelector("#yt_extension_toolbox_root")?.remove();
           document.querySelector("#toolbox_extension_container")?.remove();
           if (popoverUnbind) {
             popoverUnbind();
@@ -332,7 +332,7 @@ export const Toolbar = (() => {
         }
       } else {
         MountAdapter.destroy();
-        document.querySelector("#toolBox_extension_codehemu_x")?.remove();
+        document.querySelector("#yt_extension_toolbox_root")?.remove();
         document.querySelector("#toolbox_extension_container")?.remove();
         document.querySelector("#script_download_shorts")?.remove();
         document.querySelector("#script_outer_box")?.remove();

@@ -75,9 +75,9 @@ export const userscriptMetadata: MonkeyUserScript = {
     "ug": "YouTube نى كۆپلىگەن پايدىلىق ئىقتىدارلار بىلەن كۈچەيتىدىغان ئىشلەتكۈچى سكرىپتى، بۇلار: ۋىدىئو تەپسىلات بەتنىڭ ئوپتىماللاشتۇرۇلغان تۈزۈلىشى، ۋىدىئو چۈشۈرۈش، سكرىنشات ئېلىش، قارا/ئاق تېما ئالماشتۇرۇش، تېز ئالغا سۈرۈش كونتروللىرى ۋە باشقىلار.",
     "vi": "Một userscript giúp nâng cao YouTube với nhiều tính năng hữu ích, bao gồm: bố cục trang chi tiết video được tối ưu hóa, tải video, chụp ảnh màn hình, chuyển đổi chủ đề tối/sáng, điều khiển tua nhanh và nhiều tính năng khác.",
   },
-  namespace: "open_source_thalrien_youtube",
+  namespace: "https://github.com/lidaixingchen/YouTube_Improvements",
   version: "1.1.5",
-  author: "Thalrien.vx,CY Fung",
+  author: "lidaixingchen",
   icon: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACsAAAAgCAYAAACLmoEDAAABo0lEQVR4AdSXAZKDIBAEiR878zL1Zbmf5aY3txaWpqKyWCS1I4jotiMi6VLh75lSv1eFqdIKNks8qv7I9FR9JQE89mrr/KzNc5HXpOsuYgGrE0cd9eSD6n0mVauG5yKvCR7kWWdYNSoSnfxYCyU8g8C4kdcw0A6OtgD3jgHoF6x62I7KVsNe4k6umsWtUmZcA2P2W2DnYZDdQLPVHmd/AvB+A67x8RLAfuy0o8N0S0mRplTxFwVriKJlCqwGDGzoCwawpIh3GVhzJXoj2lFSxEFXg/WbF60PjeLhUR0WaICR6kXAl8AK0oMpDvn+ofISWD7pki89T7/Q1WEFyZgF9DSk218NFkhJEbdGBvb0GPI7zkvRsZzDyfBlJ7B5rtP1DBLQ4ke+BRIFi4vVIB08CvaQk578aAls0UR9NGFJf2BLzr/y3KnTZzB0NqhJ7842PxRk6miwVORIyw6bmQYr0CTgu0prVNlKYOBdbHyyl/9uaZQUCWhEZ3QFPHlc5AYS0Wb5Z2dt738jWlb5iM7opraV1J2ncVhb11IbeVzkniGVx+IPAAD///H503IAAAAGSURBVAMApvWIs8xfbPkAAAAASUVORK5CYII=",
   include: ["*://*.youtube.com/**"],
   exclude: [
@@ -101,7 +101,5 @@ export const userscriptMetadata: MonkeyUserScript = {
     "GM_download",
     "GM_setClipboard",
     "GM_addElement"
-],
-  downloadURL: "https://update.greasyfork.org/scripts/560618/YouTube%20Improvements%20%E2%80%93%20Layout%20%20Video%20Enhancer.user.js",
-  updateURL: "https://update.greasyfork.org/scripts/560618/YouTube%20Improvements%20%E2%80%93%20Layout%20%20Video%20Enhancer.meta.js"
+  ]
 };
