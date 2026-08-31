@@ -1,5 +1,10 @@
 import { StyleEngine } from "./style-engine";
-import { POLL_INTERVAL_MS, POLL_MAX_TIMEOUT_MS } from "./constants";
+import {
+  POLL_INTERVAL_MS,
+  POLL_MAX_TIMEOUT_MS,
+  DEFAULT_VIDEO_WIDTH,
+  DEFAULT_VIDEO_HEIGHT
+} from "./constants";
 import type { VideoResolution } from "../types";
 
 export const commonUtil = {
@@ -104,13 +109,13 @@ export const YouTubeDOMAdapter = {
 
   getVideoResolution(): VideoResolution {
     const video = this.getVideoElement();
-    if (video) {
+    if (video && video.videoWidth > 0 && video.videoHeight > 0) {
       return {
-        width: video.videoWidth || video.clientWidth || 1920,
-        height: video.videoHeight || video.clientHeight || 1080
+        width: video.videoWidth,
+        height: video.videoHeight
       };
     }
-    return { width: 1920, height: 1080 };
+    return { width: DEFAULT_VIDEO_WIDTH, height: DEFAULT_VIDEO_HEIGHT };
   },
   setPlaybackRate(rate: number): void {
     const video = this.getVideoElement();

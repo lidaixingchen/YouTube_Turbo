@@ -49,10 +49,10 @@ export const ShortcutDispatcher = (() => {
 
     for (const binding of bindings) {
       const matchKey = binding.key.toLowerCase() === event.key.toLowerCase();
-      const matchShift = binding.shiftKey === undefined || binding.shiftKey === event.shiftKey;
-      const matchCtrl = binding.ctrlKey === undefined || binding.ctrlKey === event.ctrlKey;
-      const matchAlt = binding.altKey === undefined || binding.altKey === event.altKey;
-      const matchMeta = binding.metaKey === undefined || binding.metaKey === event.metaKey;
+      const matchShift = Boolean(binding.shiftKey) === Boolean(event.shiftKey);
+      const matchCtrl = Boolean(binding.ctrlKey) === Boolean(event.ctrlKey);
+      const matchAlt = Boolean(binding.altKey) === Boolean(event.altKey);
+      const matchMeta = Boolean(binding.metaKey) === Boolean(event.metaKey);
 
       if (matchKey && matchShift && matchCtrl && matchAlt && matchMeta) {
         event.preventDefault();
