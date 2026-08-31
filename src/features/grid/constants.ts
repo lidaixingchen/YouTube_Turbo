@@ -11,5 +11,12 @@ export const GRID_CONSTANTS = {
     THREE: 3,
     TWO: 2,
     ONE: 1
-  }
+  },
+  SLIM_COLUMNS: {
+    SIX: 6,
+    FIVE: 5,
+    THREE: 3,
+    TWO: 2
+  },
+  ITEM_MARGIN_PX: 16
 } as const;

@@ -201,7 +201,7 @@ export const Toolbar = (() => {
       {
         id: "setting",
         slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "setting",
+        titleKey: "action_setting",
         defaultTitle: "Setting",
         icon: "setting",
         order: 10,
@@ -212,7 +212,7 @@ export const Toolbar = (() => {
       {
         id: "theme",
         slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "switch_the_theme",
+        titleKey: "action_switch_theme",
         defaultTitle: "Switch the theme",
         icon: "theme",
         order: 20,
@@ -226,7 +226,7 @@ export const Toolbar = (() => {
       {
         id: "screenshot",
         slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "screenshot",
+        titleKey: "action_screenshot",
         defaultTitle: "Screenshot",
         icon: "screenshot",
         order: 30,
@@ -237,7 +237,7 @@ export const Toolbar = (() => {
       {
         id: "pip",
         slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "picture_to_picture",
+        titleKey: "action_pip",
         defaultTitle: "Picture to picture",
         icon: "pip",
         order: 40,
@@ -248,7 +248,7 @@ export const Toolbar = (() => {
       {
         id: "loop",
         slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "loop",
+        titleKey: "action_loop",
         defaultTitle: "Loop",
         icon: { normal: "loopOff", active: "loopOn" },
         order: 50,
@@ -264,7 +264,7 @@ export const Toolbar = (() => {
       {
         id: "download",
         slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "download",
+        titleKey: "action_download",
         defaultTitle: "Download",
         icon: "download",
         order: 60,

@@ -25,9 +25,9 @@ export const FourColumnGrid = {
     }
     ytd-rich-shelf-renderer ytd-rich-item-renderer[is-slim_],
     ytd-rich-shelf-renderer ytd-rich-item-renderer[is-slim] {
-      flex: 0 0 calc(100% / var(--ytd-rich-grid-slim-items-per-row, 6) - var(--ytd-rich-grid-item-margin, 16px)) !important;
-      width: calc(100% / var(--ytd-rich-grid-slim-items-per-row, 6) - var(--ytd-rich-grid-item-margin, 16px)) !important;
-      max-width: calc(100% / var(--ytd-rich-grid-slim-items-per-row, 6) - var(--ytd-rich-grid-item-margin, 16px)) !important;
+      flex: 0 0 calc(100% / var(--ytd-rich-grid-slim-items-per-row, ${GRID_CONSTANTS.SLIM_COLUMNS.SIX}) - var(--ytd-rich-grid-item-margin, ${GRID_CONSTANTS.ITEM_MARGIN_PX}px)) !important;
+      width: calc(100% / var(--ytd-rich-grid-slim-items-per-row, ${GRID_CONSTANTS.SLIM_COLUMNS.SIX}) - var(--ytd-rich-grid-item-margin, ${GRID_CONSTANTS.ITEM_MARGIN_PX}px)) !important;
+      max-width: calc(100% / var(--ytd-rich-grid-slim-items-per-row, ${GRID_CONSTANTS.SLIM_COLUMNS.SIX}) - var(--ytd-rich-grid-item-margin, ${GRID_CONSTANTS.ITEM_MARGIN_PX}px)) !important;
     }
     ytd-rich-section-renderer {
       width: 100% !important;
@@ -41,7 +41,7 @@ export const FourColumnGrid = {
       html {
         --ytd-rich-grid-items-per-row: ${GRID_CONSTANTS.COLUMNS.FOUR} !important;
         --ytd-rich-grid-posts-per-row: ${GRID_CONSTANTS.COLUMNS.FOUR} !important;
-        --ytd-rich-grid-slim-items-per-row: 6 !important;
+        --ytd-rich-grid-slim-items-per-row: ${GRID_CONSTANTS.SLIM_COLUMNS.SIX} !important;
       }
     }
     @media (min-width: ${GRID_CONSTANTS.BREAKPOINTS.DESKTOP}px) and (max-width: ${GRID_CONSTANTS.BREAKPOINTS.WIDE_DESKTOP - 1}px) {
@@ -50,7 +50,7 @@ export const FourColumnGrid = {
       html {
         --ytd-rich-grid-items-per-row: ${GRID_CONSTANTS.COLUMNS.THREE} !important;
         --ytd-rich-grid-posts-per-row: ${GRID_CONSTANTS.COLUMNS.THREE} !important;
-        --ytd-rich-grid-slim-items-per-row: 5 !important;
+        --ytd-rich-grid-slim-items-per-row: ${GRID_CONSTANTS.SLIM_COLUMNS.FIVE} !important;
       }
     }
     @media (min-width: ${GRID_CONSTANTS.BREAKPOINTS.TABLET}px) and (max-width: ${GRID_CONSTANTS.BREAKPOINTS.DESKTOP - 1}px) {
@@ -59,7 +59,7 @@ export const FourColumnGrid = {
       html {
         --ytd-rich-grid-items-per-row: ${GRID_CONSTANTS.COLUMNS.TWO} !important;
         --ytd-rich-grid-posts-per-row: ${GRID_CONSTANTS.COLUMNS.TWO} !important;
-        --ytd-rich-grid-slim-items-per-row: 3 !important;
+        --ytd-rich-grid-slim-items-per-row: ${GRID_CONSTANTS.SLIM_COLUMNS.THREE} !important;
       }
     }
     @media (max-width: ${GRID_CONSTANTS.BREAKPOINTS.TABLET - 1}px) {
@@ -68,7 +68,7 @@ export const FourColumnGrid = {
       html {
         --ytd-rich-grid-items-per-row: ${GRID_CONSTANTS.COLUMNS.ONE} !important;
         --ytd-rich-grid-posts-per-row: ${GRID_CONSTANTS.COLUMNS.ONE} !important;
-        --ytd-rich-grid-slim-items-per-row: 2 !important;
+        --ytd-rich-grid-slim-items-per-row: ${GRID_CONSTANTS.SLIM_COLUMNS.TWO} !important;
       }
     }
   `,
