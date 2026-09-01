@@ -5,5 +5,6 @@ export const THEME_CONSTANTS = {
   COOKIE_MAX_AGE_SECONDS: 63072000,
   FLAG_KEY: "f6",
   FLAG_DARK_VALUE: "400",
-  FLAG_LIGHT_VALUE: "80000"
+  FLAG_LIGHT_VALUE: "80000",
+  STYLE_ID_PROGRESS_BAR: "theme-progressbar"
 } as const;

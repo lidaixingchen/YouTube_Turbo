@@ -1,5 +1,7 @@
 import { THEME_CONSTANTS } from "./constants";
 import { Toolbar, TOOLBAR_CONSTANTS } from "../../ui/toolbar";
+import { StyleEngine } from "../../core/style-engine";
+import progressBarCss from "./progress-bar.css?raw";
 
 export type ThemeMode = "dark" | "light";
 
@@ -113,5 +115,16 @@ export class ThemeController {
     const targetMode: ThemeMode = currentMode === "dark" ? "light" : "dark";
     this.setTheme(targetMode, options);
     return targetMode;
+  }
+
+  public enableProgressBar(): void {
+    if (!/youtube\.com/.test(window.location.host)) {
+      return;
+    }
+    StyleEngine.inject(THEME_CONSTANTS.STYLE_ID_PROGRESS_BAR, progressBarCss);
+  }
+
+  public disableProgressBar(): void {
+    StyleEngine.remove(THEME_CONSTANTS.STYLE_ID_PROGRESS_BAR);
   }
 }

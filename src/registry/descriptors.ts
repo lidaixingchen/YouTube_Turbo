@@ -1,8 +1,8 @@
 import type { FeatureDescriptor } from "../types";
 import { Tabview } from "../features/tabview";
 import { GridCoordinator } from "../features/grid";
-import { ThemeProgressbar } from "../features/theme";
-import { Toolbar, TOOLBAR_CONSTANTS } from "../ui/toolbar";
+import { ThemeController } from "../features/theme";
+import { VideoDownloadService } from "../features/download";
 import { PlayerController } from "../features/player";
 import { MarkOrRemoveAd } from "../features/adblock";
 import { CaptionController } from "../features/caption";
@@ -36,8 +36,8 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     descI18nKey: "feature_theme_progress_bar_desc",
     defaultValue: true,
     order: 30,
-    setup: () => ThemeProgressbar.start(),
-    teardown: () => ThemeProgressbar.destroy()
+    setup: () => ThemeController.getInstance().enableProgressBar(),
+    teardown: () => ThemeController.getInstance().disableProgressBar()
   },
   {
     id: "isOpenYoutubedownloading",
@@ -46,14 +46,8 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     descI18nKey: "feature_youtube_downloading_desc",
     defaultValue: true,
     order: 40,
-    setup: () => {
-      Toolbar.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
-      Toolbar.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
-    },
-    teardown: () => {
-      Toolbar.unmount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
-      Toolbar.unmount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
-    }
+    setup: () => VideoDownloadService.enable(),
+    teardown: () => VideoDownloadService.disable()
   },
   {
     id: "isOpenSpeedControl",
