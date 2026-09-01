@@ -4,24 +4,26 @@
 
 ## 功能特性
 
-- 📑 **视频详情页布局优化 (Tabview)**：将相关视频、评论区与视频简介重构为标签页切换布局，大幅提升大屏与桌面端浏览效率。
-- 🖼️ **网格排版优化 (4-Column Grid)**：首页与订阅页视频流自动适配 4 列响应式网格布局。
-- 🌈 **播放进度条美化 (Progress Bar)**：个性化彩虹渐变播放进度条与动态滑块。
-- ⚡ **视频快捷调速 (Speed Control)**：支持快捷键（`<` / `>`）与播放器面板即时调速，配备屏幕 HUD 浮层提示。
-- 📸 **画格高清截图 (Screenshot)**：一键捕获当前视频高保真画格并下载保存。
-- 🌓 **深浅主题切换 (Theme Toggle)**：一键快速切换 YouTube 官方深色/浅色模式。
-- 🪟 **画中画与循环播放 (PiP & Loop)**：原生画中画模式与单曲循环控制。
-- 🚫 **页面广告标注 (Ad Marking)**：醒目标注页面内各类广告推广位。
+- 📑 **视频详情页布局优化 (Tabview)**：将相关视频、评论区、播放列表与视频元数据/简介重构为标签页切换布局，大幅提升大屏与桌面端浏览效率。
+- 🖼️ **网格排版自适应 (4-Column Grid)**：首页与订阅页视频流基于纯 CSS 媒体查询自动适配 4 列响应式网格布局。
+- ⏱️ **字幕时间轴毫秒级校准 (Subtitle Offset)**：支持动态字幕偏移与按需激活覆盖层渲染，配备快捷键与全局基准配置。
+- ⚡ **视频快捷调速与控制 (Player Controls)**：支持快捷键与播放器控制栏面板即时调速，配备屏幕 HUD 浮层提示。
+- 📸 **画格无损截图 (Screenshot)**：锁定视频真实物理分辨率，一键导出无损画格并自动按时间戳命名。
+- 🌈 **播放进度条美化 (Rainbow Progress Bar)**：个性化彩虹渐变播放进度条与动态滑块。
+- 🌓 **深浅主题无缝切换 (Theme Toggle)**：Cookie 级快速切换 YouTube 官方深色/浅色模式。
+- 🪟 **画中画与循环播放 (PiP & Loop)**：原生画中画模式与跨路由单曲循环控制。
+- 🛠️ **多插槽工具箱与快捷下载 (Toolbar & Download)**：在播放器控制栏、Shorts 动作栏及元数据栏统一挂载工具箱与快捷解析下载。
+- 🚫 **页面广告与推广位标注 (Ad Marking)**：醒目标注页面内各类广告推广位与推广货架。
 
 ## 技术栈与工程架构
 
-- **构建工具**：Vite 6 + `vite-plugin-monkey`
+- **构建工具**：Vite 6 + `vite-plugin-monkey` + esbuild (Sub-bundle IIFE)
 - **编程语言**：TypeScript 5（严格类型模式，禁止隐式 any）
 - **包管理器**：pnpm
 - **模块分层**：
-  - `src/core/`：通用底层（存储封装、样式引擎、事件总线、DOM 适配器、TTP 策略）
-  - `src/features/`：高内聚业务特性（Tabview、Grid、Player、Theme、AdBlock）
-  - `src/ui/`：视图交互层（挂载工具栏、模态弹窗、SVG 图标库）
+  - `src/core/`：通用底层基础设施（DOM 句柄缓存、实验 Flag 拦截、快捷键调度、样式引擎、HUD、跨上下文通信桥）
+  - `src/features/`：高内聚业务特性（Tabview、Grid、Caption、Player、Theme、Download、AdBlock）
+  - `src/ui/`：视图交互层（多插槽挂载总线、原生风格模态弹窗、SVG 图标注册中心）
   - `src/i18n/`：国际化多语言管理（支持 30+ 种语言）
   - `src/registry/`：特性统筹注册与生命周期调度中心
 
@@ -38,7 +40,7 @@ pnpm run check
 pnpm run build
 ```
 
-打包产物将输出至 `dist/youtube-improvements.user.js`。
+打包产物将输出至 `dist/youtube-turbo.user.js`。
 
 ## 致谢 (Acknowledgements)
 
