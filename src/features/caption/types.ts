@@ -76,6 +76,12 @@ export interface YouTubePlayerElement extends HTMLElement {
   isSubtitlesOn?(): boolean;
 }
 
+export interface SubtitleCue {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
 export interface CaptionOffsetState {
   globalDefaultOffsetMs: number;
   sessionOffsetMs: number;

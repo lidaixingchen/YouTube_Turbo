@@ -1,6 +1,7 @@
 import { SUBTITLE_CONSTANTS } from "./constants";
 import { TimedTextInterceptor } from "./interceptor";
-import { CaptionReloader } from "./reloader";
+import { CaptionStore } from "./store";
+import { CaptionRenderer } from "./renderer";
 import { ShortcutDispatcher } from "../../core/shortcuts";
 import { PlaybackHUD } from "../../core/hud";
 import { StorageUtil } from "../../core/storage";
@@ -36,6 +37,8 @@ export class CaptionController {
     this.sessionOffsetMs = 0;
 
     TimedTextInterceptor.install(() => this.getEffectiveOffsetMs());
+    CaptionRenderer.getInstance().init(() => this.getEffectiveOffsetMs());
+    CaptionStore.getInstance().loadCurrentVideoCues();
 
     this.bindShortcuts();
     this.bindNavigation();
@@ -187,7 +190,7 @@ export class CaptionController {
   }
 
   private applyChange(isReset: boolean = false): void {
-    CaptionReloader.reload();
+    CaptionRenderer.getInstance().renderCurrentFrame(true);
     this.showHUD(isReset);
   }
 
@@ -259,6 +262,11 @@ export class CaptionController {
     if (!this.navigateHandler) {
       this.navigateHandler = () => {
         this.sessionOffsetMs = 0;
+        CaptionStore.getInstance().clearCurrent();
+        setTimeout(() => {
+          CaptionStore.getInstance().loadCurrentVideoCues();
+          CaptionRenderer.getInstance().renderCurrentFrame(true);
+        }, 300);
       };
       window.addEventListener("yt-navigate-finish", this.navigateHandler);
     }
@@ -274,6 +282,8 @@ export class CaptionController {
   public destroy(): void {
     this.clearShortcuts();
     this.unbindNavigation();
+    CaptionRenderer.getInstance().destroy();
+    CaptionStore.getInstance().clearCurrent();
     TimedTextInterceptor.destroy();
     this.isInitialized = false;
   }

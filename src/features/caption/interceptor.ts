@@ -1,5 +1,6 @@
 import { SUBTITLE_CONSTANTS } from "./constants";
 import type { YouTubeTimedTextJson3 } from "./types";
+import { CaptionStore } from "./store";
 
 export class TimedTextInterceptor {
   private static isInstalled = false;
@@ -139,12 +140,19 @@ export class TimedTextInterceptor {
       }
 
       try {
+        const rawUrl = typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+        const originalText = await response.text();
+        CaptionStore.getInstance().captureRawTimedText(rawUrl, originalText);
+
         const offsetMs = TimedTextInterceptor.offsetProvider();
         if (offsetMs === 0) {
-          return response;
+          return new Response(originalText, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+          });
         }
 
-        const originalText = await response.text();
         const modifiedText = TimedTextInterceptor.modifyPayload(originalText, offsetMs);
 
         return new Response(modifiedText, {
@@ -182,7 +190,7 @@ export class TimedTextInterceptor {
     };
 
     xhrProto.send = function (
-      this: XMLHttpRequest & { __isTimedText?: boolean },
+      this: XMLHttpRequest & { __isTimedText?: boolean; __timedTextUrl?: string },
       body?: Document | XMLHttpRequestBodyInit | null
     ): void {
       if (this.__isTimedText) {
@@ -191,12 +199,17 @@ export class TimedTextInterceptor {
 
         xhr.addEventListener("readystatechange", function () {
           if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status < 300) {
-            const offsetMs = TimedTextInterceptor.offsetProvider();
-            if (offsetMs !== 0 && xhr.responseText) {
-              modifiedResponseText = TimedTextInterceptor.modifyPayload(
-                xhr.responseText,
-                offsetMs
-              );
+            if (xhr.responseText) {
+              const url = xhr.__timedTextUrl || window.location.href;
+              CaptionStore.getInstance().captureRawTimedText(url, xhr.responseText);
+
+              const offsetMs = TimedTextInterceptor.offsetProvider();
+              if (offsetMs !== 0) {
+                modifiedResponseText = TimedTextInterceptor.modifyPayload(
+                  xhr.responseText,
+                  offsetMs
+                );
+              }
             }
           }
         });
