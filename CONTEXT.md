@@ -40,3 +40,11 @@ _Avoid_: SpeedControl, SpeedToolbar, PlayerSpeedModule
 播放器快捷键（调速/重置/截图/画中画/循环）调度适配器，统管播放器键盘交互生命周期。
 _Avoid_: KeyBinder, PlayerKeymap, SpeedShortcuts
 
+**CaptionController**:
+字幕偏移校准与同步深模块，统管 `/api/timedtext` 网络拦截、Cue 缓存解析与覆盖层实时渲染。
+_Avoid_: SubtitleOffset, SubtitleManager, CaptionProxy
+
+**ToolbarController**:
+多插槽悬浮工具箱与操作栏核心深模块，统管播放器控制栏、Shorts 侧边栏与视频元数据栏的插槽注入、弹层定位与动作派发。
+_Avoid_: ToolBox, ToolbarManager, ActionHost
+
