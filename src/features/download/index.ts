@@ -17,7 +17,7 @@ function openInTab(
 }
 
 export class VideoDownloadService {
-  private static isInitialized = false;
+  private static unregisterFn: (() => void) | null = null;
 
   public static async downloadCurrentVideo(): Promise<void> {
     const language = LangueUtil.getLanguage();
@@ -44,11 +44,10 @@ export class VideoDownloadService {
     }
   }
 
-  public static init(): void {
-    if (this.isInitialized) return;
-    this.isInitialized = true;
+  public static enable(): void {
+    if (this.unregisterFn) return;
 
-    Toolbar.registerActions([
+    this.unregisterFn = Toolbar.registerActions([
       {
         id: "download",
         slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
@@ -84,5 +83,16 @@ export class VideoDownloadService {
         }
       }
     ]);
+  }
+
+  public static disable(): void {
+    if (this.unregisterFn) {
+      this.unregisterFn();
+      this.unregisterFn = null;
+    }
+  }
+
+  public static init(): void {
+    this.enable();
   }
 }

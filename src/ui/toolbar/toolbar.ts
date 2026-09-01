@@ -1,7 +1,7 @@
 import { TOOLBAR_CONSTANTS } from "./constants";
 import { IconRegistry } from "../icons";
 import { PopoverEngine } from "./popover";
-import { SlotMountBus } from "./reactive-mounter";
+import { SlotMountBus } from "./slot-mount-bus";
 import { ActionRegistry } from "./action-registry";
 import { StyleEngine } from "../../core/style-engine";
 import { Locale } from "../../i18n";
@@ -81,6 +81,7 @@ export class ToolbarController {
     this.injectStyles();
     SlotMountBus.getInstance().bindNavigation();
     this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
+    this.syncSlots();
   }
 
   private injectStyles(): void {
@@ -214,48 +215,47 @@ export class ToolbarController {
     StyleEngine.inject(TOOLBAR_CONSTANTS.STYLE_ID, css);
   }
 
-  public registerAction(action: ActionConfig): void {
-    ActionRegistry.register(action);
-    this.refresh();
+  public registerAction(action: ActionConfig): () => void {
+    const unregister = ActionRegistry.register(action);
+    this.syncSlots();
+    return () => {
+      unregister();
+      this.syncSlots();
+    };
   }
 
-  public registerActions(actions: ActionConfig[]): void {
-    ActionRegistry.registerAll(actions);
-    this.refresh();
+  public registerActions(actions: ActionConfig[]): () => void {
+    const unregister = ActionRegistry.registerAll(actions);
+    this.syncSlots();
+    return () => {
+      unregister();
+      this.syncSlots();
+    };
   }
 
-  private createPlayerControlsSlotElement = (): HTMLElement | null => {
-    const actions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
-    if (!actions.length) return null;
-
-    const existingBox = document.getElementById("yt_extension_toolbox_root");
-    if (existingBox && existingBox.isConnected) {
-      return existingBox;
+  public syncSlots(): void {
+    const shortsActions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
+    if (shortsActions.length > 0) {
+      this.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
+    } else {
+      this.unmount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
     }
 
-    const boxContainer = document.createElement("div");
-    boxContainer.id = "yt_extension_toolbox_root";
-    boxContainer.className = "ytp-button";
-    boxContainer.style.cssText = "display: flex; justify-content: center; align-items: center; cursor: pointer;";
+    const metadataActions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
+    if (metadataActions.length > 0) {
+      this.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
+    } else {
+      this.unmount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
+    }
 
-    const iconSvg = IconRegistry.createSvg("toolbox", { size: TOOLBAR_CONSTANTS.ICON_SIZE_PX });
-    boxContainer.appendChild(iconSvg);
+    this.refreshPopoverTools();
+    this.refresh();
+  }
 
-    const existingContainer = document.getElementById("toolbox_extension_container");
-    if (existingContainer) existingContainer.remove();
-
-    const toolBoxContainer = document.createElement("div");
-    toolBoxContainer.id = "toolbox_extension_container";
-    toolBoxContainer.className = "toolbox_extension_container";
-
-    const tooltipEl = document.createElement("div");
-    tooltipEl.className = "toolbox_extension_tooltip";
+  private renderToolboxGrid(toolsGrid: HTMLElement, tooltipEl: HTMLElement): void {
+    toolsGrid.innerHTML = "";
+    const actions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
     const defaultTooltipText = "YouTube Turbo";
-    tooltipEl.textContent = defaultTooltipText;
-    toolBoxContainer.appendChild(tooltipEl);
-
-    const toolsGrid = document.createElement("div");
-    toolsGrid.className = "toolbox_extension_tools";
 
     actions.forEach((action) => {
       const btn = document.createElement("button");
@@ -306,6 +306,49 @@ export class ToolbarController {
       ActionRegistry.bindActionState(action.id, updateBtn);
       toolsGrid.appendChild(btn);
     });
+  }
+
+  private refreshPopoverTools(): void {
+    const toolsGrid = document.querySelector<HTMLElement>("#toolbox_extension_container .toolbox_extension_tools");
+    const tooltipEl = document.querySelector<HTMLElement>("#toolbox_extension_container .toolbox_extension_tooltip");
+    if (toolsGrid && tooltipEl) {
+      this.renderToolboxGrid(toolsGrid, tooltipEl);
+    }
+  }
+
+  private createPlayerControlsSlotElement = (): HTMLElement | null => {
+    const actions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
+    if (!actions.length) return null;
+
+    const existingBox = document.getElementById("yt_extension_toolbox_root");
+    if (existingBox && existingBox.isConnected) {
+      return existingBox;
+    }
+
+    const boxContainer = document.createElement("div");
+    boxContainer.id = "yt_extension_toolbox_root";
+    boxContainer.className = "ytp-button";
+    boxContainer.style.cssText = "display: flex; justify-content: center; align-items: center; cursor: pointer;";
+
+    const iconSvg = IconRegistry.createSvg("toolbox", { size: TOOLBAR_CONSTANTS.ICON_SIZE_PX });
+    boxContainer.appendChild(iconSvg);
+
+    const existingContainer = document.getElementById("toolbox_extension_container");
+    if (existingContainer) existingContainer.remove();
+
+    const toolBoxContainer = document.createElement("div");
+    toolBoxContainer.id = "toolbox_extension_container";
+    toolBoxContainer.className = "toolbox_extension_container";
+
+    const tooltipEl = document.createElement("div");
+    tooltipEl.className = "toolbox_extension_tooltip";
+    const defaultTooltipText = "YouTube Turbo";
+    tooltipEl.textContent = defaultTooltipText;
+    toolBoxContainer.appendChild(tooltipEl);
+
+    const toolsGrid = document.createElement("div");
+    toolsGrid.className = "toolbox_extension_tools";
+    this.renderToolboxGrid(toolsGrid, tooltipEl);
 
     toolBoxContainer.appendChild(toolsGrid);
 

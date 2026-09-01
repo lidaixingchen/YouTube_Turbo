@@ -4,12 +4,23 @@ export class ActionRegistry {
   private static actions = new Map<string, ActionConfig>();
   private static bindings = new Map<string, () => void>();
 
-  public static register(actionConfig: ActionConfig): void {
+  public static register(actionConfig: ActionConfig): () => void {
     this.actions.set(actionConfig.id, actionConfig);
+    return () => {
+      this.unregister(actionConfig.id);
+    };
   }
 
-  public static registerAll(configs: ActionConfig[]): void {
+  public static registerAll(configs: ActionConfig[]): () => void {
     configs.forEach((c) => this.actions.set(c.id, c));
+    return () => {
+      configs.forEach((c) => this.unregister(c.id));
+    };
+  }
+
+  public static unregister(actionId: string): void {
+    this.unbindActionState(actionId);
+    this.actions.delete(actionId);
   }
 
   public static getActionsBySlot(slot: string): ActionConfig[] {

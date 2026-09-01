@@ -81,7 +81,6 @@ export class SlotMountBus {
         continue;
       }
 
-      // 静态快道尝试（Static Fast-Path）
       const target = document.querySelector<HTMLElement>(definition.targetSelector);
       if (target && target.isConnected) {
         const renderedEl = renderer();
@@ -221,5 +220,3 @@ export class SlotMountBus {
     this.isNavigationBound = false;
   }
 }
-
-export { SlotMountBus as ReactiveMounter };
