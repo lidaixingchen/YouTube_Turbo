@@ -7,7 +7,21 @@ export const SUBTITLE_CONSTANTS = {
   TIMEDTEXT_API_PATH: "/api/timedtext",
   FALLBACK_CUE_DURATION_MS: 2000,
   MAX_CUE_WINDOW_LOOKBACK_MS: 15000,
+  SEEK_THRESHOLD_MS: 3000,
   SHORTCUT_ADVANCE_KEY: "[",
   SHORTCUT_DELAY_KEY: "]",
-  SHORTCUT_RESET_KEY: "\\"
+  SHORTCUT_RESET_KEY: "\\",
+  KEY_CC_LOWER: "c",
+  KEY_CC_UPPER: "C",
+  CC_KEY_DEBOUNCE_MS: 50,
+  SELECTOR_SUBTITLES_BUTTON: ".ytp-subtitles-button",
+  SELECTOR_PLAYER_CONTAINER: ".html5-video-player",
+  SELECTOR_MOVIE_PLAYER: "#movie_player",
+  SELECTOR_PLAYER_CONTAINER_OUTER: "#player-container-outer .html5-video-player",
+  ATTR_ARIA_PRESSED: "aria-pressed",
+  ATTR_ARIA_PRESSED_TRUE: "true",
+  CLASS_NATIVE_CAPTIONS_HIDDEN: "yt-turbo-native-captions-hidden",
+  OVERLAY_ID: "yt-turbo-caption-overlay",
+  BOX_CLASS: "yt-turbo-caption-box",
+  STYLE_ID: "yt-turbo-caption-renderer-style"
 } as const;

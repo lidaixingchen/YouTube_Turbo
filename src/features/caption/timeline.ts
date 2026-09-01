@@ -6,6 +6,10 @@ export class SubtitleTimeline {
   private cuesCache: Map<string, SubtitleCue[]> = new Map();
   private currentCues: SubtitleCue[] = [];
   private currentKey: string = "";
+  private cursorIndex: number = -1;
+  private lastQueryMs: number = -1;
+  private activeCuesBuffer: SubtitleCue[] = [];
+  private cachedTextResult: string = "";
 
   public static getInstance(): SubtitleTimeline {
     if (!this.instance) {
@@ -104,6 +108,7 @@ export class SubtitleTimeline {
       if (activate || !this.currentKey) {
         this.currentCues = cues;
         this.currentKey = key;
+        this.resetPointer();
       }
     }
     return cues;
@@ -113,6 +118,7 @@ export class SubtitleTimeline {
     this.currentKey = key;
     const cached = this.cuesCache.get(key);
     this.currentCues = cached || [];
+    this.resetPointer();
   }
 
   public getActiveKey(): string {
@@ -123,10 +129,14 @@ export class SubtitleTimeline {
     return this.currentCues;
   }
 
-  /**
-   * 基于二分查找在 O(log N) 复杂度内检索当前时间戳命中的 Cue 片段
-   */
-  public findActiveCues(effectiveMs: number): SubtitleCue[] {
+  public resetPointer(): void {
+    this.cursorIndex = -1;
+    this.lastQueryMs = -1;
+    this.activeCuesBuffer.length = 0;
+    this.cachedTextResult = "";
+  }
+
+  public findActiveCues(effectiveMs: number): readonly SubtitleCue[] {
     let cues = this.currentCues;
     if (cues.length === 0 && this.cuesCache.size > 0 && typeof window !== "undefined") {
       const currentVideoId = new URLSearchParams(window.location.search).get("v");
@@ -136,53 +146,124 @@ export class SubtitleTimeline {
             this.currentCues = cachedCues;
             this.currentKey = key;
             cues = cachedCues;
+            this.resetPointer();
             break;
           }
         }
       }
     }
     const len = cues.length;
-    if (len === 0) return [];
+    if (len === 0) {
+      this.activeCuesBuffer.length = 0;
+      this.cachedTextResult = "";
+      return this.activeCuesBuffer;
+    }
 
-    let low = 0;
-    let high = len - 1;
-    let candidateIndex = -1;
+    let targetIndex = -1;
+    const isLinearForward =
+      this.lastQueryMs >= 0 &&
+      effectiveMs >= this.lastQueryMs &&
+      effectiveMs - this.lastQueryMs <= SUBTITLE_CONSTANTS.SEEK_THRESHOLD_MS &&
+      this.cursorIndex >= 0 &&
+      this.cursorIndex < len;
 
-    while (low <= high) {
-      const mid = Math.floor((low + high) / 2);
-      if (cues[mid].startMs <= effectiveMs) {
-        candidateIndex = mid;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
+    if (isLinearForward) {
+      const currentCue = cues[this.cursorIndex];
+      if (effectiveMs >= currentCue.startMs && effectiveMs <= currentCue.endMs) {
+        targetIndex = this.cursorIndex;
+      } else if (effectiveMs > currentCue.endMs) {
+        const nextIndex = this.cursorIndex + 1;
+        if (nextIndex < len) {
+          const nextCue = cues[nextIndex];
+          if (effectiveMs >= nextCue.startMs && effectiveMs <= nextCue.endMs) {
+            targetIndex = nextIndex;
+            this.cursorIndex = nextIndex;
+          } else if (effectiveMs < nextCue.startMs) {
+            this.lastQueryMs = effectiveMs;
+            this.activeCuesBuffer.length = 0;
+            this.cachedTextResult = "";
+            return this.activeCuesBuffer;
+          }
+        }
       }
     }
 
-    if (candidateIndex === -1) {
-      return [];
+    if (targetIndex === -1) {
+      let low = 0;
+      let high = len - 1;
+      let candidateIndex = -1;
+
+      while (low <= high) {
+        const mid = (low + high) >>> 1;
+        if (cues[mid].startMs <= effectiveMs) {
+          candidateIndex = mid;
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+
+      if (candidateIndex === -1) {
+        this.cursorIndex = 0;
+        this.lastQueryMs = effectiveMs;
+        this.activeCuesBuffer.length = 0;
+        this.cachedTextResult = "";
+        return this.activeCuesBuffer;
+      }
+
+      this.cursorIndex = candidateIndex;
+      targetIndex = candidateIndex;
     }
 
-    const activeCues: SubtitleCue[] = [];
-    for (let i = candidateIndex; i >= 0; i--) {
+    this.lastQueryMs = effectiveMs;
+    this.activeCuesBuffer.length = 0;
+
+    for (let i = targetIndex; i >= 0; i--) {
       const cue = cues[i];
       if (cue.endMs >= effectiveMs && cue.startMs <= effectiveMs) {
-        activeCues.unshift(cue);
+        this.activeCuesBuffer.unshift(cue);
       } else if (cue.startMs + SUBTITLE_CONSTANTS.MAX_CUE_WINDOW_LOOKBACK_MS < effectiveMs) {
         break;
       }
     }
 
-    return activeCues;
+    return this.activeCuesBuffer;
+  }
+
+  public getActiveCueText(effectiveMs: number): string {
+    const activeCues = this.findActiveCues(effectiveMs);
+    const count = activeCues.length;
+    if (count === 0) {
+      this.cachedTextResult = "";
+      return "";
+    }
+    if (count === 1) {
+      this.cachedTextResult = activeCues[0].text;
+      return this.cachedTextResult;
+    }
+
+    let combined = "";
+    for (let i = 0; i < count; i++) {
+      if (i > 0) {
+        combined += "\n";
+      }
+      combined += activeCues[i].text;
+    }
+    this.cachedTextResult = combined;
+    return this.cachedTextResult;
   }
 
   public clearCurrent(): void {
     this.currentCues = [];
     this.currentKey = "";
+    this.resetPointer();
   }
 
   public clear(): void {
     this.cuesCache.clear();
     this.currentCues = [];
     this.currentKey = "";
+    this.resetPointer();
   }
 }
+

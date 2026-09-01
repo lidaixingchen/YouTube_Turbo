@@ -281,10 +281,11 @@ export class CaptionController {
     this.shortcutCleanups.push(unbindAdvance, unbindDelay, unbindReset);
 
     this.ccKeyHandler = (e: KeyboardEvent) => {
-      if (e.key === "c" || e.key === "C") {
+      if (e.key === SUBTITLE_CONSTANTS.KEY_CC_LOWER || e.key === SUBTITLE_CONSTANTS.KEY_CC_UPPER) {
         setTimeout(() => {
+          CaptionOverlayRenderer.getInstance().syncCCState();
           CaptionOverlayRenderer.getInstance().updateGateState();
-        }, 50);
+        }, SUBTITLE_CONSTANTS.CC_KEY_DEBOUNCE_MS);
       }
     };
     window.addEventListener("keydown", this.ccKeyHandler, { passive: true });
