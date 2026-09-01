@@ -12,6 +12,7 @@ export interface ActionConfig {
   defaultTitle: string;
   icon: string | { normal: string; active: string };
   order?: number;
+  dismissOnExecute?: boolean;
   isVisible?: () => boolean;
   isActive?: () => boolean;
   onClick: (event: MouseEvent, ctx: ActionContext) => void;
@@ -25,4 +26,14 @@ export interface SlotDefinition {
   elementId: string;
   isApplicable?: (url: URL) => boolean;
   mount: (target: HTMLElement, element: HTMLElement) => void;
+}
+
+export type PopoverState = "closed" | "hover" | "pinned";
+
+export interface PopoverController {
+  open: (mode: "hover" | "pinned") => void;
+  close: () => void;
+  getState: () => PopoverState;
+  reposition: () => void;
+  destroy: () => void;
 }
