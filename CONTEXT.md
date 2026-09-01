@@ -23,3 +23,20 @@ _Avoid_: TemporaryOffset, LocalDelta
 **GlobalDefaultOffset**:
 在用户配置中心中持久化保存的默认字幕偏移基准值，所有新视频加载时以此为初始偏移。
 _Avoid_: BaseOffset, DefaultDelay
+
+**ThemeController**:
+YouTube 深浅色主题统管深模块，封装 Cookie `PREF` 中的 `f6` 标记解析、写入与页面刷新调度。
+_Avoid_: ThemeEngine, ThemeCookieAdapter, ThemeManager
+
+**PlayerController**:
+播放器核心深模块，统管播放速率、单曲循环、原生画中画、物理分辨率截图及播放器快捷键全生命周期。
+_Avoid_: VideoManager, PlaybackService, SpeedControl
+
+**PlayerSpeedButtonView**:
+播放器控制栏右下角倍速展示按钮与悬浮倍速菜单的轻量视图适配层。
+_Avoid_: SpeedControl, SpeedToolbar, PlayerSpeedModule
+
+**PlayerShortcuts**:
+播放器快捷键（调速/重置/截图/画中画/循环）调度适配器，统管播放器键盘交互生命周期。
+_Avoid_: KeyBinder, PlayerKeymap, SpeedShortcuts
+
