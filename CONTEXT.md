@@ -64,4 +64,17 @@ _Avoid_: BodyObserver, GlobalGridWatcher, GridPoller
 多插槽悬浮工具箱与操作栏核心深模块，统管播放器控制栏、Shorts 侧边栏与视频元数据栏的插槽注入、弹层定位与动作派发。
 _Avoid_: ToolBox, ToolbarManager, ActionHost
 
+**TabviewLifecycleCoordinator**:
+详情页纯事件驱动生命周期统管深模块，依托 Polymer 原型拦截钩子（`attached`/`dataChanged`）与局部观察总线调度 Tabview 容器挂载、Slot 重排与徽标同步，彻底根除轮询守护定时器。
+_Avoid_: GuardianTimer, TabPoller, TabviewManager
+
+**ReactiveDOMRegistry**:
+DOM 核心句柄缓存深模块，持有高频核心元素（播放器容器、视频节点、元数据标题等）的高速引用，与 `yt-navigate-finish` 路由生命周期对齐自动失效。
+_Avoid_: DOMHelper, DOMProxy, DOMWrapper
+
+**SlotMountBus**:
+多插槽聚合挂载总线，将全站所有待就绪工具栏插槽（播放器、Shorts、视频信息栏等）的突变侦测合并为单遍扫描观察器，全部挂载后即刻停机。
+_Avoid_: MultiObserver, SlotWatcher, SlotPoller
+
+
 
