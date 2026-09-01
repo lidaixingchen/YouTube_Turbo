@@ -69,10 +69,13 @@ export function findContentsRenderer(commentRendererElm: HTMLElement): ContentsR
     const commentData = commentCnt?.data;
 
     for (let i = 0; i < contents.length; i++) {
-      const item = contents[i] as Record<string, any> | undefined;
+      const item = contents[i] as Record<string, unknown> | undefined;
+      const threadComment = (item?.commentThreadRenderer as Record<string, unknown> | undefined)?.comment as
+        | Record<string, unknown>
+        | undefined;
       if (
         item === commentData ||
-        item?.commentThreadRenderer?.comment?.commentRenderer === commentData ||
+        threadComment?.commentRenderer === commentData ||
         item?.commentRenderer === commentData
       ) {
         index = i;
@@ -129,13 +132,16 @@ export function lcSwapFuncA(targetLcId: string, currentLcId: string): boolean {
 
     const r1cnt = PolymerHelper.insp(r1);
     const r2cnt = PolymerHelper.insp(r2);
-    const r1Badge = (r1cnt?.data as Record<string, any> | undefined)?.linkedCommentBadge;
-    const r2Badge = (r2cnt?.data as Record<string, any> | undefined)?.linkedCommentBadge;
+    const r1Badge = (r1cnt?.data as Record<string, unknown> | undefined)?.linkedCommentBadge as
+      | Record<string, unknown>
+      | undefined;
+    const r2Badge = (r2cnt?.data as Record<string, unknown> | undefined)?.linkedCommentBadge;
 
-    if (typeof r1Badge === "object" && typeof r2Badge === "undefined") {
-      const badgeCopy = { ...r1Badge };
-      if (badgeCopy.metadataBadgeRenderer?.trackingParams) {
-        delete badgeCopy.metadataBadgeRenderer.trackingParams;
+    if (typeof r1Badge === "object" && r1Badge !== null && typeof r2Badge === "undefined") {
+      const badgeCopy: Record<string, unknown> = { ...r1Badge };
+      const metaBadge = badgeCopy.metadataBadgeRenderer as Record<string, unknown> | undefined;
+      if (metaBadge?.trackingParams) {
+        delete metaBadge.trackingParams;
       }
 
       const v1 = findContentsRenderer(r1);
@@ -308,6 +314,14 @@ export class DOMRelocator {
       return false;
     }
 
+    if (
+      slotState.element &&
+      slotState.element.isConnected &&
+      slotState.element.parentElement === targetContainer
+    ) {
+      return true;
+    }
+
     const candidates = document.querySelectorAll<HTMLElement>(slot.sourceSelector);
     let sourceElement: HTMLElement | null = null;
     for (let i = 0; i < candidates.length; i++) {
@@ -347,34 +361,39 @@ export class DOMRelocator {
   }
 
   public sweepSecondary(): void {
-    const secondaryInner = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_EXACT);
-    const wrapper = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
-    const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
     const tabVideos = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER);
-
-    if (!tabVideos) {
+    const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+    if (!tabVideos || !rightTabs) {
       return;
     }
+
+    const secondaryInner = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_EXACT);
+    const wrapper = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
 
     const containersToScan = [secondaryInner, wrapper].filter(Boolean) as HTMLElement[];
     for (let cIdx = 0; cIdx < containersToScan.length; cIdx++) {
       const container = containersToScan[cIdx];
-      const children = Array.from(container.children);
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i] as HTMLElement;
+      const candidates = container.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION);
+      for (let i = 0; i < candidates.length; i++) {
+        const candidate = candidates[i];
+        if (rightTabs.contains(candidate)) {
+          continue;
+        }
+
+        let directChild: HTMLElement = candidate;
+        while (directChild.parentElement && directChild.parentElement !== container) {
+          directChild = directChild.parentElement;
+        }
+
         if (
-          child === wrapper ||
-          child === rightTabs ||
-          child.matches("secondary-wrapper, ytd-live-chat-frame, [tyt-chat-container], #chat, #chat-container, .tyt-relocator-anchor")
+          directChild === rightTabs ||
+          directChild.matches(PAGE_CONSTANTS.SELECTORS.SECONDARY_SWEEP_IGNORE)
         ) {
           continue;
         }
-        if (
-          child.matches(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION) ||
-          child.querySelector(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION)
-        ) {
-          tabVideos.replaceChildren(child);
-        }
+
+        tabVideos.replaceChildren(directChild);
+        break;
       }
     }
   }

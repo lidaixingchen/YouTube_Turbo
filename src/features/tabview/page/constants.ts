@@ -68,6 +68,9 @@ export const PAGE_CONSTANTS = {
     AYTHL_SANDBOX: "noscript#aythl",
     TEMPLATE_SANDBOX: "ytd-watch-flexy noscript[ns-template]",
     EXTRA_CONTENT_SOURCES: 'ytd-watch-metadata.ytd-watch-flexy div[slot="extra-content"] > *, ytd-watch-metadata.ytd-watch-flexy #extra-content > *',
+    EXTRA_CONTENT_CONTAINER: 'div[slot="extra-content"], #extra-content',
+    NATIVE_DESCRIPTION_CANDIDATES: 'ytd-watch-metadata ytd-expandable-video-description-body-renderer:not([tyt-info-renderer]), #below ytd-expandable-video-description-body-renderer:not([tyt-info-renderer]), ytd-expandable-video-description-body-renderer:not([tyt-info-renderer]):not([tyt-main-info])',
+    SECONDARY_SWEEP_IGNORE: "secondary-wrapper, ytd-live-chat-frame, [tyt-chat-container], #chat, #chat-container, .tyt-relocator-anchor",
     UPLOAD_INFO: "#primary.ytd-watch-flexy ytd-watch-metadata #upload-info",
     MOVIE_PLAYER: "#movie_player",
     HIDDEN_CONTAINER: "[hidden]",
@@ -147,7 +150,8 @@ export const PAGE_CONSTANTS = {
   },
   THRESHOLDS: {
     MINIPLAYER_MIN_TIME_SEC: 3,
-    PLAYLIST_PROTECT_MAX_ACCESS: 3
+    PLAYLIST_PROTECT_MAX_ACCESS: 3,
+    MAX_CHANGE_COUNTER: 1e9
   },
   TIMEOUTS: {
     ELEMENT_WAIT_MS: 5000,

@@ -118,6 +118,7 @@ export interface PolymerElementInstance {
   updateIsFormattedExpanded?: () => void;
   updateTextOnSnippetTypeChange?: () => void;
   set?: (key: string, value: unknown) => void;
+  notifyPath?: (path: string) => void;
   isExpandedChanged?: () => void;
   isTwoColumnsChanged_?: (arg1: unknown, arg2: unknown, ...args: unknown[]) => unknown;
   defaultTwoColumnLayoutChanged?: (...args: unknown[]) => unknown;
