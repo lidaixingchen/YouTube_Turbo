@@ -79,7 +79,7 @@
 | `isOpenFourColumnGrid` | **响应式 4 列网格** | 首页与订阅页视频卡片自适应 4 列网格排版 |
 | `isOpenThemeProgressBar` | **彩虹渐变播放进度条** | 为视频播放进度提供动态彩虹流光视觉特效 |
 | `isOpenYoutubedownloading` | **视频快捷下载** | 在播放器控制栏与操作区提供一键无损下载通道 |
-| `isOpenSpeedControl` | **播放器调速增强** | 支持键盘快捷键无级调速与独立播放器调速菜单 |
+| `isOpenSpeedControl` | **播放器调速增强** | 快捷键：Shift+> 加速、Shift+< 减速、Shift+R 重置 1.0x，支持调速菜单 |
 | `isOpenMarkOrRemoveAd` | **推广内容视觉标记** | 标注页面广告与赞助商推广元素 |
 | `isOpenSubtitleOffset` | **字幕时间轴校准** | 支持键盘快捷键微调字幕偏移并支持保存默认基准 |
 
