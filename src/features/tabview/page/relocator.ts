@@ -1,6 +1,7 @@
 import { PAGE_CONSTANTS } from "./constants";
 import { PolymerHelper } from "./polymer-helper";
 import { TabsView } from "./tabs-view";
+import { ObserverRegistry } from "./observer-registry";
 import type { TabKey, RelocationSlot, TabsViewOptions, LcCommentResult, ContentsRendererLocation } from "./types";
 
 interface ActiveSlotState {
@@ -240,6 +241,7 @@ export class DOMRelocator {
     const searchParams = new URLSearchParams(window.location.search);
     const lcParam = specifiedLcId || searchParams.get("lc");
     if (!lcParam) {
+      ObserverRegistry.getInstance().disconnectLinkedCommentSupervisor();
       return false;
     }
 
@@ -248,10 +250,26 @@ export class DOMRelocator {
 
     if (targetLc && currentLc) {
       if (targetLc.lc === currentLc.lc) {
+        ObserverRegistry.getInstance().disconnectLinkedCommentSupervisor();
         return true;
       }
-      return lcSwapFuncA(targetLc.lc, currentLc.lc);
+      const isSwapped = lcSwapFuncA(targetLc.lc, currentLc.lc);
+      if (isSwapped) {
+        ObserverRegistry.getInstance().disconnectLinkedCommentSupervisor();
+      }
+      return isSwapped;
     }
+
+    ObserverRegistry.getInstance().observeLinkedComment(lcParam, () => {
+      const t = findLcComment(lcParam);
+      const c = t ? findLcComment() : null;
+      if (t && c) {
+        if (t.lc === c.lc) return true;
+        return lcSwapFuncA(t.lc, c.lc);
+      }
+      return false;
+    });
+
     return false;
   }
 

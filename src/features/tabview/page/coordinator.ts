@@ -8,8 +8,8 @@ import { InfoMirrorEngine } from "./info-mirror-engine";
 import { ChannelHoverAdapter } from "./channel-hover-adapter";
 import type { NavigationState, PageType, LocaleSnapshot, TabKey } from "./types";
 
-export class NavigationCoordinator {
-  private static instance: NavigationCoordinator | null = null;
+export class TabviewLifecycleCoordinator {
+  private static instance: TabviewLifecycleCoordinator | null = null;
   private observerRegistry: ObserverRegistry = ObserverRegistry.getInstance();
   private polymerPatcher: PolymerPatcher = PolymerPatcher.getInstance();
   private relocator: DOMRelocator = DOMRelocator.getInstance();
@@ -29,13 +29,12 @@ export class NavigationCoordinator {
   private onFontSizeChangedCallback?: (tabKey: TabKey, fontSize: number) => void;
   private isInitialized: boolean = false;
   private isMounting: boolean = false;
-  private guardianTimer: ReturnType<typeof setInterval> | null = null;
 
-  public static getInstance(): NavigationCoordinator {
-    if (!NavigationCoordinator.instance) {
-      NavigationCoordinator.instance = new NavigationCoordinator();
+  public static getInstance(): TabviewLifecycleCoordinator {
+    if (!TabviewLifecycleCoordinator.instance) {
+      TabviewLifecycleCoordinator.instance = new TabviewLifecycleCoordinator();
     }
-    return NavigationCoordinator.instance;
+    return TabviewLifecycleCoordinator.instance;
   }
 
   public init(
@@ -55,7 +54,6 @@ export class NavigationCoordinator {
     this.polymerPatcher.applyPatches();
     this.channelHoverAdapter.activate();
     this.bindNavigationEvents();
-    this.startGuardian();
     this.handleRouteChange();
     this.isInitialized = true;
   }
@@ -82,40 +80,13 @@ export class NavigationCoordinator {
   }
 
   public destroy(): void {
-    if (this.guardianTimer !== null) {
-      clearInterval(this.guardianTimer);
-      this.guardianTimer = null;
-    }
     this.channelHoverAdapter.destroy();
     this.unmountTabview();
     this.relocator.destroy();
     this.polymerPatcher.restorePatches();
     this.observerRegistry.clearAll();
+    InfoMirrorEngine.getInstance().destroy();
     this.isInitialized = false;
-  }
-
-  private startGuardian(): void {
-    if (this.guardianTimer !== null) {
-      return;
-    }
-    this.guardianTimer = setInterval(() => {
-      const state = this.resolveNavigationState();
-      if (state.pageType === "watch") {
-        this.currentState = state;
-        if (!this.relocator.isContainerMounted()) {
-          this.tryMount();
-        } else {
-          this.relocator.sweepSecondary();
-          this.updatePlaylistTabVisibility();
-          this.expanderFixer?.updateCommentsCounter();
-          this.relocator.checkAndHandleLinkedComment();
-          const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
-          if (tabInfo && tabInfo.childElementCount === 0) {
-            InfoMirrorEngine.getInstance().runInfoFix();
-          }
-        }
-      }
-    }, 1000);
   }
 
   private bindNavigationEvents(): void {
@@ -192,16 +163,6 @@ export class NavigationCoordinator {
       this.relocator.checkAndHandleLinkedComment();
       InfoMirrorEngine.getInstance().syncMainDescriptionData();
       this.channelHoverAdapter.onNavigateFinish();
-
-      const RETRY_DELAYS: ReadonlyArray<number> = [100, 300, 800, 1500];
-      for (let i = 0; i < RETRY_DELAYS.length; i++) {
-        const delay = RETRY_DELAYS[i];
-        setTimeout(() => {
-          if (this.currentState.pageType === "watch") {
-            InfoMirrorEngine.getInstance().syncMainDescriptionData();
-          }
-        }, delay);
-      }
     } else if (prevPageType === "watch") {
       this.unmountTabview();
     }
@@ -246,6 +207,10 @@ export class NavigationCoordinator {
       if (rightTabs) {
         this.observerRegistry.observeRightTabs(rightTabs);
       }
+
+      this.observerRegistry.observeSecondaryInner(secondaryInner, () => {
+        this.relocator.sweepSecondary();
+      });
 
       this.relocator.registerDefaultSlots();
       this.relocator.refreshAllSlots();
@@ -347,3 +312,4 @@ export class NavigationCoordinator {
   }
 }
 
+export { TabviewLifecycleCoordinator as NavigationCoordinator };

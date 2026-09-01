@@ -11,12 +11,43 @@ export class InfoMirrorEngine {
   private dummyNode: HTMLElement = document.createElement(PAGE_CONSTANTS.TAGS.NOSCRIPT);
   private templateContainer: HTMLElement | null = null;
   private aythlContainer: HTMLElement | null = null;
+  private extraContentObserver: MutationObserver | null = null;
 
   public static getInstance(): InfoMirrorEngine {
     if (!InfoMirrorEngine.instance) {
       InfoMirrorEngine.instance = new InfoMirrorEngine();
     }
     return InfoMirrorEngine.instance;
+  }
+
+  /**
+   * 监听 extra-content 容器的子节点动态注入
+   */
+  public observeExtraContent(metadataElement: HTMLElement): void {
+    if (!this.extraContentObserver) {
+      this.extraContentObserver = new MutationObserver(() => {
+        this.runInfoFix();
+      });
+    }
+    this.extraContentObserver.disconnect();
+    const extraContentContainer =
+      metadataElement.querySelector<HTMLElement>('div[slot="extra-content"], #extra-content') || metadataElement;
+
+    this.extraContentObserver.observe(extraContentContainer, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  public disconnectExtraContent(): void {
+    if (this.extraContentObserver) {
+      this.extraContentObserver.disconnect();
+      this.extraContentObserver = null;
+    }
+  }
+
+  public destroy(): void {
+    this.disconnectExtraContent();
   }
 
   /**
@@ -105,6 +136,10 @@ export class InfoMirrorEngine {
    */
   public syncMainDescriptionData(): void {
     this.ensureMainDescription();
+    const metadata = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.WATCH_METADATA);
+    if (metadata) {
+      this.observeExtraContent(metadata);
+    }
     this.runInfoFix();
   }
 
