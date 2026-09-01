@@ -1,6 +1,7 @@
 import { YouTubeDOMAdapter, commonUtil } from "../../core/dom-adapter";
 import { StorageUtil } from "../../core/storage";
 import { PlaybackHUD } from "../../core/hud";
+import { Locale } from "../../i18n";
 import { Toolbar, TOOLBAR_CONSTANTS } from "../../ui/toolbar";
 import {
   DEFAULT_PLAYBACK_SPEED,
@@ -330,7 +331,7 @@ export class PlayerController {
     this.targetLoop = typeof forceState === "boolean" ? forceState : !this.targetLoop;
     StorageUtil.setValue(StorageUtil.keys.youtube.videoLoop, this.targetLoop);
     YouTubeDOMAdapter.setLoop(this.targetLoop);
-    PlaybackHUD.show(this.targetLoop ? "单曲循环: 开启" : "单曲循环: 关闭");
+    PlaybackHUD.show(this.targetLoop ? Locale.t("hud_loop_enabled") : Locale.t("hud_loop_disabled"));
     this.notifyStateChange();
     return this.targetLoop;
   }
@@ -348,12 +349,12 @@ export class PlayerController {
     try {
       if (YouTubeDOMAdapter.isPictureInPictureActive()) {
         await YouTubeDOMAdapter.exitPictureInPicture();
-        PlaybackHUD.show("画中画: 关闭");
+        PlaybackHUD.show(Locale.t("hud_pip_disabled"));
         this.notifyStateChange();
         return false;
       } else {
         await YouTubeDOMAdapter.requestPictureInPicture();
-        PlaybackHUD.show("画中画: 开启");
+        PlaybackHUD.show(Locale.t("hud_pip_enabled"));
         this.notifyStateChange();
         return true;
       }
@@ -413,7 +414,7 @@ export class PlayerController {
             setTimeout(() => {
               URL.revokeObjectURL(objectUrl);
             }, SCREENSHOT_OBJECT_URL_REVOKE_DELAY_MS);
-            PlaybackHUD.show("截图已保存");
+            PlaybackHUD.show(Locale.t("hud_screenshot_saved"));
           }
 
           resolve({

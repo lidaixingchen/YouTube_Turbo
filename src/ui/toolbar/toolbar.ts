@@ -320,10 +320,10 @@ export class ToolbarController {
       }
     } else {
       ReactiveMounter.getInstance().destroy();
-      document.querySelector("#yt_extension_toolbox_root")?.remove();
-      document.querySelector("#toolbox_extension_container")?.remove();
-      document.querySelector("#script_download_shorts")?.remove();
-      document.querySelector("#script_outer_box")?.remove();
+      Object.values(ToolbarController.SLOT_DEFINITIONS).forEach((def: SlotDefinition) => {
+        document.getElementById(def.elementId)?.remove();
+      });
+      document.querySelector(".toolbox_extension_container")?.remove();
       if (this.popoverUnbind) {
         this.popoverUnbind();
         this.popoverUnbind = null;

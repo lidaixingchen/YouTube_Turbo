@@ -9,8 +9,8 @@ export class PlayerShortcuts {
     if (this.isEnabled) {
       return;
     }
-    this.isEnabled = true;
     this.disable();
+    this.isEnabled = true;
 
     const player = PlayerController.getInstance();
 
