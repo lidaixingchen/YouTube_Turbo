@@ -10,38 +10,59 @@ export interface ShortcutBinding {
 
 export const ShortcutDispatcher = (() => {
   const bindings = new Set<ShortcutBinding>();
+  const registeredKeysSet = new Set<string>();
   let isAttached = false;
   let isEnabled = true;
 
-  const isTypingContext = (event: KeyboardEvent): boolean => {
-    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
-    if (path.length > 0) {
-      return path.some((node) => {
-        if (!(node instanceof HTMLElement)) return false;
-        const tagName = node.tagName.toLowerCase();
-        return (
-          tagName === "input" ||
-          tagName === "textarea" ||
-          node.isContentEditable ||
-          node.getAttribute("role") === "textbox" ||
-          tagName.startsWith("tp-yt-paper-") ||
-          tagName === "ytd-searchbox" ||
-          tagName === "ytd-commentbox" ||
-          tagName.startsWith("yt-live-chat-") ||
-          node.hasAttribute("contenteditable")
-        );
-      });
+  const rebuildKeysSet = (): void => {
+    registeredKeysSet.clear();
+    for (const binding of bindings) {
+      const bKey = binding.key.toLowerCase();
+      registeredKeysSet.add(bKey);
+      if (bKey === ">" || bKey === ".") {
+        registeredKeysSet.add(">");
+        registeredKeysSet.add(".");
+      }
+      if (bKey === "<" || bKey === ",") {
+        registeredKeysSet.add("<");
+        registeredKeysSet.add(",");
+      }
     }
+  };
+
+  const isTypingContext = (event: KeyboardEvent): boolean => {
     const target = event.target;
     if (target instanceof HTMLElement) {
       const tagName = target.tagName.toLowerCase();
-      return (
+      if (
         tagName === "input" ||
         tagName === "textarea" ||
         target.isContentEditable ||
         target.getAttribute("role") === "textbox" ||
         target.hasAttribute("contenteditable")
-      );
+      ) {
+        return true;
+      }
+    }
+
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    for (let i = 0; i < path.length; i++) {
+      const node = path[i];
+      if (!(node instanceof HTMLElement)) continue;
+      const tagName = node.tagName.toLowerCase();
+      if (
+        tagName === "input" ||
+        tagName === "textarea" ||
+        node.isContentEditable ||
+        node.getAttribute("role") === "textbox" ||
+        tagName.startsWith("tp-yt-paper-") ||
+        tagName === "ytd-searchbox" ||
+        tagName === "ytd-commentbox" ||
+        tagName.startsWith("yt-live-chat-") ||
+        node.hasAttribute("contenteditable")
+      ) {
+        return true;
+      }
     }
     return false;
   };
@@ -58,7 +79,16 @@ export const ShortcutDispatcher = (() => {
   };
 
   const handleKeydown = (event: KeyboardEvent): void => {
-    if (!isEnabled || isTypingContext(event)) {
+    if (!isEnabled) {
+      return;
+    }
+
+    const lowerKey = event.key.toLowerCase();
+    if (!registeredKeysSet.has(lowerKey) && !registeredKeysSet.has(event.key)) {
+      return;
+    }
+
+    if (isTypingContext(event)) {
       return;
     }
 
@@ -73,7 +103,7 @@ export const ShortcutDispatcher = (() => {
         event.preventDefault();
         try {
           binding.handler(event);
-        } catch (e) {
+        } catch (e: unknown) {
           console.error("[ShortcutDispatcher] handler error:", e);
         }
         break;
@@ -90,9 +120,11 @@ export const ShortcutDispatcher = (() => {
 
   const register = (binding: ShortcutBinding): (() => void) => {
     bindings.add(binding);
+    rebuildKeysSet();
     ensureAttached();
     return () => {
       bindings.delete(binding);
+      rebuildKeysSet();
     };
   };
 
@@ -106,6 +138,7 @@ export const ShortcutDispatcher = (() => {
       isAttached = false;
     }
     bindings.clear();
+    registeredKeysSet.clear();
   };
 
   return {
