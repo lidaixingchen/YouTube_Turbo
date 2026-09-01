@@ -44,7 +44,24 @@ _Avoid_: KeyBinder, PlayerKeymap, SpeedShortcuts
 字幕偏移校准与同步深模块，统管 `/api/timedtext` 网络拦截、Cue 缓存解析与覆盖层实时渲染。
 _Avoid_: SubtitleOffset, SubtitleManager, CaptionProxy
 
+**CaptionOverlayRenderer**:
+字幕覆盖层渲染深模块，基于按需激活的 `requestAnimationFrame` 与 `timeupdate` 复合驱动，负责原生字幕互斥隐藏与当前帧 Cue 文本精准绘制。
+_Avoid_: SubtitleOverlay, CaptionDrawer, OverlayPoller
+
+**ReactiveRenderGate**:
+按需渲染闸门机制，仅在媒体处于播放态且自定义字幕配置有效时保持渲染循环，在暂停或空闲态将 JavaScript CPU 占用收敛为零。
+_Avoid_: RenderLoop, AnimationTicker, FramePoller
+
+**GridCoordinator**:
+首页与订阅页 4 列网格自适应统管深模块，统管局部容器 DOM 突变监听、行布局指令重排与原生 CSS 媒体查询自适应。
+_Avoid_: FourColumnGrid, GridManager, GridDOMAdapter
+
+**ScopedGridObserver**:
+仅针对 `ytd-rich-grid-renderer > #contents` 直接子容器的靶向突变观察器，在 DOM 节点重排期间具备自防护静默能力，杜绝全局 DOM 突变风暴。
+_Avoid_: BodyObserver, GlobalGridWatcher, GridPoller
+
 **ToolbarController**:
 多插槽悬浮工具箱与操作栏核心深模块，统管播放器控制栏、Shorts 侧边栏与视频元数据栏的插槽注入、弹层定位与动作派发。
 _Avoid_: ToolBox, ToolbarManager, ActionHost
+
 
