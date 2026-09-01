@@ -5,12 +5,12 @@ import { SlotMountBus } from "./reactive-mounter";
 import { ActionRegistry } from "./action-registry";
 import { StyleEngine } from "../../core/style-engine";
 import { Locale } from "../../i18n";
-import type { ActionConfig, SlotDefinition } from "./types";
+import type { ActionConfig, PopoverController, SlotDefinition } from "./types";
 
 export class ToolbarController {
   private static instance: ToolbarController | null = null;
-  private isInitialized = false;
-  private popoverUnbind: (() => void) | null = null;
+  private isInitialized: boolean = false;
+  private popoverController: PopoverController | null = null;
 
   private static readonly SLOT_DEFINITIONS: Record<string, SlotDefinition> = {
     [TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS]: {
@@ -83,62 +83,115 @@ export class ToolbarController {
     const css = `
       .toolbox_extension_container {
         position: absolute !important;
-        background: rgba(0, 0, 0, 0.4) !important;
-        color: #ffffff !important;
-        border-radius: 8px !important;
-        box-sizing: border-box !important;
+        bottom: ${TOOLBAR_CONSTANTS.PANEL_BOTTOM_OFFSET_PX}px !important;
+        left: 0 !important;
+        background: rgba(28, 28, 28, 0.92) !important;
+        backdrop-filter: blur(16px) !important;
+        -webkit-backdrop-filter: blur(16px) !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
+        border-radius: ${TOOLBAR_CONSTANTS.PANEL_BORDER_RADIUS_PX}px !important;
+        padding: ${TOOLBAR_CONSTANTS.PANEL_PADDING_PX}px !important;
         z-index: 999999999999 !important;
         display: none;
-        padding: 13px !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        box-sizing: border-box !important;
+        user-select: none !important;
+        pointer-events: auto !important;
+        will-change: transform, opacity !important;
+        transition: opacity 0.15s ease !important;
       }
-      .toolbox_extension_container .toolbox_extension_tools {
+      .toolbox_extension_tooltip {
+        height: 18px !important;
+        line-height: 18px !important;
+        font-size: 11px !important;
+        font-weight: 500 !important;
+        color: rgba(255, 255, 255, 0.85) !important;
+        margin-bottom: 6px !important;
+        text-align: center !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: 126px !important;
+        opacity: 0.85 !important;
+        transition: opacity 0.15s ease !important;
+      }
+      .toolbox_extension_tools {
         display: grid !important;
-        grid-template-columns: repeat(4, 1fr) !important;
-        gap: 8px !important;
+        grid-template-columns: repeat(${TOOLBAR_CONSTANTS.GRID_COLUMNS}, 1fr) !important;
+        gap: ${TOOLBAR_CONSTANTS.PANEL_BUTTON_GAP_PX}px !important;
       }
-      .toolbox_extension_container .toolbox_extension_tool_btn {
-        width: 25px !important;
-        height: 25px !important;
-        background: #F4F4F4 !important;
-        border: none !important;
+      .toolbox_extension_tool_btn {
+        width: ${TOOLBAR_CONSTANTS.PANEL_BUTTON_SIZE_PX}px !important;
+        height: ${TOOLBAR_CONSTANTS.PANEL_BUTTON_SIZE_PX}px !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid rgba(255, 255, 255, 0.06) !important;
         cursor: pointer !important;
         display: flex !important;
         justify-content: center !important;
         align-items: center !important;
-        border-radius: 5px !important;
-        color: #000000 !important;
-        transition: background 0.2s ease;
+        border-radius: ${TOOLBAR_CONSTANTS.PANEL_BUTTON_RADIUS_PX}px !important;
+        color: #ffffff !important;
+        transition: background 0.15s ease, transform 0.1s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+        padding: 0 !important;
+        outline: none !important;
       }
-      .toolbox_extension_container .toolbox_extension_tool_btn:hover {
-        background: #E5E5E5 !important;
+      .toolbox_extension_tool_btn:hover {
+        background: rgba(255, 255, 255, 0.18) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        transform: scale(1.04) !important;
+      }
+      .toolbox_extension_tool_btn:active {
+        transform: scale(0.96) !important;
+      }
+      .toolbox_extension_tool_btn.active {
+        background: rgba(255, 0, 0, 0.28) !important;
+        border-color: rgba(255, 0, 0, 0.55) !important;
+        color: #ff4e45 !important;
+        box-shadow: 0 0 8px rgba(255, 0, 0, 0.35) !important;
       }
       .yt-turbo-shorts-btn {
-        cursor: pointer;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        margin-top: 16px;
+        cursor: pointer !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        margin-top: 16px !important;
+        width: 48px !important;
+        height: 48px !important;
+        border-radius: 50% !important;
+        background: rgba(255, 255, 255, 0.1) !important;
+        transition: background 0.2s ease, transform 0.1s ease !important;
+      }
+      .yt-turbo-shorts-btn:hover {
+        background: rgba(255, 255, 255, 0.2) !important;
+        transform: scale(1.05) !important;
       }
       .yt-turbo-metadata-outer {
-        margin-left: 10px;
-        display: inline-flex;
-        border-radius: 18px;
-        overflow: hidden;
-        align-items: center;
-        justify-content: center;
+        margin-left: 10px !important;
+        display: inline-flex !important;
+        border-radius: 18px !important;
+        overflow: hidden !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05)) !important;
+        color: var(--yt-spec-text-primary, inherit) !important;
+        transition: background 0.2s ease !important;
       }
       .yt-turbo-metadata-btn {
-        width: 36px;
-        height: 36px;
-        border: none;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: opacity 0.2s, transform 0.1s;
+        width: ${TOOLBAR_CONSTANTS.BUTTON_SIZE_PX}px !important;
+        height: ${TOOLBAR_CONSTANTS.BUTTON_SIZE_PX}px !important;
+        border: none !important;
+        cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: transparent !important;
+        color: inherit !important;
+        transition: opacity 0.2s, transform 0.1s !important;
       }
       .yt-turbo-metadata-btn:hover {
-        opacity: 0.85;
+        opacity: 0.85 !important;
+        transform: scale(1.05) !important;
       }
     `;
     StyleEngine.inject(TOOLBAR_CONSTANTS.STYLE_ID, css);
@@ -178,6 +231,12 @@ export class ToolbarController {
     toolBoxContainer.id = "toolbox_extension_container";
     toolBoxContainer.className = "toolbox_extension_container";
 
+    const tooltipEl = document.createElement("div");
+    tooltipEl.className = "toolbox_extension_tooltip";
+    const defaultTooltipText = "YouTube Turbo";
+    tooltipEl.textContent = defaultTooltipText;
+    toolBoxContainer.appendChild(tooltipEl);
+
     const toolsGrid = document.createElement("div");
     toolsGrid.className = "toolbox_extension_tools";
 
@@ -191,18 +250,40 @@ export class ToolbarController {
         btn.innerHTML = "";
         const iconKey = ActionRegistry.resolveIconKey(action);
         btn.appendChild(IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.ACTION_ICON_SIZE }));
-        btn.title = Locale.t(action.titleKey) || action.defaultTitle;
+        const titleText = Locale.t(action.titleKey) || action.defaultTitle;
+        btn.setAttribute("aria-label", titleText);
+
+        const isActive = action.isActive ? action.isActive() : false;
+        if (isActive) {
+          btn.classList.add("active");
+        } else {
+          btn.classList.remove("active");
+        }
       };
 
       updateBtn();
 
-      btn.addEventListener("click", (e) => {
+      btn.addEventListener("mouseenter", () => {
+        const titleText = Locale.t(action.titleKey) || action.defaultTitle;
+        tooltipEl.textContent = titleText;
+      });
+
+      btn.addEventListener("mouseleave", () => {
+        tooltipEl.textContent = defaultTooltipText;
+      });
+
+      btn.addEventListener("click", (e: MouseEvent) => {
         action.onClick(e, {
           actionId: action.id,
           slot: action.slot,
           buttonElement: btn,
           refresh: updateBtn
         });
+
+        const shouldDismiss = action.dismissOnExecute !== false;
+        if (shouldDismiss) {
+          this.popoverController?.close();
+        }
       });
 
       ActionRegistry.bindActionState(action.id, updateBtn);
@@ -214,8 +295,10 @@ export class ToolbarController {
     const player = document.querySelector<HTMLElement>("#player-container-outer .html5-video-player, #movie_player");
     if (player) {
       player.appendChild(toolBoxContainer);
-      if (this.popoverUnbind) this.popoverUnbind();
-      this.popoverUnbind = PopoverEngine.bind(boxContainer, toolBoxContainer, player);
+      if (this.popoverController) {
+        this.popoverController.destroy();
+      }
+      this.popoverController = PopoverEngine.bind(boxContainer, toolBoxContainer, player);
     }
 
     return boxContainer;
@@ -243,7 +326,7 @@ export class ToolbarController {
       container.appendChild(iconSvg);
       container.title = Locale.t(action.titleKey) || action.defaultTitle;
 
-      container.addEventListener("click", (e) => {
+      container.addEventListener("click", (e: MouseEvent) => {
         action.onClick(e, {
           actionId: action.id,
           slot: action.slot,
@@ -278,9 +361,9 @@ export class ToolbarController {
       btn.className = "yt-turbo-metadata-btn";
       btn.title = Locale.t(action.titleKey) || action.defaultTitle;
       const iconKey = ActionRegistry.resolveIconKey(action);
-      btn.appendChild(IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE }));
+      btn.appendChild(IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.ACTION_ICON_SIZE }));
 
-      btn.addEventListener("click", (e) => {
+      btn.addEventListener("click", (e: MouseEvent) => {
         action.onClick(e, {
           actionId: action.id,
           slot: action.slot,
@@ -288,7 +371,7 @@ export class ToolbarController {
           refresh: () => {
             btn.innerHTML = "";
             const newIconKey = ActionRegistry.resolveIconKey(action);
-            btn.appendChild(IconRegistry.createSvg(newIconKey, { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE }));
+            btn.appendChild(IconRegistry.createSvg(newIconKey, { size: TOOLBAR_CONSTANTS.ACTION_ICON_SIZE }));
           }
         });
       });
@@ -317,19 +400,19 @@ export class ToolbarController {
   public unmount(slotKey?: string): void {
     if (slotKey) {
       SlotMountBus.getInstance().unmountSlot(slotKey);
-      if (slotKey === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS && this.popoverUnbind) {
-        this.popoverUnbind();
-        this.popoverUnbind = null;
+      if (slotKey === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS && this.popoverController) {
+        this.popoverController.destroy();
+        this.popoverController = null;
       }
     } else {
       SlotMountBus.getInstance().destroy();
       Object.values(ToolbarController.SLOT_DEFINITIONS).forEach((def: SlotDefinition) => {
         document.getElementById(def.elementId)?.remove();
       });
-      document.querySelector(".toolbox_extension_container")?.remove();
-      if (this.popoverUnbind) {
-        this.popoverUnbind();
-        this.popoverUnbind = null;
+      document.getElementById("toolbox_extension_container")?.remove();
+      if (this.popoverController) {
+        this.popoverController.destroy();
+        this.popoverController = null;
       }
     }
   }
