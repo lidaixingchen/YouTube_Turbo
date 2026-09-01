@@ -40,11 +40,15 @@ export class ToolbarController {
     [TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA]: {
       slotKey: TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA,
       containerSelector: "ytd-watch-metadata",
-      targetSelector: "#owner, #actions",
+      targetSelector: "#top-level-buttons-computed, #actions-inner, #actions, #owner",
       elementId: "script_outer_box",
       isApplicable: (url: URL) => url.pathname.startsWith("/watch"),
       mount: (target: HTMLElement, element: HTMLElement) => {
-        if (target.id === "owner") {
+        if (target.id === "top-level-buttons-computed" || target.id === "actions-inner") {
+          if (!target.contains(element)) {
+            target.appendChild(element);
+          }
+        } else if (target.id === "owner") {
           if (!target.contains(element)) {
             target.appendChild(element);
           }
@@ -167,31 +171,44 @@ export class ToolbarController {
         transform: scale(1.05) !important;
       }
       .yt-turbo-metadata-outer {
-        margin-left: 10px !important;
+        margin-left: 8px !important;
         display: inline-flex !important;
-        border-radius: 18px !important;
-        overflow: hidden !important;
         align-items: center !important;
-        justify-content: center !important;
-        background: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05)) !important;
-        color: var(--yt-spec-text-primary, inherit) !important;
-        transition: background 0.2s ease !important;
+        vertical-align: middle !important;
       }
       .yt-turbo-metadata-btn {
-        width: ${TOOLBAR_CONSTANTS.BUTTON_SIZE_PX}px !important;
-        height: ${TOOLBAR_CONSTANTS.BUTTON_SIZE_PX}px !important;
+        height: ${TOOLBAR_CONSTANTS.METADATA_BUTTON_HEIGHT_PX}px !important;
+        padding: 0 ${TOOLBAR_CONSTANTS.METADATA_PADDING_HORIZONTAL_PX}px !important;
+        border-radius: ${TOOLBAR_CONSTANTS.METADATA_BORDER_RADIUS_PX}px !important;
         border: none !important;
         cursor: pointer !important;
-        display: flex !important;
+        display: inline-flex !important;
         align-items: center !important;
         justify-content: center !important;
-        background: transparent !important;
-        color: inherit !important;
-        transition: opacity 0.2s, transform 0.1s !important;
+        gap: ${TOOLBAR_CONSTANTS.METADATA_GAP_PX}px !important;
+        background: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05)) !important;
+        color: var(--yt-spec-text-primary, inherit) !important;
+        font-family: "Roboto", "YouTube Sans", "Arial", sans-serif !important;
+        font-size: ${TOOLBAR_CONSTANTS.METADATA_FONT_SIZE_PX}px !important;
+        font-weight: 500 !important;
+        line-height: ${TOOLBAR_CONSTANTS.METADATA_BUTTON_HEIGHT_PX}px !important;
+        white-space: nowrap !important;
+        user-select: none !important;
+        outline: none !important;
+        transition: background 0.2s ease, transform 0.1s ease !important;
       }
       .yt-turbo-metadata-btn:hover {
-        opacity: 0.85 !important;
-        transform: scale(1.05) !important;
+        background: var(--yt-spec-button-chip-background-hover, rgba(0, 0, 0, 0.1)) !important;
+        transform: scale(1.02) !important;
+      }
+      .yt-turbo-metadata-btn:active {
+        transform: scale(0.98) !important;
+      }
+      .yt-turbo-metadata-label {
+        font-size: ${TOOLBAR_CONSTANTS.METADATA_FONT_SIZE_PX}px !important;
+        font-weight: 500 !important;
+        color: inherit !important;
+        line-height: normal !important;
       }
     `;
     StyleEngine.inject(TOOLBAR_CONSTANTS.STYLE_ID, css);
@@ -357,22 +374,33 @@ export class ToolbarController {
     outerBox.className = "yt-turbo-metadata-outer";
 
     actions.forEach((action) => {
-      const btn = document.createElement("div");
+      const btn = document.createElement("button");
+      btn.type = "button";
       btn.className = "yt-turbo-metadata-btn";
-      btn.title = Locale.t(action.titleKey) || action.defaultTitle;
-      const iconKey = ActionRegistry.resolveIconKey(action);
-      btn.appendChild(IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.ACTION_ICON_SIZE }));
+
+      const renderContent = (): void => {
+        btn.innerHTML = "";
+        const iconKey = ActionRegistry.resolveIconKey(action);
+        const iconEl = IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.METADATA_ICON_SIZE });
+        btn.appendChild(iconEl);
+
+        const titleText = Locale.t(action.titleKey) || action.defaultTitle;
+        const labelSpan = document.createElement("span");
+        labelSpan.className = "yt-turbo-metadata-label";
+        labelSpan.textContent = titleText;
+        btn.appendChild(labelSpan);
+        btn.title = titleText;
+        btn.setAttribute("aria-label", titleText);
+      };
+
+      renderContent();
 
       btn.addEventListener("click", (e: MouseEvent) => {
         action.onClick(e, {
           actionId: action.id,
           slot: action.slot,
           buttonElement: btn,
-          refresh: () => {
-            btn.innerHTML = "";
-            const newIconKey = ActionRegistry.resolveIconKey(action);
-            btn.appendChild(IconRegistry.createSvg(newIconKey, { size: TOOLBAR_CONSTANTS.ACTION_ICON_SIZE }));
-          }
+          refresh: renderContent
         });
       });
 

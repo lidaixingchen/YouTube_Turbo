@@ -65,7 +65,7 @@ export class VideoDownloadService {
         slot: TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA,
         titleKey: "action_download",
         defaultTitle: "Download Video",
-        icon: "shortDownload",
+        icon: "download",
         order: 10,
         onClick: () => {
           this.downloadCurrentVideo();
