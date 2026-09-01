@@ -244,6 +244,7 @@ export class CaptionOverlayRenderer {
     const isCC = this.isSubtitlesEnabled();
 
     if (!video || !isCC || sessionOffsetMs === 0) {
+      this.stopLoop();
       this.restoreNativeCaptions();
       this.clearOverlayText();
       return;

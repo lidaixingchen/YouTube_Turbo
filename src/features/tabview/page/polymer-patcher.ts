@@ -247,6 +247,7 @@ export class PolymerPatcher {
           hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA, "");
           ObserverRegistry.getInstance().observeComments(hostElement);
           DOMRelocator.getInstance().tryRelocateSlot("comments");
+          DOMRelocator.getInstance().checkAndHandleLinkedComment();
         }
         return rawMethod.apply(this, args);
       };
@@ -510,7 +511,7 @@ export class PolymerPatcher {
         return;
       }
       if (hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER)) {
-        // 通道 1：镜像节点挂载完成
+        // 通道 1：镜像节点挂载完成，仅维护样式与位置，杜绝递归触发
         hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO, "");
         hostElement.classList.add(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO);
         const inlineExpander = hostElement.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
@@ -524,37 +525,9 @@ export class PolymerPatcher {
         if (tabInfo && !hostElement.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER)) {
           tabInfo.insertBefore(hostElement, tabInfo.firstChild);
         }
-        InfoMirrorEngine.getInstance().runInfoFix();
       } else if (!hostElement.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER) && !hostElement.closest("noscript")) {
-        // 通道 2：原生节点挂载完成，创建/同步镜像节点
-        const sandbox = InfoMirrorEngine.getInstance().getOrCreateTemplateSandbox();
-        let mirrorNode = document.querySelector<HTMLElement>(
-          `${PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER}[${PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER}]`
-        );
-        if (!mirrorNode) {
-          mirrorNode = document.createElement(PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER);
-          mirrorNode.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER, "");
-          mirrorNode.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER_FRONT, "");
-          sandbox.appendChild(mirrorNode);
-        }
-        hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER_BACK, "");
-        const mirrorCnt = PolymerHelper.insp(mirrorNode);
-        const rawCnt = PolymerHelper.insp(hostElement);
-        if (mirrorCnt && rawCnt?.data) {
-          mirrorCnt.data = Object.assign({}, rawCnt.data);
-        }
-        const inlineExpander = mirrorNode.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
-        if (inlineExpander) {
-          const inlineCnt = PolymerHelper.insp(inlineExpander);
-          if (inlineCnt) {
-            fixInlineExpanderMethods(inlineCnt);
-          }
-        }
-        const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
-        if (tabInfo && mirrorNode && !mirrorNode.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER)) {
-          tabInfo.insertBefore(mirrorNode, tabInfo.firstChild);
-        }
-        InfoMirrorEngine.getInstance().runInfoFix();
+        // 通道 2：原生节点挂载完成，委托 InfoMirrorEngine 执行统一镜像与数据同步
+        InfoMirrorEngine.getInstance().syncMainDescriptionData();
       }
     };
 

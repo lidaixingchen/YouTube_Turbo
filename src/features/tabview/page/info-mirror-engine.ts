@@ -12,6 +12,7 @@ export class InfoMirrorEngine {
   private templateContainer: HTMLElement | null = null;
   private aythlContainer: HTMLElement | null = null;
   private extraContentObserver: MutationObserver | null = null;
+  private isFixing: boolean = false;
 
   public static getInstance(): InfoMirrorEngine {
     if (!InfoMirrorEngine.instance) {
@@ -26,17 +27,21 @@ export class InfoMirrorEngine {
   public observeExtraContent(metadataElement: HTMLElement): void {
     if (!this.extraContentObserver) {
       this.extraContentObserver = new MutationObserver(() => {
-        this.runInfoFix();
+        if (!this.isFixing) {
+          this.runInfoFix();
+        }
       });
     }
     this.extraContentObserver.disconnect();
     const extraContentContainer =
-      metadataElement.querySelector<HTMLElement>('div[slot="extra-content"], #extra-content') || metadataElement;
+      metadataElement.querySelector<HTMLElement>('div[slot="extra-content"], #extra-content');
 
-    this.extraContentObserver.observe(extraContentContainer, {
-      childList: true,
-      subtree: true
-    });
+    if (extraContentContainer) {
+      this.extraContentObserver.observe(extraContentContainer, {
+        childList: true,
+        subtree: true
+      });
+    }
   }
 
   public disconnectExtraContent(): void {
@@ -135,18 +140,38 @@ export class InfoMirrorEngine {
    * SPA 路由切歌时同步主描述数据
    */
   public syncMainDescriptionData(): void {
-    this.ensureMainDescription();
-    const metadata = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.WATCH_METADATA);
-    if (metadata) {
-      this.observeExtraContent(metadata);
+    if (this.isFixing) {
+      return;
     }
-    this.runInfoFix();
+    this.isFixing = true;
+    try {
+      this.ensureMainDescription();
+      const metadata = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.WATCH_METADATA);
+      if (metadata) {
+        this.observeExtraContent(metadata);
+      }
+      this.runInfoFixInternal();
+    } finally {
+      this.isFixing = false;
+    }
   }
 
   /**
    * 执行 extra-content 与主描述的镜像与同步
    */
   public runInfoFix(): void {
+    if (this.isFixing) {
+      return;
+    }
+    this.isFixing = true;
+    try {
+      this.runInfoFixInternal();
+    } finally {
+      this.isFixing = false;
+    }
+  }
+
+  private runInfoFixInternal(): void {
     const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
     const flexy = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
     if (!tabInfo || !flexy) {
@@ -310,13 +335,13 @@ export class InfoMirrorEngine {
 
     // 3. MutationObserver 触发镜像数据刷新
     const observer = new MutationObserver((mutations) => {
+      if (this.isFixing) {
+        return;
+      }
       let shouldRefresh = false;
       for (let i = 0; i < mutations.length; i++) {
         const m = mutations[i];
-        if (
-          m.attributeName === PAGE_CONSTANTS.ATTRIBUTES.TYT_CLONE_REFRESH_COUNT ||
-          m.attributeName === PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER
-        ) {
+        if (m.attributeName === PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER) {
           shouldRefresh = true;
           break;
         }
@@ -327,10 +352,15 @@ export class InfoMirrorEngine {
         const currentMirCnt = PolymerHelper.insp(mirrorEl);
         const lastData = this.lastSyncedDataMap.get(mirrorEl);
         if (currentSrcCnt?.data && currentMirCnt && currentSrcCnt.data !== lastData) {
-          mirrorEl.replaceWith(this.dummyNode);
-          currentMirCnt.data = Object.assign({}, currentSrcCnt.data);
-          this.dummyNode.replaceWith(mirrorEl);
-          this.lastSyncedDataMap.set(mirrorEl, currentSrcCnt.data);
+          this.isFixing = true;
+          try {
+            mirrorEl.replaceWith(this.dummyNode);
+            currentMirCnt.data = Object.assign({}, currentSrcCnt.data);
+            this.dummyNode.replaceWith(mirrorEl);
+            this.lastSyncedDataMap.set(mirrorEl, currentSrcCnt.data);
+          } finally {
+            this.isFixing = false;
+          }
         }
       }
     });
@@ -338,7 +368,6 @@ export class InfoMirrorEngine {
     observer.observe(sourceEl, {
       attributes: true,
       attributeFilter: [
-        PAGE_CONSTANTS.ATTRIBUTES.TYT_CLONE_REFRESH_COUNT,
         PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER
       ]
     });

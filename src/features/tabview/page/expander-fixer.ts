@@ -263,6 +263,7 @@ export class ExpanderFixer {
     if (tabInfo) {
       tabInfo.innerHTML = "";
     }
+    ExpanderFixer.instance = null;
   }
 }
 

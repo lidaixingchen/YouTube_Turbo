@@ -127,7 +127,20 @@ export class SubtitleTimeline {
    * 基于二分查找在 O(log N) 复杂度内检索当前时间戳命中的 Cue 片段
    */
   public findActiveCues(effectiveMs: number): SubtitleCue[] {
-    const cues = this.currentCues;
+    let cues = this.currentCues;
+    if (cues.length === 0 && this.cuesCache.size > 0 && typeof window !== "undefined") {
+      const currentVideoId = new URLSearchParams(window.location.search).get("v");
+      if (currentVideoId) {
+        for (const [key, cachedCues] of this.cuesCache.entries()) {
+          if (key.startsWith(currentVideoId)) {
+            this.currentCues = cachedCues;
+            this.currentKey = key;
+            cues = cachedCues;
+            break;
+          }
+        }
+      }
+    }
     const len = cues.length;
     if (len === 0) return [];
 

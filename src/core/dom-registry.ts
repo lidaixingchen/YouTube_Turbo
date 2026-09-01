@@ -191,7 +191,8 @@ export class ReactiveDOMRegistry {
       const container =
         this.getPlayerContainer() ||
         document.querySelector<HTMLElement>("ytd-player, #player, #player-container, #player-container-outer, #content") ||
-        document.body;
+        document.body ||
+        document.documentElement;
 
       if (!container) {
         resolve(null);
