@@ -1,0 +1,316 @@
+.yt-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.yt-settings-form .row-item {
+  background-color: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.08));
+  padding: 14px 16px;
+  border-radius: 12px;
+  box-sizing: border-box;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+html[dark] .yt-settings-form .row-item,
+[dark="true"] .yt-settings-form .row-item,
+ytd-app[dark] .yt-settings-form .row-item {
+  background-color: var(--yt-spec-badge-chip-background, rgba(255, 255, 255, 0.06));
+  border-color: var(--yt-spec-10-percent-layer, rgba(255, 255, 255, 0.08));
+}
+
+.yt-settings-form .setting-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.yt-settings-form .setting-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  text-align: start;
+}
+
+.yt-settings-form .setting-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--yt-spec-text-primary, #0f0f0f);
+  line-height: 1.35;
+}
+
+html[dark] .yt-settings-form .setting-title,
+[dark="true"] .yt-settings-form .setting-title {
+  color: var(--yt-spec-text-primary, #f1f1f1);
+}
+
+.yt-settings-form .setting-desc {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--yt-spec-text-secondary, #606060);
+  line-height: 1.45;
+  margin-top: 3px;
+}
+
+html[dark] .yt-settings-form .setting-desc,
+[dark="true"] .yt-settings-form .setting-desc {
+  color: var(--yt-spec-text-secondary, #aaaaaa);
+}
+
+/* Material Design 3 / YouTube 原生无障碍开关 */
+.yt-settings-form .setting-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.yt-settings-form .switch-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 44px;
+  height: 24px;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.yt-settings-form .switch-track {
+  width: 44px;
+  height: 24px;
+  background-color: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.2));
+  border-radius: 12px;
+  position: relative;
+  transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-block;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+html[dark] .yt-settings-form .switch-track,
+[dark="true"] .yt-settings-form .switch-track {
+  background-color: var(--yt-spec-10-percent-layer, rgba(255, 255, 255, 0.2));
+}
+
+.yt-settings-form .switch-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  background-color: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.yt-settings-form .switch-input:checked + .switch-track {
+  background-color: var(--yt-spec-call-to-action, #065fd4);
+}
+
+html[dark] .yt-settings-form .switch-input:checked + .switch-track,
+[dark="true"] .yt-settings-form .switch-input:checked + .switch-track {
+  background-color: var(--yt-spec-call-to-action, #3ea6ff);
+}
+
+.yt-settings-form .switch-input:checked + .switch-track::after {
+  transform: translateX(20px);
+}
+
+.yt-settings-form .switch-input:focus-visible + .switch-track {
+  outline: 2px solid var(--yt-spec-call-to-action, #065fd4);
+  outline-offset: 2px;
+}
+
+html[dark] .yt-settings-form .switch-input:focus-visible + .switch-track,
+[dark="true"] .yt-settings-form .switch-input:focus-visible + .switch-track {
+  outline-color: var(--yt-spec-call-to-action, #3ea6ff);
+}
+
+/* 二级微调配置容器 */
+.yt-settings-form .setting-extra-config {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1));
+  transition: opacity 0.2s ease;
+}
+
+html[dark] .yt-settings-form .setting-extra-config,
+[dark="true"] .yt-settings-form .setting-extra-config {
+  border-top-color: var(--yt-spec-10-percent-layer, rgba(255, 255, 255, 0.1));
+}
+
+.yt-subtitle-offset-config {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: start;
+}
+
+.yt-subtitle-offset-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.yt-subtitle-offset-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--yt-spec-text-primary, #0f0f0f);
+}
+
+html[dark] .yt-subtitle-offset-title,
+[dark="true"] .yt-subtitle-offset-title {
+  color: var(--yt-spec-text-primary, #f1f1f1);
+}
+
+.yt-turbo-kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.08));
+  color: var(--yt-spec-text-secondary, #606060);
+  border: 1px solid var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.12));
+}
+
+html[dark] .yt-turbo-kbd,
+[dark="true"] .yt-turbo-kbd {
+  background-color: var(--yt-spec-10-percent-layer, rgba(255, 255, 255, 0.1));
+  color: var(--yt-spec-text-secondary, #aaaaaa);
+  border-color: var(--yt-spec-10-percent-layer, rgba(255, 255, 255, 0.15));
+}
+
+.yt-subtitle-offset-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.yt-offset-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  background-color: var(--yt-spec-base-background, #ffffff);
+  border: 1px solid var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.16));
+  border-radius: 14px;
+  padding: 2px 10px;
+  box-sizing: border-box;
+  height: 28px;
+}
+
+html[dark] .yt-offset-input-wrap,
+[dark="true"] .yt-offset-input-wrap {
+  background-color: var(--yt-spec-base-background, #1f1f1f);
+  border-color: var(--yt-spec-10-percent-layer, rgba(255, 255, 255, 0.16));
+}
+
+.yt-offset-input {
+  width: 52px;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  color: var(--yt-spec-text-primary, #0f0f0f);
+  padding: 0;
+  background: transparent;
+  font-family: inherit;
+}
+
+html[dark] .yt-offset-input,
+[dark="true"] .yt-offset-input {
+  color: var(--yt-spec-text-primary, #f1f1f1);
+}
+
+.yt-offset-unit {
+  font-size: 12px;
+  color: var(--yt-spec-text-secondary, #606060);
+  margin-inline-start: 4px;
+}
+
+html[dark] .yt-offset-unit,
+[dark="true"] .yt-offset-unit {
+  color: var(--yt-spec-text-secondary, #aaaaaa);
+}
+
+/* Pill 胶囊按钮 */
+.yt-offset-btn {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 14px;
+  border: 1px solid var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.12));
+  background-color: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05));
+  color: var(--yt-spec-text-primary, #0f0f0f);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+html[dark] .yt-offset-btn,
+[dark="true"] .yt-offset-btn {
+  background-color: var(--yt-spec-badge-chip-background, rgba(255, 255, 255, 0.08));
+  border-color: var(--yt-spec-10-percent-layer, rgba(255, 255, 255, 0.12));
+  color: var(--yt-spec-text-primary, #f1f1f1);
+}
+
+.yt-offset-btn:hover {
+  background-color: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1));
+}
+
+html[dark] .yt-offset-btn:hover,
+[dark="true"] .yt-offset-btn:hover {
+  background-color: var(--yt-spec-10-percent-layer, rgba(255, 255, 255, 0.15));
+}
+
+.yt-offset-btn:focus-visible {
+  outline: 2px solid var(--yt-spec-call-to-action, #065fd4);
+  outline-offset: 1px;
+}
+
+.yt-offset-btn-reset {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.2);
+  background-color: rgba(220, 38, 38, 0.06);
+}
+
+html[dark] .yt-offset-btn-reset,
+[dark="true"] .yt-offset-btn-reset {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.25);
+  background-color: rgba(248, 113, 113, 0.1);
+}
+
+.yt-offset-btn-reset:hover {
+  background-color: rgba(220, 38, 38, 0.12);
+}
+
+html[dark] .yt-offset-btn-reset:hover,
+[dark="true"] .yt-offset-btn-reset:hover {
+  background-color: rgba(248, 113, 113, 0.18);
+}
+
+.yt-subtitle-offset-desc {
+  font-size: 12px;
+  color: var(--yt-spec-text-secondary, #606060);
+  line-height: 1.45;
+}
+
+html[dark] .yt-subtitle-offset-desc,
+[dark="true"] .yt-subtitle-offset-desc {
+  color: var(--yt-spec-text-secondary, #aaaaaa);
+}

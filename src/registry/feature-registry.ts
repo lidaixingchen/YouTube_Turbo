@@ -1,7 +1,11 @@
 import { StorageUtil } from "../core/storage";
+import { StyleEngine } from "../core/style-engine";
 import { LangueUtil } from "../i18n";
 import { Modal } from "../ui/modal/modal";
 import type { FeatureDescriptor } from "../types";
+import settingsCss from "./settings.css?raw";
+
+const SETTINGS_STYLE_ID = "yt-improvements-settings-style";
 
 export const FeatureRegistry = (() => {
   const descriptors = new Map<string, FeatureDescriptor>();
@@ -92,6 +96,8 @@ export const FeatureRegistry = (() => {
     },
 
     openSettingsModal(): void {
+      StyleEngine.inject(SETTINGS_STYLE_ID, settingsCss);
+
       const language = LangueUtil.getLanguage();
       const states = getStoredStates();
       let requiresReloadOnClose = false;
@@ -105,32 +111,51 @@ export const FeatureRegistry = (() => {
         const row = document.createElement("div");
         row.className = "row-item";
 
-        const topRow = document.createElement("div");
-        topRow.className = "setting";
+        const header = document.createElement("div");
+        header.className = "setting-header";
 
-        const nameEl = document.createElement("div");
-        nameEl.className = "setting-name";
-        nameEl.textContent = language.content[feature.i18nKey] || feature.i18nKey;
+        const infoEl = document.createElement("div");
+        infoEl.className = "setting-info";
+
+        const titleText =
+          (feature.titleI18nKey && language.content[feature.titleI18nKey]) ||
+          language.content[feature.i18nKey] ||
+          feature.i18nKey;
+
+        const titleEl = document.createElement("div");
+        titleEl.className = "setting-title";
+        titleEl.textContent = titleText;
+        infoEl.appendChild(titleEl);
+
+        const descText = feature.descI18nKey && language.content[feature.descI18nKey];
+        if (descText) {
+          const descEl = document.createElement("div");
+          descEl.className = "setting-desc";
+          descEl.textContent = descText;
+          infoEl.appendChild(descEl);
+        }
 
         const switchEl = document.createElement("div");
         switchEl.className = "setting-switch";
 
-        const inputId = "yt_feat_" + feature.id;
+        const inputId = `yt_feat_${feature.id}`;
         const input = document.createElement("input");
         input.type = "checkbox";
         input.id = inputId;
+        input.className = "switch-input";
+        input.setAttribute("aria-label", titleText);
         const isFeatureEnabled = typeof states[feature.id] === "boolean" ? states[feature.id] : feature.defaultValue;
         input.checked = isFeatureEnabled;
 
-        const label = document.createElement("label");
-        label.className = "toggle";
-        label.htmlFor = inputId;
+        const track = document.createElement("span");
+        track.className = "switch-track";
 
         switchEl.appendChild(input);
-        switchEl.appendChild(label);
-        topRow.appendChild(nameEl);
-        topRow.appendChild(switchEl);
-        row.appendChild(topRow);
+        switchEl.appendChild(track);
+
+        header.appendChild(infoEl);
+        header.appendChild(switchEl);
+        row.appendChild(header);
 
         let extraContainer: HTMLElement | null = null;
         if (typeof feature.renderExtraConfig === "function") {
@@ -174,165 +199,10 @@ export const FeatureRegistry = (() => {
         container.appendChild(row);
       });
 
-      const styleSheet = `
-        .yt-settings-form .row-item {
-          background: #ffffff;
-          padding: 14px 16px;
-          border-radius: 8px;
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-          margin-bottom: 10px;
-        }
-        .yt-settings-form .setting {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        .yt-settings-form .setting-name {
-          flex: 1;
-          text-align: left;
-          font-size: 14px;
-          color: #333;
-          font-weight: 500;
-        }
-        .yt-settings-form .setting-switch {
-          width: 56px;
-          display: flex;
-          justify-content: flex-end;
-        }
-        .yt-settings-form .toggle {
-          width: 48px;
-          height: 24px;
-          background-color: #ccc;
-          border-radius: 12px;
-          position: relative;
-          cursor: pointer;
-          transition: background-color 0.25s;
-          display: inline-block;
-        }
-        .yt-settings-form .toggle:before {
-          content: "";
-          position: absolute;
-          width: 18px;
-          height: 18px;
-          background-color: white;
-          border-radius: 50%;
-          top: 50%;
-          left: 3px;
-          transform: translateY(-50%);
-          transition: transform 0.25s;
-        }
-        .yt-settings-form input:checked + .toggle {
-          background-color: #4CAF50;
-        }
-        .yt-settings-form input:checked + .toggle:before {
-          transform: translate(24px, -50%);
-        }
-        .yt-settings-form input[type="checkbox"] {
-          display: none;
-        }
-        .yt-settings-form .setting-extra-config {
-          margin-top: 10px;
-          transition: opacity 0.2s ease;
-        }
-        .yt-subtitle-offset-config {
-          padding: 12px;
-          background: #f8fafc;
-          border-radius: 8px;
-          border: 1px solid #e2e8f0;
-          text-align: left;
-        }
-        .yt-subtitle-offset-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 8px;
-        }
-        .yt-subtitle-offset-title {
-          font-size: 13px;
-          font-weight: 600;
-          color: #1e293b;
-        }
-        .yt-subtitle-offset-badge {
-          font-size: 11px;
-          background: #e2e8f0;
-          color: #475569;
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-family: monospace;
-          font-weight: 500;
-        }
-        .yt-subtitle-offset-controls {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex-wrap: wrap;
-          margin-bottom: 8px;
-        }
-        .yt-offset-input-wrap {
-          display: inline-flex;
-          align-items: center;
-          background: #ffffff;
-          border: 1px solid #cbd5e1;
-          border-radius: 6px;
-          padding: 2px 8px;
-        }
-        .yt-offset-input {
-          width: 58px;
-          border: none;
-          outline: none;
-          font-size: 13px;
-          font-weight: 600;
-          text-align: right;
-          color: #0f172a;
-          padding: 4px 2px;
-          background: transparent;
-        }
-        .yt-offset-unit {
-          font-size: 12px;
-          color: #64748b;
-          margin-left: 4px;
-        }
-        .yt-offset-btn {
-          padding: 5px 10px;
-          font-size: 12px;
-          font-weight: 500;
-          border-radius: 6px;
-          border: 1px solid #cbd5e1;
-          background: #ffffff;
-          color: #334155;
-          cursor: pointer;
-          transition: all 0.15s ease;
-          user-select: none;
-        }
-        .yt-offset-btn:hover {
-          background: #f1f5f9;
-          border-color: #94a3b8;
-          color: #0f172a;
-        }
-        .yt-offset-btn:active {
-          background: #e2e8f0;
-        }
-        .yt-offset-btn-reset {
-          color: #dc2626;
-          border-color: #fecaca;
-          background: #fef2f2;
-        }
-        .yt-offset-btn-reset:hover {
-          background: #fee2e2;
-          border-color: #f87171;
-          color: #b91c1c;
-        }
-        .yt-subtitle-offset-desc {
-          font-size: 12px;
-          color: #64748b;
-          line-height: 1.45;
-        }
-      `;
-
       Modal.open({
-        title: language.content.function_setting_title,
+        size: "medium",
+        title: language.content.function_setting_title || "Setting",
         content: container,
-        styleSheet,
         direction: language.direction,
         onClose: () => {
           if (requiresReloadOnClose) {

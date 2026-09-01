@@ -129,9 +129,9 @@ export class CaptionController {
     titleEl.className = "yt-subtitle-offset-title";
     titleEl.textContent = language.content.subtitle_global_offset_title || "全局默认基准偏移";
 
-    const badgeEl = document.createElement("span");
-    badgeEl.className = "yt-subtitle-offset-badge";
-    badgeEl.textContent = "Alt+[ / Alt+] / Alt+\\";
+    const badgeEl = document.createElement("kbd");
+    badgeEl.className = "yt-turbo-kbd";
+    badgeEl.textContent = "Alt+[ / ] / \\";
 
     titleRow.appendChild(titleEl);
     titleRow.appendChild(badgeEl);
