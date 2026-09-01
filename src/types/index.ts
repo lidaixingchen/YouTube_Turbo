@@ -1,6 +1,8 @@
 export interface FeatureDescriptor {
   id: string;
   i18nKey: string;
+  titleI18nKey?: string;
+  descI18nKey?: string;
   defaultValue: boolean;
   order?: number;
   requiresReload?: boolean;
@@ -34,6 +36,7 @@ export interface ModalOpenOptions {
   content?: HTMLElement | string;
   styleSheet?: string;
   direction?: "rtl" | "ltr";
+  size?: "small" | "medium" | "large";
   onClose?: () => void;
 }
 

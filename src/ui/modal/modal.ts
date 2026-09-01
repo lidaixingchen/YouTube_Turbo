@@ -1,6 +1,6 @@
 import modalCss from "./modal.css?raw";
 import { StyleEngine } from "../../core/style-engine";
-import { TTP } from "../../core/trusted-types";
+import { IconRegistry } from "../icons";
 import type { ModalOpenOptions } from "../../types";
 
 export const MODAL_CONSTANTS = {
@@ -22,6 +22,7 @@ export class ModalInstance {
   private options: ModalInstanceOptions;
   public backdrop: HTMLElement;
   public container: HTMLElement;
+  private isClosed: boolean = false;
 
   constructor(options: ModalInstanceOptions = {}) {
     this.options = options;
@@ -34,7 +35,8 @@ export class ModalInstance {
     }
 
     this.container = document.createElement("div");
-    this.container.className = "yt-modal-container";
+    const sizeClass = `yt-modal-size-${this.options.size || "medium"}`;
+    this.container.className = `yt-modal-container ${sizeClass}`;
     if (this.options.direction) {
       this.container.setAttribute("dir", this.options.direction);
     }
@@ -50,7 +52,9 @@ export class ModalInstance {
       const closeBtn = document.createElement("button");
       closeBtn.type = "button";
       closeBtn.className = "yt-modal-close-btn";
-      closeBtn.innerHTML = TTP.createHTML("&times;");
+      closeBtn.setAttribute("aria-label", "Close");
+      const closeIcon = IconRegistry.createSvg("close", { size: 18 });
+      closeBtn.appendChild(closeIcon);
       closeBtn.onclick = () => this.close();
 
       header.appendChild(titleEl);
@@ -87,10 +91,23 @@ export class ModalInstance {
       }
     });
 
+    window.addEventListener("keydown", this.handleKeyDown, true);
     document.body.appendChild(this.backdrop);
   }
 
+  private handleKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape" || e.keyCode === 27) {
+      e.stopPropagation();
+      this.close();
+    }
+  };
+
   public close(): void {
+    if (this.isClosed) return;
+    this.isClosed = true;
+
+    window.removeEventListener("keydown", this.handleKeyDown, true);
+
     if (this.backdrop && this.backdrop.parentNode) {
       this.backdrop.parentNode.removeChild(this.backdrop);
     }
@@ -119,7 +136,8 @@ export const Modal = {
       if (options.content) {
         if (typeof options.content === "string") {
           const msg = document.createElement("p");
-          msg.style.cssText = "margin-bottom: 20px; font-size: 14px; line-height: 1.5; color: #333;";
+          msg.className = "yt-modal-text";
+          msg.style.marginBottom = "16px";
           msg.textContent = options.content;
           container.appendChild(msg);
         } else if (options.content instanceof HTMLElement) {
@@ -144,23 +162,37 @@ export const Modal = {
       actionsEl.appendChild(okBtn);
       container.appendChild(actionsEl);
 
+      let isSettled = false;
       let instance: ModalInstance;
+
       cancelBtn.onclick = () => {
-        if (instance) instance.close();
-        if (options.onCancel) options.onCancel();
-        resolve(false);
+        if (!isSettled) {
+          isSettled = true;
+          if (instance) instance.close();
+          if (options.onCancel) options.onCancel();
+          resolve(false);
+        }
       };
 
       okBtn.onclick = () => {
-        if (instance) instance.close();
-        if (options.onConfirm) options.onConfirm();
-        resolve(true);
+        if (!isSettled) {
+          isSettled = true;
+          if (instance) instance.close();
+          if (options.onConfirm) options.onConfirm();
+          resolve(true);
+        }
       };
 
       instance = new ModalInstance({
+        size: "small",
         ...options,
         content: container,
         onClose: () => {
+          if (!isSettled) {
+            isSettled = true;
+            if (options.onCancel) options.onCancel();
+            resolve(false);
+          }
           if (options.onClose) {
             options.onClose();
           }
@@ -176,7 +208,8 @@ export const Modal = {
       if (options.content) {
         if (typeof options.content === "string") {
           const msg = document.createElement("p");
-          msg.style.cssText = "margin-bottom: 20px; font-size: 14px; line-height: 1.5; color: #333;";
+          msg.className = "yt-modal-text";
+          msg.style.marginBottom = "16px";
           msg.textContent = options.content;
           container.appendChild(msg);
         } else if (options.content instanceof HTMLElement) {
@@ -201,6 +234,7 @@ export const Modal = {
       };
 
       instance = new ModalInstance({
+        size: "small",
         ...options,
         content: container,
         onClose: () => {
