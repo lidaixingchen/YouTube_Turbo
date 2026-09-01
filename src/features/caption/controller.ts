@@ -1,11 +1,12 @@
 import { SUBTITLE_CONSTANTS } from "./constants";
 import { TimedTextInterceptor } from "./interceptor";
 import { SubtitleTimeline } from "./timeline";
-import { CaptionRenderer } from "./renderer";
+import { CaptionOverlayRenderer } from "./renderer";
 import { ShortcutDispatcher } from "../../core/shortcuts";
 import { PlaybackHUD } from "../../core/hud";
 import { StorageUtil } from "../../core/storage";
 import { Locale } from "../../i18n";
+import { PlayerController, type PlayerState } from "../player";
 import type { CaptionOffsetState } from "./types";
 import type { LanguageDefinition } from "../../types";
 
@@ -14,7 +15,10 @@ export class CaptionController {
   private globalDefaultOffsetMs: number = SUBTITLE_CONSTANTS.DEFAULT_OFFSET_MS;
   private sessionOffsetMs: number = 0;
   private shortcutCleanups: Array<() => void> = [];
+  private playerStateCleanup: (() => void) | null = null;
+  private playerReadyCleanup: (() => void) | null = null;
   private navigateHandler: (() => void) | null = null;
+  private ccKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private isInitialized = false;
 
   public static getInstance(): CaptionController {
@@ -36,11 +40,37 @@ export class CaptionController {
     );
     this.sessionOffsetMs = 0;
 
-    TimedTextInterceptor.install(() => this.getEffectiveOffsetMs());
-    CaptionRenderer.getInstance().init(() => this.getEffectiveOffsetMs());
+    TimedTextInterceptor.install(
+      () => this.getEffectiveOffsetMs(),
+      (_trackKey: string) => {
+        if (this.sessionOffsetMs !== 0) {
+          CaptionOverlayRenderer.getInstance().renderCurrentFrame(true);
+        }
+      }
+    );
 
+    CaptionOverlayRenderer.getInstance().init(() => ({
+      sessionOffsetMs: this.sessionOffsetMs,
+      effectiveOffsetMs: this.getEffectiveOffsetMs()
+    }));
+
+    this.bindPlayerEvents();
     this.bindShortcuts();
     this.bindNavigation();
+  }
+
+  private bindPlayerEvents(): void {
+    const playerCtrl = PlayerController.getInstance();
+
+    this.playerReadyCleanup = playerCtrl.onReady((state: PlayerState) => {
+      CaptionOverlayRenderer.getInstance().attachVideo(state.videoElement, null);
+      CaptionOverlayRenderer.getInstance().updateGateState();
+    });
+
+    this.playerStateCleanup = playerCtrl.onStateChange((state: PlayerState) => {
+      CaptionOverlayRenderer.getInstance().attachVideo(state.videoElement, null);
+      CaptionOverlayRenderer.getInstance().updateGateState();
+    });
   }
 
   public getState(): CaptionOffsetState {
@@ -189,7 +219,12 @@ export class CaptionController {
   }
 
   private applyChange(isReset: boolean = false): void {
-    CaptionRenderer.getInstance().renderCurrentFrame(true);
+    const renderer = CaptionOverlayRenderer.getInstance();
+    if (this.sessionOffsetMs === 0) {
+      renderer.deactivate();
+    } else {
+      renderer.activate(true);
+    }
     this.showHUD(isReset);
   }
 
@@ -244,6 +279,15 @@ export class CaptionController {
     });
 
     this.shortcutCleanups.push(unbindAdvance, unbindDelay, unbindReset);
+
+    this.ccKeyHandler = (e: KeyboardEvent) => {
+      if (e.key === "c" || e.key === "C") {
+        setTimeout(() => {
+          CaptionOverlayRenderer.getInstance().updateGateState();
+        }, 50);
+      }
+    };
+    window.addEventListener("keydown", this.ccKeyHandler, { passive: true });
   }
 
   private clearShortcuts(): void {
@@ -255,6 +299,11 @@ export class CaptionController {
       }
     });
     this.shortcutCleanups = [];
+
+    if (this.ccKeyHandler) {
+      window.removeEventListener("keydown", this.ccKeyHandler);
+      this.ccKeyHandler = null;
+    }
   }
 
   private bindNavigation(): void {
@@ -262,9 +311,9 @@ export class CaptionController {
       this.navigateHandler = () => {
         this.sessionOffsetMs = 0;
         SubtitleTimeline.getInstance().clearCurrent();
-        CaptionRenderer.getInstance().renderCurrentFrame(true);
+        CaptionOverlayRenderer.getInstance().deactivate();
       };
-      window.addEventListener("yt-navigate-finish", this.navigateHandler);
+      window.addEventListener("yt-navigate-finish", this.navigateHandler, { passive: true });
     }
   }
 
@@ -278,7 +327,15 @@ export class CaptionController {
   public destroy(): void {
     this.clearShortcuts();
     this.unbindNavigation();
-    CaptionRenderer.getInstance().destroy();
+    if (this.playerReadyCleanup) {
+      this.playerReadyCleanup();
+      this.playerReadyCleanup = null;
+    }
+    if (this.playerStateCleanup) {
+      this.playerStateCleanup();
+      this.playerStateCleanup = null;
+    }
+    CaptionOverlayRenderer.getInstance().destroy();
     SubtitleTimeline.getInstance().clearCurrent();
     TimedTextInterceptor.destroy();
     this.isInitialized = false;

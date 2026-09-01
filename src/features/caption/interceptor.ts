@@ -5,12 +5,16 @@ import { SubtitleTimeline } from "./timeline";
 export class TimedTextInterceptor {
   private static isInstalled = false;
   private static offsetProvider: () => number = () => 0;
+  private static trackCallback: ((key: string) => void) | null = null;
   private static originalFetch: typeof window.fetch | null = null;
   private static originalXHROpen: typeof XMLHttpRequest.prototype.open | null = null;
   private static originalXHRSend: typeof XMLHttpRequest.prototype.send | null = null;
 
-  public static install(offsetProvider: () => number): void {
+  public static install(offsetProvider: () => number, onTrackIngested?: (key: string) => void): void {
     this.offsetProvider = offsetProvider;
+    if (onTrackIngested) {
+      this.trackCallback = onTrackIngested;
+    }
     if (this.isInstalled) {
       return;
     }
@@ -155,7 +159,8 @@ export class TimedTextInterceptor {
         const rawUrl = typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
         const originalText = await response.text();
         const key = TimedTextInterceptor.extractKeyFromUrl(rawUrl);
-        SubtitleTimeline.getInstance().ingest(key, originalText);
+        SubtitleTimeline.getInstance().ingest(key, originalText, true);
+        TimedTextInterceptor.trackCallback?.(key);
 
         const offsetMs = TimedTextInterceptor.offsetProvider();
         if (offsetMs === 0) {
@@ -215,7 +220,8 @@ export class TimedTextInterceptor {
             if (xhr.responseText) {
               const url = xhr.__timedTextUrl || window.location.href;
               const key = TimedTextInterceptor.extractKeyFromUrl(url);
-              SubtitleTimeline.getInstance().ingest(key, xhr.responseText);
+              SubtitleTimeline.getInstance().ingest(key, xhr.responseText, true);
+              TimedTextInterceptor.trackCallback?.(key);
 
               const offsetMs = TimedTextInterceptor.offsetProvider();
               if (offsetMs !== 0) {
@@ -267,5 +273,6 @@ export class TimedTextInterceptor {
     }
     this.isInstalled = false;
     this.offsetProvider = () => 0;
+    this.trackCallback = null;
   }
 }

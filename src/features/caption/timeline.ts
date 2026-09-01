@@ -96,12 +96,12 @@ export class SubtitleTimeline {
     return [];
   }
 
-  public ingest(key: string, rawText: string): SubtitleCue[] {
+  public ingest(key: string, rawText: string, activate: boolean = true): SubtitleCue[] {
     if (!key || !rawText) return [];
     const cues = this.parsePayload(rawText);
     if (cues.length > 0) {
       this.cuesCache.set(key, cues);
-      if (this.currentKey === key || !this.currentKey) {
+      if (activate || !this.currentKey) {
         this.currentCues = cues;
         this.currentKey = key;
       }
@@ -109,10 +109,14 @@ export class SubtitleTimeline {
     return cues;
   }
 
-  public setCurrentKey(key: string): void {
+  public setActiveKey(key: string): void {
     this.currentKey = key;
     const cached = this.cuesCache.get(key);
     this.currentCues = cached || [];
+  }
+
+  public getActiveKey(): string {
+    return this.currentKey;
   }
 
   public getCurrentCues(): SubtitleCue[] {

@@ -1,47 +1,96 @@
 import { StyleEngine } from "../../core/style-engine";
 import { YouTubeDOMAdapter } from "../../core/dom-adapter";
 import { SubtitleTimeline } from "./timeline";
-import type { YouTubePlayerElement } from "./types";
+import type { YouTubePlayerElement, CaptionOffsetProvider } from "./types";
 
-export class CaptionRenderer {
-  private static instance: CaptionRenderer | null = null;
+export class CaptionOverlayRenderer {
+  private static instance: CaptionOverlayRenderer | null = null;
   private static readonly STYLE_ID = "yt-turbo-caption-renderer-style";
   private static readonly OVERLAY_ID = "yt-turbo-caption-overlay";
 
-  private offsetProvider: () => number = () => 0;
-  private isRunning = false;
+  private offsetProvider: CaptionOffsetProvider = () => ({ sessionOffsetMs: 0, effectiveOffsetMs: 0 });
+  private isLoopRunning = false;
   private animFrameId: number | null = null;
   private overlayEl: HTMLElement | null = null;
   private textEl: HTMLElement | null = null;
+  private videoEl: HTMLVideoElement | null = null;
+  private containerEl: HTMLElement | null = null;
   private lastRenderedText: string = "";
-  private lastOffsetMs: number = 0;
+  private lastEffectiveOffsetMs: number = 0;
 
-  public static getInstance(): CaptionRenderer {
+  private readonly handleVideoEvent = (): void => {
+    this.updateGateState();
+  };
+
+  private readonly handleSeeked = (): void => {
+    this.renderCurrentFrame(true);
+    this.updateGateState();
+  };
+
+  public static getInstance(): CaptionOverlayRenderer {
     if (!this.instance) {
-      this.instance = new CaptionRenderer();
+      this.instance = new CaptionOverlayRenderer();
     }
     return this.instance;
   }
 
-  public init(offsetProvider: () => number): void {
+  public init(offsetProvider: CaptionOffsetProvider): void {
     this.offsetProvider = offsetProvider;
     this.injectStyles();
-    this.ensureOverlay();
-    this.startLoop();
+    const currentVideo = YouTubeDOMAdapter.getVideoElement();
+    const currentContainer = YouTubeDOMAdapter.getPlayerContainer();
+    this.attachVideo(currentVideo, currentContainer);
+    this.updateGateState();
   }
 
-  public setOffsetProvider(provider: () => number): void {
+  public setOffsetProvider(provider: CaptionOffsetProvider): void {
     this.offsetProvider = provider;
+    this.updateGateState();
     this.renderCurrentFrame(true);
+  }
+
+  public attachVideo(video: HTMLVideoElement | null, container: HTMLElement | null): void {
+    if (this.videoEl === video && this.containerEl === container) {
+      return;
+    }
+
+    if (this.videoEl) {
+      this.videoEl.removeEventListener("play", this.handleVideoEvent);
+      this.videoEl.removeEventListener("pause", this.handleVideoEvent);
+      this.videoEl.removeEventListener("ended", this.handleVideoEvent);
+      this.videoEl.removeEventListener("seeking", this.handleVideoEvent);
+      this.videoEl.removeEventListener("seeked", this.handleSeeked);
+      this.videoEl.removeEventListener("ratechange", this.handleVideoEvent);
+    }
+
+    this.videoEl = video;
+    this.containerEl = container || (video ? (video.closest(".html5-video-player") as HTMLElement | null) : null);
+
+    if (this.videoEl) {
+      this.videoEl.addEventListener("play", this.handleVideoEvent, { passive: true });
+      this.videoEl.addEventListener("pause", this.handleVideoEvent, { passive: true });
+      this.videoEl.addEventListener("ended", this.handleVideoEvent, { passive: true });
+      this.videoEl.addEventListener("seeking", this.handleVideoEvent, { passive: true });
+      this.videoEl.addEventListener("seeked", this.handleSeeked, { passive: true });
+      this.videoEl.addEventListener("ratechange", this.handleVideoEvent, { passive: true });
+    }
+
+    if (this.overlayEl && this.overlayEl.parentNode && this.containerEl && this.overlayEl.parentNode !== this.containerEl) {
+      this.overlayEl.parentNode.removeChild(this.overlayEl);
+      this.overlayEl = null;
+      this.textEl = null;
+    }
+
+    this.updateGateState();
   }
 
   private injectStyles(): void {
     const css = `
-      #${CaptionRenderer.OVERLAY_ID} {
+      #${CaptionOverlayRenderer.OVERLAY_ID} {
         position: absolute;
         left: 0;
         right: 0;
-        bottom: 10%;
+        bottom: 12%;
         width: 100%;
         display: flex;
         justify-content: center;
@@ -50,11 +99,14 @@ export class CaptionRenderer {
         z-index: 26;
         transition: bottom 0.2s ease, opacity 0.15s ease;
       }
+      .ytp-autohide #${CaptionOverlayRenderer.OVERLAY_ID} {
+        bottom: 6%;
+      }
       .yt-turbo-caption-box {
-        background: rgba(8, 8, 8, 0.78);
+        background: rgba(8, 8, 8, 0.82);
         color: #ffffff;
-        padding: 4px 10px;
-        font-size: clamp(14px, 2.4vw, 24px);
+        padding: 4px 12px;
+        font-size: clamp(14px, 2.2vw, 24px);
         line-height: 1.35;
         border-radius: 4px;
         text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
@@ -75,7 +127,7 @@ export class CaptionRenderer {
         pointer-events: none !important;
       }
     `;
-    StyleEngine.inject(CaptionRenderer.STYLE_ID, css);
+    StyleEngine.inject(CaptionOverlayRenderer.STYLE_ID, css);
   }
 
   private ensureOverlay(): HTMLElement | null {
@@ -83,13 +135,13 @@ export class CaptionRenderer {
       return this.overlayEl;
     }
 
-    const playerContainer = YouTubeDOMAdapter.getPlayerContainer();
-    if (!playerContainer) return null;
+    const container = this.containerEl || YouTubeDOMAdapter.getPlayerContainer();
+    if (!container) return null;
 
-    let overlay = document.getElementById(CaptionRenderer.OVERLAY_ID);
+    let overlay = document.getElementById(CaptionOverlayRenderer.OVERLAY_ID);
     if (!overlay) {
       overlay = document.createElement("div");
-      overlay.id = CaptionRenderer.OVERLAY_ID;
+      overlay.id = CaptionOverlayRenderer.OVERLAY_ID;
 
       const box = document.createElement("span");
       box.className = "yt-turbo-caption-box";
@@ -100,7 +152,7 @@ export class CaptionRenderer {
       this.textEl = overlay.querySelector<HTMLElement>(".yt-turbo-caption-box");
     }
 
-    playerContainer.appendChild(overlay);
+    container.appendChild(overlay);
     this.overlayEl = overlay;
     return overlay;
   }
@@ -119,59 +171,96 @@ export class CaptionRenderer {
       try {
         return Boolean(player.isSubtitlesOn());
       } catch {
-        // Ignore internal query errors
+        // Ignore internal reflection errors
       }
     }
     return false;
   }
 
+  public updateGateState(): void {
+    const video = this.videoEl || YouTubeDOMAdapter.getVideoElement();
+    const isPlaying = Boolean(video && !video.paused && !video.ended);
+    const isCC = this.isSubtitlesEnabled();
+    const { sessionOffsetMs } = this.offsetProvider();
+
+    const shouldActivateDynamicLoop = isPlaying && isCC && sessionOffsetMs !== 0;
+
+    if (shouldActivateDynamicLoop) {
+      this.startLoop();
+    } else {
+      this.stopLoop();
+      if (sessionOffsetMs === 0 || !isCC) {
+        this.restoreNativeCaptions();
+        this.clearOverlayText();
+      }
+    }
+  }
+
   private startLoop(): void {
-    if (this.isRunning) return;
-    this.isRunning = true;
+    if (this.isLoopRunning) return;
+    this.isLoopRunning = true;
 
     const loop = () => {
-      if (!this.isRunning) return;
+      if (!this.isLoopRunning) return;
       this.renderCurrentFrame();
       this.animFrameId = requestAnimationFrame(loop);
     };
     this.animFrameId = requestAnimationFrame(loop);
   }
 
+  private stopLoop(): void {
+    this.isLoopRunning = false;
+    if (this.animFrameId !== null) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+  }
+
+  private restoreNativeCaptions(): void {
+    const container = this.containerEl || YouTubeDOMAdapter.getPlayerContainer();
+    if (container && container.classList.contains("yt-turbo-native-captions-hidden")) {
+      container.classList.remove("yt-turbo-native-captions-hidden");
+    }
+  }
+
+  private hideNativeCaptions(): void {
+    const container = this.containerEl || YouTubeDOMAdapter.getPlayerContainer();
+    if (container && !container.classList.contains("yt-turbo-native-captions-hidden")) {
+      container.classList.add("yt-turbo-native-captions-hidden");
+    }
+  }
+
+  private clearOverlayText(): void {
+    if (this.textEl && this.lastRenderedText !== "") {
+      this.textEl.style.display = "none";
+      this.textEl.textContent = "";
+      this.lastRenderedText = "";
+    }
+  }
+
   public renderCurrentFrame(force: boolean = false): void {
-    const overlay = this.ensureOverlay();
-    const playerContainer = YouTubeDOMAdapter.getPlayerContainer();
-    const video = YouTubeDOMAdapter.getVideoElement();
-
-    if (!overlay || !playerContainer || !video) {
-      return;
-    }
-
+    const video = this.videoEl || YouTubeDOMAdapter.getVideoElement();
+    const { sessionOffsetMs, effectiveOffsetMs } = this.offsetProvider();
     const isCC = this.isSubtitlesEnabled();
-    const offsetMs = this.offsetProvider();
 
-    if (!isCC || offsetMs === 0) {
-      if (playerContainer.classList.contains("yt-turbo-native-captions-hidden")) {
-        playerContainer.classList.remove("yt-turbo-native-captions-hidden");
-      }
-      if (this.textEl && this.lastRenderedText !== "") {
-        this.textEl.style.display = "none";
-        this.textEl.textContent = "";
-        this.lastRenderedText = "";
-      }
+    if (!video || !isCC || sessionOffsetMs === 0) {
+      this.restoreNativeCaptions();
+      this.clearOverlayText();
       return;
     }
 
-    if (!playerContainer.classList.contains("yt-turbo-native-captions-hidden")) {
-      playerContainer.classList.add("yt-turbo-native-captions-hidden");
-    }
+    const overlay = this.ensureOverlay();
+    if (!overlay || !this.textEl) return;
+
+    this.hideNativeCaptions();
 
     const currentMs = video.currentTime * 1000;
-    const effectiveMs = currentMs - offsetMs;
+    const targetQueryMs = currentMs - effectiveOffsetMs;
 
-    const activeCues = SubtitleTimeline.getInstance().findActiveCues(effectiveMs);
+    const activeCues = SubtitleTimeline.getInstance().findActiveCues(targetQueryMs);
     const targetText = activeCues.map((c) => c.text).join("\n").trim();
 
-    if (this.textEl && (force || targetText !== this.lastRenderedText || offsetMs !== this.lastOffsetMs)) {
+    if (force || targetText !== this.lastRenderedText || effectiveOffsetMs !== this.lastEffectiveOffsetMs) {
       if (targetText.length > 0) {
         this.textEl.textContent = targetText;
         this.textEl.style.display = "inline-block";
@@ -180,26 +269,44 @@ export class CaptionRenderer {
         this.textEl.textContent = "";
       }
       this.lastRenderedText = targetText;
-      this.lastOffsetMs = offsetMs;
+      this.lastEffectiveOffsetMs = effectiveOffsetMs;
+    }
+  }
+
+  public deactivate(): void {
+    this.stopLoop();
+    this.restoreNativeCaptions();
+    this.clearOverlayText();
+  }
+
+  public activate(forceRender: boolean = true): void {
+    this.updateGateState();
+    if (forceRender) {
+      this.renderCurrentFrame(true);
     }
   }
 
   public destroy(): void {
-    this.isRunning = false;
-    if (this.animFrameId !== null) {
-      cancelAnimationFrame(this.animFrameId);
-      this.animFrameId = null;
-    }
-    const playerContainer = YouTubeDOMAdapter.getPlayerContainer();
-    if (playerContainer) {
-      playerContainer.classList.remove("yt-turbo-native-captions-hidden");
+    this.stopLoop();
+    this.restoreNativeCaptions();
+    if (this.videoEl) {
+      this.videoEl.removeEventListener("play", this.handleVideoEvent);
+      this.videoEl.removeEventListener("pause", this.handleVideoEvent);
+      this.videoEl.removeEventListener("ended", this.handleVideoEvent);
+      this.videoEl.removeEventListener("seeking", this.handleVideoEvent);
+      this.videoEl.removeEventListener("seeked", this.handleSeeked);
+      this.videoEl.removeEventListener("ratechange", this.handleVideoEvent);
+      this.videoEl = null;
     }
     if (this.overlayEl && this.overlayEl.parentNode) {
       this.overlayEl.parentNode.removeChild(this.overlayEl);
     }
     this.overlayEl = null;
     this.textEl = null;
+    this.containerEl = null;
     this.lastRenderedText = "";
-    StyleEngine.remove(CaptionRenderer.STYLE_ID);
+    StyleEngine.remove(CaptionOverlayRenderer.STYLE_ID);
   }
 }
+
+export const CaptionRenderer = CaptionOverlayRenderer;
