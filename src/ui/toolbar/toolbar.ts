@@ -1,22 +1,83 @@
 import { TOOLBAR_CONSTANTS } from "./constants";
 import { IconRegistry } from "../icons";
-import { PopoverController } from "./popover";
-import { MountAdapter } from "./mount-adapter";
+import { PopoverEngine } from "./popover";
+import { ReactiveMounter } from "./reactive-mounter";
 import { ActionRegistry } from "./action-registry";
-import { LangueUtil } from "../../i18n";
-import { StorageUtil } from "../../core/storage";
-import { commonUtil } from "../../core/dom-adapter";
-import { Modal } from "../modal/modal";
-import { ThemeController } from "../../features/theme";
-import { PlayerController } from "../../features/player";
-import { FeatureRegistry } from "../../registry/feature-registry";
+import { StyleEngine } from "../../core/style-engine";
+import { Locale } from "../../i18n";
+import type { ActionConfig, SlotDefinition } from "./types";
 
-export const Toolbar = (() => {
-  let isInitialized = false;
-  let popoverUnbind: (() => void) | null = null;
+export class ToolbarController {
+  private static instance: ToolbarController | null = null;
+  private isInitialized = false;
+  private popoverUnbind: (() => void) | null = null;
 
-  const insertStyle = (): void => {
-    const toolbarStyle = `
+  private static readonly SLOT_DEFINITIONS: Record<string, SlotDefinition> = {
+    [TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS]: {
+      slotKey: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      containerSelector: "#player-container-outer .html5-video-player, #movie_player",
+      targetSelector: ".ytp-right-controls",
+      elementId: "yt_extension_toolbox_root",
+      mount: (target: HTMLElement, element: HTMLElement) => {
+        if (!target.contains(element)) {
+          target.prepend(element);
+        }
+      }
+    },
+    [TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS]: {
+      slotKey: TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS,
+      containerSelector: "ytd-shorts",
+      targetSelector: "#navigation-button-down",
+      elementId: "script_download_shorts",
+      mount: (target: HTMLElement, element: HTMLElement) => {
+        if (!target.parentElement?.contains(element)) {
+          target.after(element);
+        }
+      }
+    },
+    [TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA]: {
+      slotKey: TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA,
+      containerSelector: "ytd-watch-metadata",
+      targetSelector: "#owner, #actions",
+      elementId: "script_outer_box",
+      mount: (target: HTMLElement, element: HTMLElement) => {
+        if (target.id === "owner") {
+          if (!target.contains(element)) {
+            target.appendChild(element);
+          }
+        } else {
+          if (!target.contains(element)) {
+            target.insertBefore(element, target.firstChild);
+          }
+        }
+      }
+    }
+  };
+
+  public static getInstance(): ToolbarController {
+    if (!this.instance) {
+      this.instance = new ToolbarController();
+    }
+    return this.instance;
+  }
+
+  public init(): void {
+    if (!/youtube\.com/.test(window.location.host)) {
+      return;
+    }
+    if (this.isInitialized) {
+      this.mount();
+      return;
+    }
+    this.isInitialized = true;
+
+    this.injectStyles();
+    ReactiveMounter.getInstance().bindNavigation();
+    this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
+  }
+
+  private injectStyles(): void {
+    const css = `
       .toolbox_extension_container {
         position: absolute !important;
         background: rgba(0, 0, 0, 0.4) !important;
@@ -48,36 +109,49 @@ export const Toolbar = (() => {
       .toolbox_extension_container .toolbox_extension_tool_btn:hover {
         background: #E5E5E5 !important;
       }
-    `;
-    commonUtil.addStyle(toolbarStyle);
-  };
-
-  const downloadCurrentVideo = async (): Promise<void> => {
-    const language = LangueUtil.getLanguage();
-    const downloadingConfirm = StorageUtil.getValue(StorageUtil.keys.youtube.downloadingConfirm, false);
-    const executeDownload = (): void => {
-      const url = "https://www.grabshorts.com/" + LangueUtil.getLang() + "/yt?s=40&url=" + window.location.href;
-      commonUtil.openInTab(url);
-    };
-
-    if (downloadingConfirm) {
-      executeDownload();
-    } else {
-      const confirmed = await Modal.confirm({
-        title: language.content.function_setting_title,
-        content: language.content.download_confirm_message,
-        okText: language.content.download_enter_text,
-        cancelText: language.content.download_cancel_text,
-        direction: language.direction
-      });
-      if (confirmed) {
-        StorageUtil.setValue(StorageUtil.keys.youtube.downloadingConfirm, true);
-        executeDownload();
+      .yt-turbo-shorts-btn {
+        cursor: pointer;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 16px;
       }
-    }
-  };
+      .yt-turbo-metadata-outer {
+        margin-left: 10px;
+        display: inline-flex;
+        border-radius: 18px;
+        overflow: hidden;
+        align-items: center;
+        justify-content: center;
+      }
+      .yt-turbo-metadata-btn {
+        width: 36px;
+        height: 36px;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: opacity 0.2s, transform 0.1s;
+      }
+      .yt-turbo-metadata-btn:hover {
+        opacity: 0.85;
+      }
+    `;
+    StyleEngine.inject(TOOLBAR_CONSTANTS.STYLE_ID, css);
+  }
 
-  const createPlayerControlsSlotElement = (): HTMLElement | null => {
+  public registerAction(action: ActionConfig): void {
+    ActionRegistry.register(action);
+    this.refresh();
+  }
+
+  public registerActions(actions: ActionConfig[]): void {
+    ActionRegistry.registerAll(actions);
+    this.refresh();
+  }
+
+  private createPlayerControlsSlotElement = (): HTMLElement | null => {
     const actions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
     if (!actions.length) return null;
 
@@ -113,9 +187,8 @@ export const Toolbar = (() => {
       const updateBtn = (): void => {
         btn.innerHTML = "";
         const iconKey = ActionRegistry.resolveIconKey(action);
-        btn.appendChild(IconRegistry.createSvg(iconKey, { size: 16 }));
-        const lang = LangueUtil.getLanguage();
-        btn.title = (lang.content && lang.content[action.titleKey]) || action.defaultTitle;
+        btn.appendChild(IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.ACTION_ICON_SIZE }));
+        btn.title = Locale.t(action.titleKey) || action.defaultTitle;
       };
 
       updateBtn();
@@ -138,233 +211,140 @@ export const Toolbar = (() => {
     const player = document.querySelector<HTMLElement>("#player-container-outer .html5-video-player, #movie_player");
     if (player) {
       player.appendChild(toolBoxContainer);
-      if (popoverUnbind) popoverUnbind();
-      popoverUnbind = PopoverController.bind(boxContainer, toolBoxContainer, player);
+      if (this.popoverUnbind) this.popoverUnbind();
+      this.popoverUnbind = PopoverEngine.bind(boxContainer, toolBoxContainer, player);
     }
 
     return boxContainer;
   };
 
-  const createShortsSlotElement = (): HTMLElement | null => {
-    if (window.location.href.indexOf("/shorts/") === -1) {
+  private createShortsSlotElement = (): HTMLElement | null => {
+    if (!window.location.pathname.startsWith("/shorts")) {
       return null;
     }
+    const actions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
+    if (!actions.length) return null;
 
     const existing = document.getElementById("script_download_shorts");
     if (existing && existing.isConnected) {
       return existing;
     }
 
-    const download = document.createElement("div");
-    download.id = "script_download_shorts";
-    download.className = "navigation-button style-scope ytd-shorts";
-    download.setAttribute("style", "cursor: pointer; display: flex; justify-content: center; align-items: center; margin-top: 16px;");
-    download.title = "下载 Shorts 视频";
-    download.appendChild(IconRegistry.createSvg("shortDownload", { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE }));
-    download.addEventListener("click", () => {
-      downloadCurrentVideo();
+    const container = document.createElement("div");
+    container.id = "script_download_shorts";
+    container.className = "navigation-button style-scope ytd-shorts yt-turbo-shorts-btn";
+
+    actions.forEach((action) => {
+      const iconKey = ActionRegistry.resolveIconKey(action);
+      const iconSvg = IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE });
+      container.appendChild(iconSvg);
+      container.title = Locale.t(action.titleKey) || action.defaultTitle;
+
+      container.addEventListener("click", (e) => {
+        action.onClick(e, {
+          actionId: action.id,
+          slot: action.slot,
+          buttonElement: container,
+          refresh: () => {
+            container.innerHTML = "";
+            const newIconKey = ActionRegistry.resolveIconKey(action);
+            container.appendChild(IconRegistry.createSvg(newIconKey, { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE }));
+          }
+        });
+      });
     });
-    return download;
+
+    return container;
   };
 
-  const createWatchMetadataSlotElement = (): HTMLElement | null => {
-    const outerBoxId = "script_outer_box";
-    const existing = document.getElementById(outerBoxId);
+  private createWatchMetadataSlotElement = (): HTMLElement | null => {
+    const actions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
+    if (!actions.length) return null;
+
+    const existing = document.getElementById("script_outer_box");
     if (existing && existing.isConnected) {
       return existing;
     }
 
     const outerBox = document.createElement("div");
-    outerBox.id = outerBoxId;
-    outerBox.setAttribute("style", "margin-left: 10px; display: inline-flex; border-radius: 18px; overflow: hidden; align-items: center; justify-content: center;");
+    outerBox.id = "script_outer_box";
+    outerBox.className = "yt-turbo-metadata-outer";
 
-    const download = document.createElement("div");
-    download.setAttribute("style", "width: 36px; height: 36px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s, transform 0.1s;");
-    download.title = "下载视频";
-    download.appendChild(IconRegistry.createSvg("shortDownload", { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE }));
-    download.addEventListener("mouseenter", () => {
-      download.style.opacity = "0.85";
-    });
-    download.addEventListener("mouseleave", () => {
-      download.style.opacity = "1";
-    });
-    download.addEventListener("click", () => {
-      downloadCurrentVideo();
+    actions.forEach((action) => {
+      const btn = document.createElement("div");
+      btn.className = "yt-turbo-metadata-btn";
+      btn.title = Locale.t(action.titleKey) || action.defaultTitle;
+      const iconKey = ActionRegistry.resolveIconKey(action);
+      btn.appendChild(IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE }));
+
+      btn.addEventListener("click", (e) => {
+        action.onClick(e, {
+          actionId: action.id,
+          slot: action.slot,
+          buttonElement: btn,
+          refresh: () => {
+            btn.innerHTML = "";
+            const newIconKey = ActionRegistry.resolveIconKey(action);
+            btn.appendChild(IconRegistry.createSvg(newIconKey, { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE }));
+          }
+        });
+      });
+
+      outerBox.appendChild(btn);
     });
 
-    outerBox.appendChild(download);
     return outerBox;
   };
 
-  const registerDefaultActions = (): void => {
-    ActionRegistry.registerAll([
-      {
-        id: "setting",
-        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "action_setting",
-        defaultTitle: "Setting",
-        icon: "setting",
-        order: 10,
-        onClick: () => {
-          FeatureRegistry.openSettingsModal();
-        }
-      },
-      {
-        id: "theme",
-        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "action_switch_theme",
-        defaultTitle: "Switch the theme",
-        icon: "theme",
-        order: 20,
-        onClick: () => {
-          ThemeController.getInstance().toggleTheme();
-        }
-      },
-      {
-        id: "screenshot",
-        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "action_screenshot",
-        defaultTitle: "Screenshot",
-        icon: "screenshot",
-        order: 30,
-        onClick: () => {
-          PlayerController.getInstance().captureScreenshot();
-        }
-      },
-      {
-        id: "pip",
-        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "action_pip",
-        defaultTitle: "Picture to picture",
-        icon: "pip",
-        order: 40,
-        onClick: () => {
-          PlayerController.getInstance().togglePictureInPicture();
-        }
-      },
-      {
-        id: "loop",
-        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "action_loop",
-        defaultTitle: "Loop",
-        icon: { normal: "loopOff", active: "loopOn" },
-        order: 50,
-        isActive: () => PlayerController.getInstance().isLoopEnabled(),
-        onClick: (_e, ctx) => {
-          PlayerController.getInstance().toggleLoop();
-          ctx.refresh();
-        },
-        onStateBind: (refresh) => {
-          return PlayerController.getInstance().onStateChange(refresh);
-        }
-      },
-      {
-        id: "download",
-        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "action_download",
-        defaultTitle: "Download",
-        icon: "download",
-        order: 60,
-        onClick: () => {
-          downloadCurrentVideo();
-        }
+  public mount(slotKey?: string): void {
+    if (!slotKey || slotKey === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS) {
+      const def = ToolbarController.SLOT_DEFINITIONS[TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS];
+      ReactiveMounter.getInstance().mountSlot(def, this.createPlayerControlsSlotElement);
+    }
+    if (!slotKey || slotKey === TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS) {
+      const def = ToolbarController.SLOT_DEFINITIONS[TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS];
+      ReactiveMounter.getInstance().mountSlot(def, this.createShortsSlotElement);
+    }
+    if (!slotKey || slotKey === TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA) {
+      const def = ToolbarController.SLOT_DEFINITIONS[TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA];
+      ReactiveMounter.getInstance().mountSlot(def, this.createWatchMetadataSlotElement);
+    }
+  }
+
+  public unmount(slotKey?: string): void {
+    if (slotKey) {
+      ReactiveMounter.getInstance().unmountSlot(slotKey);
+      if (slotKey === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS && this.popoverUnbind) {
+        this.popoverUnbind();
+        this.popoverUnbind = null;
       }
-    ]);
-  };
-
-  return {
-    init(): void {
-      if (!/youtube\.com/.test(window.location.host)) {
-        return;
+    } else {
+      ReactiveMounter.getInstance().destroy();
+      document.querySelector("#yt_extension_toolbox_root")?.remove();
+      document.querySelector("#toolbox_extension_container")?.remove();
+      document.querySelector("#script_download_shorts")?.remove();
+      document.querySelector("#script_outer_box")?.remove();
+      if (this.popoverUnbind) {
+        this.popoverUnbind();
+        this.popoverUnbind = null;
       }
-      if (isInitialized) {
-        this.mount();
-        return;
-      }
-      isInitialized = true;
+    }
+  }
 
-      registerDefaultActions();
-      insertStyle();
+  public refresh(slotKey?: string): void {
+    if (slotKey) {
+      ReactiveMounter.getInstance().refreshSlot(slotKey);
+    } else {
+      ReactiveMounter.getInstance().refreshAll();
+    }
+  }
 
-      if (typeof GM_registerMenuCommand === "function") {
-        GM_registerMenuCommand("Setting", () => {
-          FeatureRegistry.openSettingsModal();
-        });
-      }
+  public destroy(): void {
+    this.unmount();
+    ActionRegistry.clearAllBindings();
+    StyleEngine.remove(TOOLBAR_CONSTANTS.STYLE_ID);
+    this.isInitialized = false;
+  }
+}
 
-      commonUtil.onPageLoad(() => {
-        this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
-        if (FeatureRegistry.isEnabled("isOpenYoutubedownloading")) {
-          this.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
-          this.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
-        }
-      });
-
-      document.addEventListener("yt-navigate-finish", () => {
-        this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
-        if (FeatureRegistry.isEnabled("isOpenYoutubedownloading")) {
-          this.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
-          this.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
-        }
-      });
-
-      this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
-      if (FeatureRegistry.isEnabled("isOpenYoutubedownloading")) {
-        this.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
-        this.mount(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
-      }
-    },
-
-    registerAction: (action: any) => ActionRegistry.register(action),
-    registerActions: (actions: any[]) => ActionRegistry.registerAll(actions),
-
-    mount(slot?: string): void {
-      if (!slot || slot === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS) {
-        MountAdapter.mountSlot(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS, createPlayerControlsSlotElement);
-      }
-      if (!slot || slot === TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS) {
-        MountAdapter.mountSlot(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS, createShortsSlotElement);
-      }
-      if (!slot || slot === TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA) {
-        MountAdapter.mountSlot(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA, createWatchMetadataSlotElement);
-      }
-    },
-
-    unmount(slot?: string): void {
-      if (slot) {
-        MountAdapter.unmountSlot(slot);
-        if (slot === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS) {
-          document.querySelector("#yt_extension_toolbox_root")?.remove();
-          document.querySelector("#toolbox_extension_container")?.remove();
-          if (popoverUnbind) {
-            popoverUnbind();
-            popoverUnbind = null;
-          }
-        } else if (slot === TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS) {
-          document.querySelector("#script_download_shorts")?.remove();
-        } else if (slot === TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA) {
-          document.querySelector("#script_outer_box")?.remove();
-        }
-      } else {
-        MountAdapter.destroy();
-        document.querySelector("#yt_extension_toolbox_root")?.remove();
-        document.querySelector("#toolbox_extension_container")?.remove();
-        document.querySelector("#script_download_shorts")?.remove();
-        document.querySelector("#script_outer_box")?.remove();
-        if (popoverUnbind) {
-          popoverUnbind();
-          popoverUnbind = null;
-        }
-      }
-    },
-
-    destroy(): void {
-      this.unmount();
-      ActionRegistry.clearAllBindings();
-      MountAdapter.destroy();
-    },
-
-    downloadCurrentVideo,
-    insertStyle
-  };
-})();
+export const Toolbar = ToolbarController.getInstance();

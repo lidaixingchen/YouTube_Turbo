@@ -1,0 +1,27 @@
+export interface ActionContext {
+  actionId: string;
+  slot: string;
+  buttonElement: HTMLElement;
+  refresh: () => void;
+}
+
+export interface ActionConfig {
+  id: string;
+  slot: string;
+  titleKey: string;
+  defaultTitle: string;
+  icon: string | { normal: string; active: string };
+  order?: number;
+  isVisible?: () => boolean;
+  isActive?: () => boolean;
+  onClick: (event: MouseEvent, ctx: ActionContext) => void;
+  onStateBind?: (refreshCallback: () => void) => (() => void) | void;
+}
+
+export interface SlotDefinition {
+  slotKey: string;
+  containerSelector: string;
+  targetSelector: string;
+  elementId: string;
+  mount: (target: HTMLElement, element: HTMLElement) => void;
+}

@@ -1,7 +1,7 @@
 import { TOOLBAR_CONSTANTS } from "./constants";
 
-export const PopoverController = {
-  bind(triggerBtn: HTMLElement, containerEl: HTMLElement, playerEl: HTMLElement): () => void {
+export class PopoverEngine {
+  public static bind(triggerBtn: HTMLElement, containerEl: HTMLElement, playerEl: HTMLElement): () => void {
     let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
     const show = (): void => {
@@ -33,9 +33,9 @@ export const PopoverController = {
       containerEl.removeEventListener("mouseenter", show);
       containerEl.removeEventListener("mouseleave", scheduleHide);
     };
-  },
+  }
 
-  reposition(button: HTMLElement, container: HTMLElement, player: HTMLElement): void {
+  public static reposition(button: HTMLElement, container: HTMLElement, player: HTMLElement): void {
     const playerRect = player.getBoundingClientRect();
     const btnRect = button.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
@@ -50,4 +50,4 @@ export const PopoverController = {
     container.style.left = `${clampedLeft}px`;
     container.style.top = `${clampedTop}px`;
   }
-};
+}
