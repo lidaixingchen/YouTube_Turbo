@@ -71,6 +71,7 @@ export class TabviewLifecycleCoordinator {
 
   public setActiveTab(tabKey: TabKey): void {
     this.relocator.getTabsView().setActiveTab(tabKey);
+    this.observerRegistry.setCommentsTabActive(tabKey === "comments");
     const contentSelector = `#tab-${tabKey === "playlist" ? "list" : tabKey}`;
     this.expanderFixer?.fixForTabDisplay(false, contentSelector);
   }
@@ -196,6 +197,7 @@ export class TabviewLifecycleCoordinator {
         localeSnapshot: this.localeSnapshot,
         onTabSelected: (tabKey) => {
           this.onTabChangedCallback?.(tabKey);
+          this.observerRegistry.setCommentsTabActive(tabKey === "comments");
           const contentSelector = `#tab-${tabKey === "playlist" ? "list" : tabKey}`;
           this.expanderFixer?.fixForTabDisplay(false, contentSelector);
         },

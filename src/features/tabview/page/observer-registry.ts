@@ -30,6 +30,7 @@ export class ObserverRegistry {
   private linkedCommentTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private secondaryInnerObserver: MutationObserver | null = null;
   private lastTabsWidth: number = 0;
+  private isCommentsTabActive: boolean = false;
 
   public static getInstance(): ObserverRegistry {
     if (!ObserverRegistry.instance) {
@@ -295,10 +296,17 @@ export class ObserverRegistry {
     }
   }
 
+  public setCommentsTabActive(active: boolean): void {
+    this.isCommentsTabActive = active;
+  }
+
   public observeCommentEntry(expanderElement: HTMLElement): void {
     if (!this.commentIntersectionObserver) {
       this.commentIntersectionObserver = new IntersectionObserver(
         (entries: IntersectionObserverEntry[]) => {
+          if (!this.isCommentsTabActive) {
+            return;
+          }
           for (let i = 0; i < entries.length; i++) {
             const entry = entries[i];
             const target = entry.target as HTMLElement;
@@ -473,6 +481,7 @@ export class ObserverRegistry {
       this.rightTabsResizeObserver = null;
     }
     this.clearChannelHoverObserver();
+    this.isCommentsTabActive = false;
 
     for (let i = 0; i < this.eventCleanupFns.length; i++) {
       try {
