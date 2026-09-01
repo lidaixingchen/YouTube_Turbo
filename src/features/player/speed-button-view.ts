@@ -10,7 +10,9 @@ import {
 export class PlayerSpeedButtonView {
   private static stateUnbind: (() => void) | null = null;
   private static navigateHandler: (() => void) | null = null;
+  private static documentClickHandler: ((event: MouseEvent) => void) | null = null;
   private static isMounted: boolean = false;
+  private static hideTimer: ReturnType<typeof setTimeout> | null = null;
 
   public static mount(): void {
     if (!/youtube\.com/.test(window.location.host)) {
@@ -45,6 +47,21 @@ export class PlayerSpeedButtonView {
       window.addEventListener("yt-navigate-finish", this.navigateHandler);
     }
 
+    if (!this.documentClickHandler) {
+      this.documentClickHandler = (event: MouseEvent): void => {
+        const target: HTMLElement | null = event.target as HTMLElement | null;
+        if (!target) return;
+        const speedBtn: Element | null = document.querySelector(PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON);
+        const speedOptions: HTMLElement | null = document.querySelector<HTMLElement>(PLAYER_CONSTANTS.SELECTORS.SPEED_OPTIONS_MENU);
+        if (speedOptions && speedOptions.style.display === "block") {
+          if (!speedBtn?.contains(target) && !speedOptions.contains(target)) {
+            this.hideMenu(speedOptions);
+          }
+        }
+      };
+      document.addEventListener("click", this.documentClickHandler, true);
+    }
+
     this.generate().catch((err: unknown): void => {
       console.error("[PlayerSpeedButtonView] initial generate error:", err);
     });
@@ -76,6 +93,39 @@ export class PlayerSpeedButtonView {
     });
   }
 
+  private static showMenu(button: HTMLElement, player: HTMLElement, speedOptions: HTMLElement): void {
+    this.clearHideTimer();
+    const containerRect: DOMRect = player.getBoundingClientRect();
+    const buttonRect: DOMRect = button.getBoundingClientRect();
+    const menuWidth: number = speedOptions.offsetWidth || PLAYER_CONSTANTS.MENU_ESTIMATED_WIDTH_PX;
+    const left: number = Math.max(8, buttonRect.left - containerRect.left + (buttonRect.width - menuWidth) / 2);
+    const bottom: number = containerRect.bottom - buttonRect.top + PLAYER_CONSTANTS.MENU_BOTTOM_OFFSET_PX;
+
+    speedOptions.style.left = `${left}px`;
+    speedOptions.style.bottom = `${bottom}px`;
+    speedOptions.style.top = "auto";
+    speedOptions.style.display = "block";
+  }
+
+  private static hideMenu(speedOptions: HTMLElement): void {
+    this.clearHideTimer();
+    speedOptions.style.display = "none";
+  }
+
+  private static scheduleHide(speedOptions: HTMLElement): void {
+    this.clearHideTimer();
+    this.hideTimer = setTimeout((): void => {
+      this.hideMenu(speedOptions);
+    }, PLAYER_CONSTANTS.MENU_HIDE_DELAY_MS);
+  }
+
+  private static clearHideTimer(): void {
+    if (this.hideTimer !== null) {
+      clearTimeout(this.hideTimer);
+      this.hideTimer = null;
+    }
+  }
+
   private static async generate(): Promise<void> {
     const existingBtn: HTMLElement | null = document.querySelector(PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON);
     if (existingBtn) {
@@ -103,12 +153,12 @@ export class PlayerSpeedButtonView {
       speedText.textContent = `${PlayerController.getInstance().getSpeed()}×`;
       speedControlBtn.appendChild(speedText);
 
-      this.generateOptions(speedControlBtn);
+      this.generateOptions(speedControlBtn, player);
       rightControls.prepend(speedControlBtn);
     }
   }
 
-  private static generateOptions(button: HTMLElement): void {
+  private static generateOptions(button: HTMLElement, player: HTMLElement): void {
     const existingOptions: HTMLElement | null = document.querySelector(PLAYER_CONSTANTS.SELECTORS.SPEED_OPTIONS_MENU);
     if (existingOptions) {
       existingOptions.remove();
@@ -131,16 +181,43 @@ export class PlayerSpeedButtonView {
       option.addEventListener("click", (event: MouseEvent): void => {
         event.stopPropagation();
         PlayerController.getInstance().setSpeed(speedNum, true);
+        this.hideMenu(speedOptions);
       });
 
       speedOptions.appendChild(option);
     });
 
-    button.appendChild(speedOptions);
+    player.appendChild(speedOptions);
+
+    button.addEventListener("mouseenter", (): void => {
+      this.showMenu(button, player, speedOptions);
+    });
+
+    button.addEventListener("mouseleave", (): void => {
+      this.scheduleHide(speedOptions);
+    });
+
+    button.addEventListener("click", (event: MouseEvent): void => {
+      event.stopPropagation();
+      if (speedOptions.style.display === "block") {
+        this.hideMenu(speedOptions);
+      } else {
+        this.showMenu(button, player, speedOptions);
+      }
+    });
+
+    speedOptions.addEventListener("mouseenter", (): void => {
+      this.clearHideTimer();
+    });
+
+    speedOptions.addEventListener("mouseleave", (): void => {
+      this.scheduleHide(speedOptions);
+    });
   }
 
   public static unmount(): void {
     this.isMounted = false;
+    this.clearHideTimer();
     if (this.stateUnbind) {
       this.stateUnbind();
       this.stateUnbind = null;
@@ -148,6 +225,10 @@ export class PlayerSpeedButtonView {
     if (this.navigateHandler) {
       window.removeEventListener("yt-navigate-finish", this.navigateHandler);
       this.navigateHandler = null;
+    }
+    if (this.documentClickHandler) {
+      document.removeEventListener("click", this.documentClickHandler, true);
+      this.documentClickHandler = null;
     }
     StyleEngine.remove(PLAYER_CONSTANTS.STYLES.SPEED_CONTROL_STYLE_ID);
     const btn: Element | null = document.querySelector(PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON);
