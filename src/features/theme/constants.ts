@@ -1,0 +1,9 @@
+export const THEME_CONSTANTS = {
+  PREF_COOKIE_NAME: "PREF",
+  COOKIE_DOMAIN: ".youtube.com",
+  COOKIE_PATH: "/",
+  COOKIE_MAX_AGE_SECONDS: 63072000,
+  FLAG_KEY: "f6",
+  FLAG_DARK_VALUE: "400",
+  FLAG_LIGHT_VALUE: "80000"
+} as const;
