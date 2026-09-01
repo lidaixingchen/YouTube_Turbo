@@ -13,6 +13,7 @@ export class GridCoordinator {
   private navigateHandler: (() => void) | null = null;
   private targetContents: HTMLElement | null = null;
   private isInitialized = false;
+  private isRebalanceScheduled = false;
 
   public static readonly GRID_CSS = `
     ytd-rich-grid-renderer > #contents > ytd-rich-grid-row,
@@ -126,7 +127,7 @@ export class GridCoordinator {
       const mql = window.matchMedia(q);
       const handler = (e: MediaQueryListEvent) => {
         if (e.matches) {
-          this.rebalance();
+          this.scheduleRebalance();
         }
       };
       mql.addEventListener("change", handler);
@@ -149,7 +150,7 @@ export class GridCoordinator {
     const directContents = document.querySelector<HTMLElement>(GRID_CONSTANTS.FEED_CONTAINER_SELECTOR);
     if (directContents) {
       this.bindScopedObserver(directContents);
-      this.rebalance();
+      this.scheduleRebalance();
       return;
     }
 
@@ -169,7 +170,7 @@ export class GridCoordinator {
           this.tempMountObserver = null;
         }
         this.bindScopedObserver(contents);
-        this.rebalance();
+        this.scheduleRebalance();
       }
     });
 
@@ -182,12 +183,23 @@ export class GridCoordinator {
   private bindScopedObserver(contents: HTMLElement): void {
     this.targetContents = contents;
     this.scopedObserver.observe(contents, () => {
-      this.rebalance();
+      this.scheduleRebalance();
     });
   }
 
   public getItemsPerRow(): number {
     return GridCalculator.computeMetrics(window.innerWidth).itemsPerRow;
+  }
+
+  public scheduleRebalance(): void {
+    if (this.isRebalanceScheduled) {
+      return;
+    }
+    this.isRebalanceScheduled = true;
+    queueMicrotask(() => {
+      this.isRebalanceScheduled = false;
+      this.rebalance();
+    });
   }
 
   public rebalance(): void {
@@ -208,7 +220,9 @@ export class GridCoordinator {
         instruction.sourceIndices.forEach((sourceIdx) => {
           const itemEl = children[sourceIdx];
           if (itemEl && itemEl.parentNode === contents) {
-            contents.insertBefore(itemEl, sectionEl);
+            if (itemEl.nextElementSibling !== sectionEl) {
+              contents.insertBefore(itemEl, sectionEl);
+            }
           }
         });
       });
@@ -227,6 +241,7 @@ export class GridCoordinator {
       this.navigateHandler = null;
     }
     this.targetContents = null;
+    this.isRebalanceScheduled = false;
     StyleEngine.remove(GridCoordinator.STYLE_ID);
     this.isInitialized = false;
   }
