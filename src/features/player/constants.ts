@@ -15,6 +15,7 @@ export const PLAYER_CONSTANTS = {
     SPEED_CONTROL_STYLE_ID: "yt-turbo-speed-control",
     SPEED_BTN_CSS: `
       .yt-turbo-speed-btn {
+        position: relative !important;
         width: 4em !important;
         float: left;
         text-align: center !important;
@@ -33,14 +34,34 @@ export const PLAYER_CONSTANTS = {
     SPEED_OPTIONS_CSS: `
       .yt-turbo-speed-options-menu {
         position: absolute !important;
+        bottom: calc(100% + 8px) !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
         background: rgba(0, 0, 0, 0.4) !important;
         color: #ffffff !important;
         border-radius: 8px !important;
         box-sizing: border-box !important;
         z-index: 999999999999 !important;
-        display: none;
         padding: 10px !important;
         font-weight: bold !important;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.15s ease, visibility 0.15s ease;
+      }
+      .yt-turbo-speed-options-menu::after {
+        content: "";
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        height: 8px;
+      }
+      .yt-turbo-speed-btn:hover .yt-turbo-speed-options-menu,
+      .yt-turbo-speed-btn:focus-within .yt-turbo-speed-options-menu {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
       }
       .yt-turbo-speed-options-menu > .yt-turbo-speed-option-item {
         cursor: pointer !important;
@@ -55,6 +76,5 @@ export const PLAYER_CONSTANTS = {
       }
     `
   },
-  PRESET_SPEEDS: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0],
-  MENU_HIDE_DELAY_MS: 100
+  PRESET_SPEEDS: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]
 } as const;
