@@ -128,53 +128,6 @@ export class ReactiveDOMRegistry {
     return video ? video.duration : 0;
   }
 
-  public setPlaybackRate(rate: number): void {
-    const video = this.getVideoElement();
-    if (video) {
-      video.playbackRate = rate;
-    }
-  }
-
-  public getPlaybackRate(): number {
-    const video = this.getVideoElement();
-    return video ? video.playbackRate : 1.0;
-  }
-
-  public setLoop(loop: boolean): void {
-    const video = this.getVideoElement();
-    if (video) {
-      if (loop) {
-        video.setAttribute("loop", "true");
-      } else {
-        video.removeAttribute("loop");
-      }
-    }
-  }
-
-  public isLoop(): boolean {
-    const video = this.getVideoElement();
-    return video ? video.hasAttribute("loop") : false;
-  }
-
-  public requestPictureInPicture(): Promise<PictureInPictureWindow> {
-    const video = this.getVideoElement();
-    if (video && document.pictureInPictureEnabled && !document.pictureInPictureElement) {
-      return video.requestPictureInPicture();
-    }
-    return Promise.reject(new Error("Picture in picture not available"));
-  }
-
-  public exitPictureInPicture(): Promise<void> {
-    if (document.pictureInPictureElement) {
-      return document.exitPictureInPicture();
-    }
-    return Promise.resolve();
-  }
-
-  public isPictureInPictureActive(): boolean {
-    return Boolean(document.pictureInPictureElement);
-  }
-
   /**
    * 响应式等待 Video 节点就绪：
    * - 静态命中则立即 resolve；

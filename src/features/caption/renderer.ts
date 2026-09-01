@@ -1,5 +1,5 @@
 import { StyleEngine } from "../../core/style-engine";
-import { YouTubeDOMAdapter } from "../../core/dom-adapter";
+import { ReactiveDOMRegistry } from "../../core/dom-registry";
 import { SubtitleTimeline } from "./timeline";
 import { SUBTITLE_CONSTANTS } from "./constants";
 import type { YouTubePlayerElement, CaptionOffsetProvider } from "./types";
@@ -64,8 +64,8 @@ export class CaptionOverlayRenderer {
   public init(offsetProvider: CaptionOffsetProvider): void {
     this.offsetProvider = offsetProvider;
     this.injectStyles();
-    const currentVideo = YouTubeDOMAdapter.getVideoElement();
-    const currentContainer = YouTubeDOMAdapter.getPlayerContainer();
+    const currentVideo = ReactiveDOMRegistry.getInstance().getVideoElement();
+    const currentContainer = ReactiveDOMRegistry.getInstance().getPlayerContainer();
     this.attachVideo(currentVideo, currentContainer);
   }
 
@@ -239,7 +239,7 @@ export class CaptionOverlayRenderer {
 
   private hideNativeCaptions(): void {
     if (this.isNativeCaptionsHidden) return;
-    const container = this.containerEl || YouTubeDOMAdapter.getPlayerContainer();
+    const container = this.containerEl || ReactiveDOMRegistry.getInstance().getPlayerContainer();
     if (container) {
       container.classList.add(SUBTITLE_CONSTANTS.CLASS_NATIVE_CAPTIONS_HIDDEN);
       this.isNativeCaptionsHidden = true;
@@ -248,7 +248,7 @@ export class CaptionOverlayRenderer {
 
   private restoreNativeCaptions(): void {
     if (!this.isNativeCaptionsHidden) return;
-    const container = this.containerEl || YouTubeDOMAdapter.getPlayerContainer();
+    const container = this.containerEl || ReactiveDOMRegistry.getInstance().getPlayerContainer();
     if (container) {
       container.classList.remove(SUBTITLE_CONSTANTS.CLASS_NATIVE_CAPTIONS_HIDDEN);
       this.isNativeCaptionsHidden = false;
@@ -353,7 +353,7 @@ export class CaptionOverlayRenderer {
       return this.overlayEl;
     }
 
-    const container = this.containerEl || YouTubeDOMAdapter.getPlayerContainer();
+    const container = this.containerEl || ReactiveDOMRegistry.getInstance().getPlayerContainer();
     if (!container) return null;
 
     let overlay = document.getElementById(SUBTITLE_CONSTANTS.OVERLAY_ID);

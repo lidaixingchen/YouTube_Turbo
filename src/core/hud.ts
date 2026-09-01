@@ -1,4 +1,4 @@
-import { YouTubeDOMAdapter } from "./dom-adapter";
+import { ReactiveDOMRegistry } from "./dom-registry";
 import { StyleEngine } from "./style-engine";
 
 export const HUD_CONSTANTS = {
@@ -60,7 +60,7 @@ export const PlaybackHUD = (() => {
     ensureStyleInjected();
     let element = document.getElementById(HUD_CONSTANTS.ELEMENT_ID);
     if (!element) {
-      const container = YouTubeDOMAdapter.getPlayerContainer();
+      const container = ReactiveDOMRegistry.getInstance().getPlayerContainer();
       if (container) {
         element = document.createElement("div");
         element.id = HUD_CONSTANTS.ELEMENT_ID;

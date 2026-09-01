@@ -1,4 +1,3 @@
-import { commonUtil } from "../../core/dom-adapter";
 import { StyleEngine } from "../../core/style-engine";
 
 export const MarkOrRemoveAd = {
@@ -32,9 +31,7 @@ export const MarkOrRemoveAd = {
     if (!/youtube\.com/.test(window.location.host)) {
       return;
     }
-    commonUtil.onPageLoad(() => {
-      this.markADHTMLElement();
-    });
+    this.markADHTMLElement();
   },
 
   destroy(): void {

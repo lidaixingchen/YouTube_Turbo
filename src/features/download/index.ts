@@ -1,8 +1,20 @@
 import { Toolbar, TOOLBAR_CONSTANTS } from "../../ui/toolbar";
 import { LangueUtil } from "../../i18n";
 import { StorageUtil } from "../../core/storage";
-import { commonUtil } from "../../core/dom-adapter";
 import { Modal } from "../../ui/modal/modal";
+
+function openInTab(
+  url: string,
+  options: { active?: boolean; insert?: boolean; setParent?: boolean } = { active: true, insert: true, setParent: true }
+): void {
+  if (typeof GM_openInTab === "function") {
+    GM_openInTab(url, options);
+  } else if (typeof GM !== "undefined" && typeof (GM as { openInTab?: (u: string, o?: object) => void }).openInTab === "function") {
+    (GM as { openInTab: (u: string, o?: object) => void }).openInTab(url, options);
+  } else {
+    window.open(url, "_blank");
+  }
+}
 
 export class VideoDownloadService {
   private static isInitialized = false;
@@ -12,7 +24,7 @@ export class VideoDownloadService {
     const downloadingConfirm = StorageUtil.getValue(StorageUtil.keys.youtube.downloadingConfirm, false);
     const executeDownload = (): void => {
       const url = "https://www.grabshorts.com/" + LangueUtil.getLang() + "/yt?s=40&url=" + window.location.href;
-      commonUtil.openInTab(url);
+      openInTab(url);
     };
 
     if (downloadingConfirm) {

@@ -1,7 +1,7 @@
 import { PlayerController, type PlayerState } from "./controller";
 import { PLAYER_CONSTANTS } from "./constants";
 import { StyleEngine } from "../../core/style-engine";
-import { commonUtil, ReactiveDOMRegistry } from "../../core/dom-adapter";
+import { ReactiveDOMRegistry } from "../../core/dom-registry";
 import {
   PLAYBACK_RATE_EPSILON,
   VIDEO_RETRY_MAX_TIMEOUT_MS
@@ -32,10 +32,8 @@ export class PlayerSpeedButtonView {
       });
     }
 
-    commonUtil.onPageLoad((): void => {
-      this.generate().catch((err: unknown): void => {
-        console.error("[PlayerSpeedButtonView] onPageLoad generate error:", err);
-      });
+    this.generate().catch((err: unknown): void => {
+      console.error("[PlayerSpeedButtonView] initial generate error:", err);
     });
 
     if (!this.navigateHandler) {
@@ -61,10 +59,6 @@ export class PlayerSpeedButtonView {
       };
       document.addEventListener("click", this.documentClickHandler, true);
     }
-
-    this.generate().catch((err: unknown): void => {
-      console.error("[PlayerSpeedButtonView] initial generate error:", err);
-    });
   }
 
   private static insertStyle(): void {
