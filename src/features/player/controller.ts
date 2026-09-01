@@ -30,11 +30,12 @@ export interface ScreenshotOptions {
   quality?: number;
   download?: boolean;
   customTitle?: string;
+  includeDataUrl?: boolean;
 }
 
 export interface ScreenshotResult {
   blob: Blob;
-  dataUrl: string;
+  dataUrl?: string;
   filename: string;
 }
 
@@ -366,6 +367,7 @@ export class PlayerController {
       if (!video) {
         return resolve(null);
       }
+      let canvas: HTMLCanvasElement | null = null;
       try {
         const format = options.format || DEFAULT_SCREENSHOT_FORMAT;
         const quality = options.quality ?? DEFAULT_SCREENSHOT_QUALITY;
@@ -389,16 +391,24 @@ export class PlayerController {
         const filename = `${title} ${timeStr} screenshot.${extension}`;
 
         const { width, height } = YouTubeDOMAdapter.getVideoResolution();
-        const canvas = document.createElement("canvas");
+        canvas = document.createElement("canvas");
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext("2d");
-        if (!ctx) return resolve(null);
+        if (!ctx) {
+          canvas.width = 0;
+          canvas.height = 0;
+          return resolve(null);
+        }
         ctx.drawImage(video, 0, 0, width, height);
 
-        const dataUrl = canvas.toDataURL(format, quality);
+        const dataUrl = options.includeDataUrl ? canvas.toDataURL(format, quality) : undefined;
+        const activeCanvas = canvas;
 
-        canvas.toBlob((blob: Blob | null) => {
+        activeCanvas.toBlob((blob: Blob | null) => {
+          activeCanvas.width = 0;
+          activeCanvas.height = 0;
+
           if (!blob) return resolve(null);
 
           if (shouldDownload) {
@@ -420,6 +430,10 @@ export class PlayerController {
           });
         }, format, quality);
       } catch (err: unknown) {
+        if (canvas) {
+          canvas.width = 0;
+          canvas.height = 0;
+        }
         console.error("[PlayerController] Screenshot failed:", err);
         reject(err);
       }
