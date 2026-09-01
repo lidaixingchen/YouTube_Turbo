@@ -7,7 +7,7 @@ import { LangueUtil } from "../../i18n";
 import { StorageUtil } from "../../core/storage";
 import { commonUtil } from "../../core/dom-adapter";
 import { Modal } from "../modal/modal";
-import { Theme } from "../../features/theme";
+import { ThemeController } from "../../features/theme";
 import { PlayerController } from "../../features/player";
 import { FeatureRegistry } from "../../registry/feature-registry";
 
@@ -217,10 +217,7 @@ export const Toolbar = (() => {
         icon: "theme",
         order: 20,
         onClick: () => {
-          let currentTheme = StorageUtil.getValue<string | null>(StorageUtil.keys.youtube.theme, null);
-          currentTheme = (currentTheme === "light" || !currentTheme) ? "dark" : "light";
-          StorageUtil.setValue(StorageUtil.keys.youtube.theme, currentTheme);
-          Theme.setTheme(currentTheme, true);
+          ThemeController.getInstance().toggleTheme();
         }
       },
       {
@@ -231,7 +228,7 @@ export const Toolbar = (() => {
         icon: "screenshot",
         order: 30,
         onClick: () => {
-          PlayerController.captureScreenshot();
+          PlayerController.getInstance().captureScreenshot();
         }
       },
       {
@@ -242,7 +239,7 @@ export const Toolbar = (() => {
         icon: "pip",
         order: 40,
         onClick: () => {
-          PlayerController.togglePictureInPicture();
+          PlayerController.getInstance().togglePictureInPicture();
         }
       },
       {
@@ -252,13 +249,13 @@ export const Toolbar = (() => {
         defaultTitle: "Loop",
         icon: { normal: "loopOff", active: "loopOn" },
         order: 50,
-        isActive: () => PlayerController.isLoopEnabled(),
+        isActive: () => PlayerController.getInstance().isLoopEnabled(),
         onClick: (_e, ctx) => {
-          PlayerController.toggleLoop();
+          PlayerController.getInstance().toggleLoop();
           ctx.refresh();
         },
         onStateBind: (refresh) => {
-          return PlayerController.onStateChange(refresh);
+          return PlayerController.getInstance().onStateChange(refresh);
         }
       },
       {
@@ -296,10 +293,6 @@ export const Toolbar = (() => {
       }
 
       commonUtil.onPageLoad(() => {
-        const theme = StorageUtil.getValue<string | null>(StorageUtil.keys.youtube.theme, null);
-        if (theme) {
-          Theme.setTheme(theme, false);
-        }
         this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
         if (FeatureRegistry.isEnabled("isOpenYoutubedownloading")) {
           this.mount(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);

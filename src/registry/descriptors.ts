@@ -3,7 +3,7 @@ import { Tabview } from "../features/tabview";
 import { FourColumnGrid } from "../features/grid";
 import { ThemeProgressbar } from "../features/theme";
 import { Toolbar, TOOLBAR_CONSTANTS } from "../ui/toolbar";
-import { SpeedControl } from "../features/player";
+import { PlayerSpeedButtonView, PlayerShortcuts } from "../features/player";
 import { MarkOrRemoveAd } from "../features/adblock";
 import { SubtitleOffset } from "../features/caption";
 
@@ -52,8 +52,14 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     i18nKey: "function_is_speed_control_open",
     defaultValue: true,
     order: 50,
-    setup: () => SpeedControl.run(),
-    teardown: () => SpeedControl.destroy()
+    setup: () => {
+      PlayerSpeedButtonView.mount();
+      PlayerShortcuts.enable();
+    },
+    teardown: () => {
+      PlayerSpeedButtonView.unmount();
+      PlayerShortcuts.disable();
+    }
   },
   {
     id: "isOpenMarkOrRemoveAd",
