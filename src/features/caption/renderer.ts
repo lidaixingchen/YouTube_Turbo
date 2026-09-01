@@ -1,7 +1,7 @@
 import { StyleEngine } from "../../core/style-engine";
 import { YouTubeDOMAdapter } from "../../core/dom-adapter";
-import { CaptionStore } from "./store";
-import type { SubtitleCue } from "./types";
+import { SubtitleTimeline } from "./timeline";
+import type { YouTubePlayerElement } from "./types";
 
 export class CaptionRenderer {
   private static instance: CaptionRenderer | null = null;
@@ -113,8 +113,16 @@ export class CaptionRenderer {
         return pressed === "true";
       }
     }
-    const track = CaptionStore.getInstance().getActiveTrack();
-    return track !== null && !!track.languageCode;
+    const player = (document.getElementById("movie_player") as YouTubePlayerElement | null) ||
+      (document.querySelector("#player-container-outer .html5-video-player") as YouTubePlayerElement | null);
+    if (player && typeof player.isSubtitlesOn === "function") {
+      try {
+        return Boolean(player.isSubtitlesOn());
+      } catch {
+        // Ignore internal query errors
+      }
+    }
+    return false;
   }
 
   private startLoop(): void {
@@ -157,20 +165,10 @@ export class CaptionRenderer {
       playerContainer.classList.add("yt-turbo-native-captions-hidden");
     }
 
-    let cues = CaptionStore.getInstance().getCurrentCues();
-    if (cues.length === 0) {
-      CaptionStore.getInstance().loadCurrentVideoCues().then((loadedCues) => {
-        if (loadedCues.length > 0) {
-          this.renderCurrentFrame(true);
-        }
-      });
-      cues = CaptionStore.getInstance().getCurrentCues();
-    }
-
     const currentMs = video.currentTime * 1000;
     const effectiveMs = currentMs - offsetMs;
 
-    const activeCues = cues.filter((c: SubtitleCue) => c.startMs <= effectiveMs && effectiveMs <= c.endMs);
+    const activeCues = SubtitleTimeline.getInstance().findActiveCues(effectiveMs);
     const targetText = activeCues.map((c) => c.text).join("\n").trim();
 
     if (this.textEl && (force || targetText !== this.lastRenderedText || offsetMs !== this.lastOffsetMs)) {

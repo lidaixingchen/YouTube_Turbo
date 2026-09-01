@@ -1,6 +1,6 @@
 import { SUBTITLE_CONSTANTS } from "./constants";
 import type { YouTubeTimedTextJson3 } from "./types";
-import { CaptionStore } from "./store";
+import { SubtitleTimeline } from "./timeline";
 
 export class TimedTextInterceptor {
   private static isInstalled = false;
@@ -28,6 +28,18 @@ export class TimedTextInterceptor {
   private static isTimedTextUrl(url: string | URL | Request): boolean {
     const rawUrl = typeof url === "string" ? url : url instanceof Request ? url.url : url.href;
     return rawUrl.includes(SUBTITLE_CONSTANTS.TIMEDTEXT_API_PATH);
+  }
+
+  private static extractKeyFromUrl(url: string): string {
+    try {
+      const parsed = new URL(url, window.location.origin);
+      const videoId = parsed.searchParams.get("v") || "";
+      const lang = parsed.searchParams.get("lang") || "default";
+      const tlang = parsed.searchParams.get("tlang") || "";
+      return `${videoId}_${lang}_${tlang}`;
+    } catch {
+      return `unknown_${Date.now()}`;
+    }
   }
 
   private static modifyJson3(text: string, offsetMs: number): string {
@@ -142,7 +154,8 @@ export class TimedTextInterceptor {
       try {
         const rawUrl = typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
         const originalText = await response.text();
-        CaptionStore.getInstance().captureRawTimedText(rawUrl, originalText);
+        const key = TimedTextInterceptor.extractKeyFromUrl(rawUrl);
+        SubtitleTimeline.getInstance().ingest(key, originalText);
 
         const offsetMs = TimedTextInterceptor.offsetProvider();
         if (offsetMs === 0) {
@@ -168,7 +181,7 @@ export class TimedTextInterceptor {
   }
 
   private static hookXHR(targetWindow: Window): void {
-    const xhrProto = (targetWindow as any).XMLHttpRequest?.prototype;
+    const xhrProto = (targetWindow as unknown as { XMLHttpRequest?: { prototype: XMLHttpRequest } }).XMLHttpRequest?.prototype;
     if (!xhrProto) return;
 
     this.originalXHROpen = xhrProto.open;
@@ -186,7 +199,7 @@ export class TimedTextInterceptor {
       if (this.__isTimedText) {
         this.__timedTextUrl = typeof url === "string" ? url : url.href;
       }
-      return (rawOpen as any).apply(this, [method, url, ...rest]);
+      return (rawOpen as unknown as (...args: unknown[]) => void).apply(this, [method, url, ...rest]) as void;
     };
 
     xhrProto.send = function (
@@ -201,7 +214,8 @@ export class TimedTextInterceptor {
           if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status < 300) {
             if (xhr.responseText) {
               const url = xhr.__timedTextUrl || window.location.href;
-              CaptionStore.getInstance().captureRawTimedText(url, xhr.responseText);
+              const key = TimedTextInterceptor.extractKeyFromUrl(url);
+              SubtitleTimeline.getInstance().ingest(key, xhr.responseText);
 
               const offsetMs = TimedTextInterceptor.offsetProvider();
               if (offsetMs !== 0) {
@@ -244,7 +258,7 @@ export class TimedTextInterceptor {
       targetWindow.fetch = this.originalFetch;
       this.originalFetch = null;
     }
-    const xhrProto = (targetWindow as any).XMLHttpRequest?.prototype;
+    const xhrProto = (targetWindow as unknown as { XMLHttpRequest?: { prototype: XMLHttpRequest } }).XMLHttpRequest?.prototype;
     if (xhrProto && this.originalXHROpen && this.originalXHRSend) {
       xhrProto.open = this.originalXHROpen;
       xhrProto.send = this.originalXHRSend;
