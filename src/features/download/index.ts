@@ -44,6 +44,7 @@ export class VideoDownloadService {
         defaultTitle: "Download",
         icon: "download",
         order: 60,
+        dismissOnExecute: true,
         onClick: () => {
           this.downloadCurrentVideo();
         }

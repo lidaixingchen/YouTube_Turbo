@@ -23,6 +23,7 @@ setupConfigHacks();
     defaultTitle: "Setting",
     icon: "setting",
     order: 10,
+    dismissOnExecute: true,
     onClick: () => {
       FeatureRegistry.openSettingsModal();
     }

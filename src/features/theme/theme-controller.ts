@@ -62,6 +62,7 @@ export class ThemeController {
       defaultTitle: "Switch the theme",
       icon: "theme",
       order: 20,
+      dismissOnExecute: false,
       onClick: () => {
         this.toggleTheme();
       }

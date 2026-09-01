@@ -218,6 +218,7 @@ export class PlayerController {
         defaultTitle: "Screenshot",
         icon: "screenshot",
         order: 30,
+        dismissOnExecute: true,
         onClick: () => {
           this.captureScreenshot();
         }
@@ -229,6 +230,7 @@ export class PlayerController {
         defaultTitle: "Picture to picture",
         icon: "pip",
         order: 40,
+        dismissOnExecute: true,
         onClick: () => {
           this.togglePictureInPicture();
         }
@@ -240,6 +242,7 @@ export class PlayerController {
         defaultTitle: "Loop",
         icon: { normal: "loopOff", active: "loopOn" },
         order: 50,
+        dismissOnExecute: false,
         isActive: () => this.isLoopEnabled(),
         onClick: (_e, ctx) => {
           this.toggleLoop();
