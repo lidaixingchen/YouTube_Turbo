@@ -23,5 +23,6 @@ export interface SlotDefinition {
   containerSelector: string;
   targetSelector: string;
   elementId: string;
+  isApplicable?: (url: URL) => boolean;
   mount: (target: HTMLElement, element: HTMLElement) => void;
 }

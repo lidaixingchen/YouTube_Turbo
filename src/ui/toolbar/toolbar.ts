@@ -1,7 +1,7 @@
 import { TOOLBAR_CONSTANTS } from "./constants";
 import { IconRegistry } from "../icons";
 import { PopoverEngine } from "./popover";
-import { ReactiveMounter } from "./reactive-mounter";
+import { SlotMountBus } from "./reactive-mounter";
 import { ActionRegistry } from "./action-registry";
 import { StyleEngine } from "../../core/style-engine";
 import { Locale } from "../../i18n";
@@ -18,6 +18,7 @@ export class ToolbarController {
       containerSelector: "#player-container-outer .html5-video-player, #movie_player",
       targetSelector: ".ytp-right-controls",
       elementId: "yt_extension_toolbox_root",
+      isApplicable: (url: URL) => !url.pathname.startsWith("/shorts"),
       mount: (target: HTMLElement, element: HTMLElement) => {
         if (!target.contains(element)) {
           target.prepend(element);
@@ -29,6 +30,7 @@ export class ToolbarController {
       containerSelector: "ytd-shorts",
       targetSelector: "#navigation-button-down",
       elementId: "script_download_shorts",
+      isApplicable: (url: URL) => url.pathname.startsWith("/shorts"),
       mount: (target: HTMLElement, element: HTMLElement) => {
         if (!target.parentElement?.contains(element)) {
           target.after(element);
@@ -40,6 +42,7 @@ export class ToolbarController {
       containerSelector: "ytd-watch-metadata",
       targetSelector: "#owner, #actions",
       elementId: "script_outer_box",
+      isApplicable: (url: URL) => url.pathname.startsWith("/watch"),
       mount: (target: HTMLElement, element: HTMLElement) => {
         if (target.id === "owner") {
           if (!target.contains(element)) {
@@ -72,7 +75,7 @@ export class ToolbarController {
     this.isInitialized = true;
 
     this.injectStyles();
-    ReactiveMounter.getInstance().bindNavigation();
+    SlotMountBus.getInstance().bindNavigation();
     this.mount(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
   }
 
@@ -299,27 +302,27 @@ export class ToolbarController {
   public mount(slotKey?: string): void {
     if (!slotKey || slotKey === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS) {
       const def = ToolbarController.SLOT_DEFINITIONS[TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS];
-      ReactiveMounter.getInstance().mountSlot(def, this.createPlayerControlsSlotElement);
+      SlotMountBus.getInstance().mountSlot(def, this.createPlayerControlsSlotElement);
     }
     if (!slotKey || slotKey === TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS) {
       const def = ToolbarController.SLOT_DEFINITIONS[TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS];
-      ReactiveMounter.getInstance().mountSlot(def, this.createShortsSlotElement);
+      SlotMountBus.getInstance().mountSlot(def, this.createShortsSlotElement);
     }
     if (!slotKey || slotKey === TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA) {
       const def = ToolbarController.SLOT_DEFINITIONS[TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA];
-      ReactiveMounter.getInstance().mountSlot(def, this.createWatchMetadataSlotElement);
+      SlotMountBus.getInstance().mountSlot(def, this.createWatchMetadataSlotElement);
     }
   }
 
   public unmount(slotKey?: string): void {
     if (slotKey) {
-      ReactiveMounter.getInstance().unmountSlot(slotKey);
+      SlotMountBus.getInstance().unmountSlot(slotKey);
       if (slotKey === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS && this.popoverUnbind) {
         this.popoverUnbind();
         this.popoverUnbind = null;
       }
     } else {
-      ReactiveMounter.getInstance().destroy();
+      SlotMountBus.getInstance().destroy();
       Object.values(ToolbarController.SLOT_DEFINITIONS).forEach((def: SlotDefinition) => {
         document.getElementById(def.elementId)?.remove();
       });
@@ -333,9 +336,9 @@ export class ToolbarController {
 
   public refresh(slotKey?: string): void {
     if (slotKey) {
-      ReactiveMounter.getInstance().refreshSlot(slotKey);
+      SlotMountBus.getInstance().refreshSlot(slotKey);
     } else {
-      ReactiveMounter.getInstance().refreshAll();
+      SlotMountBus.getInstance().refreshAll();
     }
   }
 
