@@ -1,4 +1,4 @@
-import { YouTubeDOMAdapter, commonUtil } from "../../core/dom-adapter";
+import { YouTubeDOMAdapter, ReactiveDOMRegistry } from "../../core/dom-adapter";
 import { StorageUtil } from "../../core/storage";
 import { PlaybackHUD } from "../../core/hud";
 import { Locale } from "../../i18n";
@@ -14,7 +14,6 @@ import {
   SCREENSHOT_OBJECT_URL_REVOKE_DELAY_MS,
   SECONDS_PER_HOUR,
   SECONDS_PER_MINUTE,
-  VIDEO_RETRY_INTERVAL_MS,
   VIDEO_RETRY_MAX_TIMEOUT_MS
 } from "../../core/constants";
 
@@ -192,13 +191,7 @@ export class PlayerController {
       return;
     }
 
-    const video = await commonUtil.waitForElementByInterval<HTMLVideoElement>(
-      "#movie_player video, video.video-stream, video",
-      document.body,
-      true,
-      VIDEO_RETRY_INTERVAL_MS,
-      VIDEO_RETRY_MAX_TIMEOUT_MS
-    );
+    const video = await ReactiveDOMRegistry.getInstance().waitForVideoElement(VIDEO_RETRY_MAX_TIMEOUT_MS);
 
     if (currentToken !== this.navigationToken) {
       return;

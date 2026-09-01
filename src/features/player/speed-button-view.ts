@@ -1,10 +1,9 @@
 import { PlayerController } from "./controller";
 import { PLAYER_CONSTANTS } from "./constants";
 import { StyleEngine } from "../../core/style-engine";
-import { commonUtil } from "../../core/dom-adapter";
+import { commonUtil, ReactiveDOMRegistry } from "../../core/dom-adapter";
 import {
   PLAYBACK_RATE_EPSILON,
-  VIDEO_RETRY_INTERVAL_MS,
   VIDEO_RETRY_MAX_TIMEOUT_MS
 } from "../../core/constants";
 
@@ -81,11 +80,9 @@ export class PlayerSpeedButtonView {
     const existingBtn = document.querySelector(PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON);
     if (existingBtn) return;
 
-    const player = await commonUtil.waitForElementByInterval<HTMLElement>(
+    const player = await ReactiveDOMRegistry.getInstance().waitForElement<HTMLElement>(
       PLAYER_CONSTANTS.SELECTORS.PLAYER_CONTAINER,
       document.body,
-      true,
-      VIDEO_RETRY_INTERVAL_MS,
       VIDEO_RETRY_MAX_TIMEOUT_MS
     );
     if (!player || !this.isMounted) return;

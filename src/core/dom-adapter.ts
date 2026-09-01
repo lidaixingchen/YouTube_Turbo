@@ -1,11 +1,8 @@
 import { StyleEngine } from "./style-engine";
-import {
-  POLL_INTERVAL_MS,
-  POLL_MAX_TIMEOUT_MS,
-  DEFAULT_VIDEO_WIDTH,
-  DEFAULT_VIDEO_HEIGHT
-} from "./constants";
+import { ReactiveDOMRegistry } from "./dom-registry";
 import type { VideoResolution } from "../types";
+
+export { ReactiveDOMRegistry };
 
 export const commonUtil = {
   onPageLoad(callback: () => void): void {
@@ -31,7 +28,10 @@ export const commonUtil = {
     }
   },
 
-  openInTab(url: string, options: { active?: boolean; insert?: boolean; setParent?: boolean } = { active: true, insert: true, setParent: true }): void {
+  openInTab(
+    url: string,
+    options: { active?: boolean; insert?: boolean; setParent?: boolean } = { active: true, insert: true, setParent: true }
+  ): void {
     if (typeof GM_openInTab === "function") {
       GM_openInTab(url, options);
     } else if (typeof GM !== "undefined" && typeof (GM as any).openInTab === "function") {
@@ -41,127 +41,81 @@ export const commonUtil = {
     }
   },
 
+  /**
+   * 事件驱动元素等待（基于 MutationObserver 挂载，0 轮询）
+   */
+  waitForElement<T extends Element = HTMLElement>(
+    selector: string,
+    target: Element | Document = document.body || document.documentElement,
+    timeoutMs?: number
+  ): Promise<T | null> {
+    return ReactiveDOMRegistry.getInstance().waitForElement<T>(selector, target, timeoutMs);
+  },
+
+  /**
+   * @deprecated 请优先使用 ReactiveDOMRegistry.waitForElement() 或 waitForVideoElement()
+   */
   waitForElementByInterval<T extends Element = HTMLElement>(
     selector: string,
     target: Element | Document = document.body || document.documentElement,
-    allowEmpty: boolean = true,
-    delay: number = POLL_INTERVAL_MS,
-    maxDelay: number = POLL_MAX_TIMEOUT_MS
+    _allowEmpty: boolean = true,
+    _delay?: number,
+    maxDelay?: number
   ): Promise<T | null> {
-    return new Promise<T | null>((resolve) => {
-      let totalDelay = 0;
-      let element = target.querySelector<T>(selector);
-      let result = allowEmpty ? !!element : !!element && !!element.innerHTML;
-      if (result && element) {
-        resolve(element);
-        return;
-      }
-      const elementInterval = setInterval(() => {
-        if (totalDelay >= maxDelay) {
-          clearInterval(elementInterval);
-          resolve(null);
-          return;
-        }
-        element = target.querySelector<T>(selector);
-        result = allowEmpty ? !!element : !!element && !!element.innerHTML;
-        if (result && element) {
-          clearInterval(elementInterval);
-          resolve(element);
-        } else {
-          totalDelay += delay;
-        }
-      }, delay);
-    });
+    return ReactiveDOMRegistry.getInstance().waitForElement<T>(selector, target, maxDelay);
   }
 };
 
 export const YouTubeDOMAdapter = {
   getVideoElement(): HTMLVideoElement | null {
-    return document.querySelector<HTMLVideoElement>("#movie_player video, video.video-stream, video");
+    return ReactiveDOMRegistry.getInstance().getVideoElement();
   },
 
   getPlayerContainer(): HTMLElement | null {
-    return (
-      document.getElementById("movie_player") ||
-      document.querySelector<HTMLElement>("#player-container-outer .html5-video-player")
-    );
+    return ReactiveDOMRegistry.getInstance().getPlayerContainer();
   },
 
   getCurrentTime(): number {
-    const video = this.getVideoElement();
-    return video ? video.currentTime : 0;
+    return ReactiveDOMRegistry.getInstance().getCurrentTime();
   },
 
   getDuration(): number {
-    const video = this.getVideoElement();
-    return video ? video.duration : 0;
+    return ReactiveDOMRegistry.getInstance().getDuration();
   },
 
   getVideoTitle(): string {
-    const titleEl = document.querySelector<HTMLElement>(
-      "h1.title.ytd-video-primary-info-renderer, h1.ytd-watch-metadata, #title h1, h1.watch-title-container"
-    );
-    if (titleEl && titleEl.textContent) {
-      return titleEl.textContent.trim();
-    }
-    return (document.title || "").replace(/- YouTube$/i, "").trim() || "video";
+    return ReactiveDOMRegistry.getInstance().getVideoTitle();
   },
 
   getVideoResolution(): VideoResolution {
-    const video = this.getVideoElement();
-    if (video && video.videoWidth > 0 && video.videoHeight > 0) {
-      return {
-        width: video.videoWidth,
-        height: video.videoHeight
-      };
-    }
-    return { width: DEFAULT_VIDEO_WIDTH, height: DEFAULT_VIDEO_HEIGHT };
+    return ReactiveDOMRegistry.getInstance().getVideoResolution();
   },
+
   setPlaybackRate(rate: number): void {
-    const video = this.getVideoElement();
-    if (video) {
-      video.playbackRate = rate;
-    }
+    ReactiveDOMRegistry.getInstance().setPlaybackRate(rate);
   },
 
   getPlaybackRate(): number {
-    const video = this.getVideoElement();
-    return video ? video.playbackRate : 1;
+    return ReactiveDOMRegistry.getInstance().getPlaybackRate();
   },
 
   setLoop(loop: boolean): void {
-    const video = this.getVideoElement();
-    if (video) {
-      if (loop) {
-        video.setAttribute("loop", "true");
-      } else {
-        video.removeAttribute("loop");
-      }
-    }
+    ReactiveDOMRegistry.getInstance().setLoop(loop);
   },
 
   isLoop(): boolean {
-    const video = this.getVideoElement();
-    return video ? video.hasAttribute("loop") : false;
+    return ReactiveDOMRegistry.getInstance().isLoop();
   },
 
   requestPictureInPicture(): Promise<PictureInPictureWindow> {
-    const video = this.getVideoElement();
-    if (video && document.pictureInPictureEnabled && !document.pictureInPictureElement) {
-      return video.requestPictureInPicture();
-    }
-    return Promise.reject(new Error("Picture in picture not available"));
+    return ReactiveDOMRegistry.getInstance().requestPictureInPicture();
   },
 
   exitPictureInPicture(): Promise<void> {
-    if (document.pictureInPictureElement) {
-      return document.exitPictureInPicture();
-    }
-    return Promise.resolve();
+    return ReactiveDOMRegistry.getInstance().exitPictureInPicture();
   },
 
   isPictureInPictureActive(): boolean {
-    return !!document.pictureInPictureElement;
+    return ReactiveDOMRegistry.getInstance().isPictureInPictureActive();
   }
 };
-
