@@ -1,9 +1,9 @@
 import type { FeatureDescriptor } from "../types";
 import { Tabview } from "../features/tabview";
-import { FourColumnGrid } from "../features/grid";
+import { GridCoordinator } from "../features/grid";
 import { ThemeProgressbar } from "../features/theme";
 import { Toolbar, TOOLBAR_CONSTANTS } from "../ui/toolbar";
-import { PlayerSpeedButtonView, PlayerShortcuts } from "../features/player";
+import { PlayerController } from "../features/player";
 import { MarkOrRemoveAd } from "../features/adblock";
 import { CaptionController } from "../features/caption";
 
@@ -26,8 +26,8 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     descI18nKey: "feature_four_column_grid_desc",
     defaultValue: true,
     order: 20,
-    setup: () => FourColumnGrid.run(),
-    teardown: () => FourColumnGrid.destroy()
+    setup: () => GridCoordinator.getInstance().init(),
+    teardown: () => GridCoordinator.getInstance().destroy()
   },
   {
     id: "isOpenThemeProgressBar",
@@ -62,14 +62,8 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     descI18nKey: "feature_speed_control_desc",
     defaultValue: true,
     order: 50,
-    setup: () => {
-      PlayerSpeedButtonView.mount();
-      PlayerShortcuts.enable();
-    },
-    teardown: () => {
-      PlayerSpeedButtonView.unmount();
-      PlayerShortcuts.disable();
-    }
+    setup: () => PlayerController.getInstance().enableSpeedControl(),
+    teardown: () => PlayerController.getInstance().disableSpeedControl()
   },
   {
     id: "isOpenMarkOrRemoveAd",

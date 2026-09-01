@@ -1,8 +1,10 @@
-import { YouTubeDOMAdapter, ReactiveDOMRegistry } from "../../core/dom-adapter";
+import { ReactiveDOMRegistry } from "../../core/dom-registry";
 import { StorageUtil } from "../../core/storage";
 import { PlaybackHUD } from "../../core/hud";
 import { Locale } from "../../i18n";
 import { Toolbar, TOOLBAR_CONSTANTS } from "../../ui/toolbar";
+import { ShortcutDispatcher } from "../../core/shortcuts";
+import { PlayerSpeedButtonView } from "./speed-button-view";
 import {
   DEFAULT_PLAYBACK_SPEED,
   DEFAULT_SCREENSHOT_FORMAT,
@@ -55,11 +57,13 @@ export class PlayerController {
   private observer: MutationObserver | null = null;
   private observedContainer: HTMLElement | null = null;
   private isInitialized: boolean = false;
+  private isSpeedControlEnabled: boolean = false;
+  private shortcutCleanups: Array<() => void> = [];
   private navigationToken: number = 0;
   private navigateHandler: (() => void) | null = null;
 
   private readonly handleRateChange = (): void => {
-    const video = this.boundVideo || YouTubeDOMAdapter.getVideoElement();
+    const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
     if (!video) return;
     if (Math.abs(video.playbackRate - this.targetSpeed) > PLAYBACK_RATE_EPSILON) {
       video.playbackRate = this.targetSpeed;
@@ -69,7 +73,7 @@ export class PlayerController {
 
   private readonly handleEnded = (): void => {
     if (this.targetLoop) {
-      const video = this.boundVideo || YouTubeDOMAdapter.getVideoElement();
+      const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
       if (video) {
         video.currentTime = 0;
         video.play().catch(() => {});
@@ -78,7 +82,7 @@ export class PlayerController {
   };
 
   private readonly handleLoadedMetadata = (): void => {
-    const video = this.boundVideo || YouTubeDOMAdapter.getVideoElement();
+    const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
     if (!video) return;
     this.applyPlaybackSettings(video);
     this.notifyStateChange();
@@ -95,12 +99,13 @@ export class PlayerController {
   }
 
   public getState(): PlayerState {
+    const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
     return {
       speed: this.targetSpeed,
       isLoop: this.targetLoop,
-      isPiP: YouTubeDOMAdapter.isPictureInPictureActive(),
-      isReady: !!YouTubeDOMAdapter.getVideoElement(),
-      videoElement: YouTubeDOMAdapter.getVideoElement()
+      isPiP: Boolean(document.pictureInPictureElement),
+      isReady: Boolean(video),
+      videoElement: video
     };
   }
 
@@ -162,7 +167,7 @@ export class PlayerController {
 
   private setupObserver(): void {
     const container =
-      YouTubeDOMAdapter.getPlayerContainer() ||
+      ReactiveDOMRegistry.getInstance().getPlayerContainer() ||
       document.querySelector<HTMLElement>("ytd-player, #player, #player-container, #player-container-outer");
     if (!container) return;
     if (this.observedContainer === container && this.observer) return;
@@ -172,7 +177,7 @@ export class PlayerController {
     }
     this.observedContainer = container;
     this.observer = new MutationObserver(() => {
-      const video = YouTubeDOMAdapter.getVideoElement();
+      const video = ReactiveDOMRegistry.getInstance().getVideoElement();
       if (video && video !== this.boundVideo) {
         this.bindVideoListeners(video);
       }
@@ -185,7 +190,7 @@ export class PlayerController {
 
   private async syncVideoOnNavigate(): Promise<void> {
     const currentToken = ++this.navigationToken;
-    const directVideo = YouTubeDOMAdapter.getVideoElement();
+    const directVideo = ReactiveDOMRegistry.getInstance().getVideoElement();
     if (directVideo) {
       this.bindVideoListeners(directVideo);
       this.setupObserver();
@@ -202,6 +207,103 @@ export class PlayerController {
       this.bindVideoListeners(video);
       this.setupObserver();
     }
+  }
+
+  private setupShortcuts(): void {
+    this.teardownShortcuts();
+
+    const unbindSpeedUp = ShortcutDispatcher.register({
+      key: ">",
+      shiftKey: true,
+      description: "Increase playback speed",
+      handler: () => {
+        this.increaseSpeed();
+      }
+    });
+
+    const unbindSpeedDown = ShortcutDispatcher.register({
+      key: "<",
+      shiftKey: true,
+      description: "Decrease playback speed",
+      handler: () => {
+        this.decreaseSpeed();
+      }
+    });
+
+    const unbindResetSpeed = ShortcutDispatcher.register({
+      key: "r",
+      shiftKey: true,
+      description: "Reset playback speed to 1.0x",
+      handler: () => {
+        this.resetSpeed();
+      }
+    });
+
+    const unbindScreenshot = ShortcutDispatcher.register({
+      key: "s",
+      shiftKey: true,
+      description: "Capture screenshot",
+      handler: () => {
+        this.captureScreenshot().catch((err: unknown) => {
+          console.error("[PlayerController] Screenshot error:", err);
+        });
+      }
+    });
+
+    const unbindPiP = ShortcutDispatcher.register({
+      key: "p",
+      shiftKey: true,
+      description: "Toggle Picture-in-Picture",
+      handler: () => {
+        this.togglePictureInPicture().catch((err: unknown) => {
+          console.error("[PlayerController] PiP error:", err);
+        });
+      }
+    });
+
+    const unbindLoop = ShortcutDispatcher.register({
+      key: "l",
+      shiftKey: true,
+      description: "Toggle Loop playback",
+      handler: () => {
+        this.toggleLoop();
+      }
+    });
+
+    this.shortcutCleanups.push(
+      unbindSpeedUp,
+      unbindSpeedDown,
+      unbindResetSpeed,
+      unbindScreenshot,
+      unbindPiP,
+      unbindLoop
+    );
+  }
+
+  private teardownShortcuts(): void {
+    this.shortcutCleanups.forEach((cleanup: () => void) => {
+      try {
+        cleanup();
+      } catch (e: unknown) {
+        console.error("[PlayerController] Shortcut cleanup error:", e);
+      }
+    });
+    this.shortcutCleanups = [];
+  }
+
+  public enableSpeedControl(): void {
+    if (this.isSpeedControlEnabled) {
+      return;
+    }
+    this.isSpeedControlEnabled = true;
+    PlayerSpeedButtonView.mount();
+    this.setupShortcuts();
+  }
+
+  public disableSpeedControl(): void {
+    this.isSpeedControlEnabled = false;
+    PlayerSpeedButtonView.unmount();
+    this.teardownShortcuts();
   }
 
   public init(): void {
@@ -271,7 +373,7 @@ export class PlayerController {
 
   public onReady(callback: (state: PlayerState) => void): () => void {
     this.readyCallbacks.add(callback);
-    if (YouTubeDOMAdapter.getVideoElement()) {
+    if (ReactiveDOMRegistry.getInstance().getVideoElement()) {
       try {
         callback(this.getState());
       } catch (e: unknown) {
@@ -291,7 +393,7 @@ export class PlayerController {
     const normalized = Math.round(clamped * 100) / 100;
     this.targetSpeed = normalized;
     StorageUtil.setValue(StorageUtil.keys.youtube.videoPlaySpeed, normalized);
-    const video = this.boundVideo || YouTubeDOMAdapter.getVideoElement();
+    const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
     if (video) {
       video.playbackRate = normalized;
     }
@@ -327,7 +429,14 @@ export class PlayerController {
   public toggleLoop(forceState?: boolean): boolean {
     this.targetLoop = typeof forceState === "boolean" ? forceState : !this.targetLoop;
     StorageUtil.setValue(StorageUtil.keys.youtube.videoLoop, this.targetLoop);
-    YouTubeDOMAdapter.setLoop(this.targetLoop);
+    const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
+    if (video) {
+      if (this.targetLoop) {
+        video.setAttribute("loop", "true");
+      } else {
+        video.removeAttribute("loop");
+      }
+    }
     PlaybackHUD.show(this.targetLoop ? Locale.t("hud_loop_enabled") : Locale.t("hud_loop_disabled"));
     this.notifyStateChange();
     return this.targetLoop;
@@ -344,16 +453,20 @@ export class PlayerController {
   public async togglePictureInPicture(): Promise<boolean> {
     if (!document.pictureInPictureEnabled) return false;
     try {
-      if (YouTubeDOMAdapter.isPictureInPictureActive()) {
-        await YouTubeDOMAdapter.exitPictureInPicture();
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
         PlaybackHUD.show(Locale.t("hud_pip_disabled"));
         this.notifyStateChange();
         return false;
       } else {
-        await YouTubeDOMAdapter.requestPictureInPicture();
-        PlaybackHUD.show(Locale.t("hud_pip_enabled"));
-        this.notifyStateChange();
-        return true;
+        const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
+        if (video) {
+          await video.requestPictureInPicture();
+          PlaybackHUD.show(Locale.t("hud_pip_enabled"));
+          this.notifyStateChange();
+          return true;
+        }
+        return false;
       }
     } catch (err: unknown) {
       console.warn("[PlayerController] PiP toggle error:", err);
@@ -363,7 +476,7 @@ export class PlayerController {
 
   public captureScreenshot(options: ScreenshotOptions = {}): Promise<ScreenshotResult | null> {
     return new Promise<ScreenshotResult | null>((resolve, reject) => {
-      const video = YouTubeDOMAdapter.getVideoElement();
+      const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
       if (!video) {
         return resolve(null);
       }
@@ -373,9 +486,9 @@ export class PlayerController {
         const quality = options.quality ?? DEFAULT_SCREENSHOT_QUALITY;
         const shouldDownload = options.download !== false;
         const extension = format.split("/")[1] || "png";
-        const rawTitle = options.customTitle || YouTubeDOMAdapter.getVideoTitle();
+        const rawTitle = options.customTitle || ReactiveDOMRegistry.getInstance().getVideoTitle();
         const title = sanitizeFileName(rawTitle);
-        const currentTime = YouTubeDOMAdapter.getCurrentTime();
+        const currentTime = video.currentTime;
 
         const totalSeconds = Math.floor(currentTime);
         const hours = Math.floor(totalSeconds / SECONDS_PER_HOUR);
@@ -390,7 +503,7 @@ export class PlayerController {
 
         const filename = `${title} ${timeStr} screenshot.${extension}`;
 
-        const { width, height } = YouTubeDOMAdapter.getVideoResolution();
+        const { width, height } = ReactiveDOMRegistry.getInstance().getVideoResolution();
         canvas = document.createElement("canvas");
         canvas.width = width;
         canvas.height = height;
@@ -446,6 +559,7 @@ export class PlayerController {
 
   public destroy(): void {
     this.navigationToken++;
+    this.disableSpeedControl();
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;
