@@ -1,6 +1,7 @@
 import { YouTubeDOMAdapter, commonUtil } from "../../core/dom-adapter";
 import { StorageUtil } from "../../core/storage";
 import { PlaybackHUD } from "../../core/hud";
+import { Toolbar, TOOLBAR_CONSTANTS } from "../../ui/toolbar";
 import {
   DEFAULT_PLAYBACK_SPEED,
   DEFAULT_SCREENSHOT_FORMAT,
@@ -214,6 +215,47 @@ export class PlayerController {
     const savedSpeed = StorageUtil.getValue(StorageUtil.keys.youtube.videoPlaySpeed, DEFAULT_PLAYBACK_SPEED);
     this.targetSpeed = typeof savedSpeed === "number" ? savedSpeed : parseFloat(String(savedSpeed)) || DEFAULT_PLAYBACK_SPEED;
     this.targetLoop = Boolean(StorageUtil.getValue(StorageUtil.keys.youtube.videoLoop, false));
+
+    Toolbar.registerActions([
+      {
+        id: "screenshot",
+        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+        titleKey: "action_screenshot",
+        defaultTitle: "Screenshot",
+        icon: "screenshot",
+        order: 30,
+        onClick: () => {
+          this.captureScreenshot();
+        }
+      },
+      {
+        id: "pip",
+        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+        titleKey: "action_pip",
+        defaultTitle: "Picture to picture",
+        icon: "pip",
+        order: 40,
+        onClick: () => {
+          this.togglePictureInPicture();
+        }
+      },
+      {
+        id: "loop",
+        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+        titleKey: "action_loop",
+        defaultTitle: "Loop",
+        icon: { normal: "loopOff", active: "loopOn" },
+        order: 50,
+        isActive: () => this.isLoopEnabled(),
+        onClick: (_e, ctx) => {
+          this.toggleLoop();
+          ctx.refresh();
+        },
+        onStateBind: (refresh) => {
+          return this.onStateChange(refresh);
+        }
+      }
+    ]);
 
     this.syncVideoOnNavigate().catch((err: unknown) => {
       console.error("[PlayerController] Initial video sync error:", err);

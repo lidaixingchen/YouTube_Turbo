@@ -1,4 +1,5 @@
 import { THEME_CONSTANTS } from "./constants";
+import { Toolbar, TOOLBAR_CONSTANTS } from "../../ui/toolbar";
 
 export type ThemeMode = "dark" | "light";
 
@@ -51,6 +52,20 @@ export class ThemeController {
       ThemeController.instance = new ThemeController();
     }
     return ThemeController.instance;
+  }
+
+  public init(): void {
+    Toolbar.registerAction({
+      id: "theme",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "action_switch_theme",
+      defaultTitle: "Switch the theme",
+      icon: "theme",
+      order: 20,
+      onClick: () => {
+        this.toggleTheme();
+      }
+    });
   }
 
   private readPrefCookie(): string {
