@@ -4,7 +4,6 @@ import { PlaybackHUD } from "../../core/hud";
 import { Locale } from "../../i18n";
 import { Toolbar, TOOLBAR_CONSTANTS } from "../../ui/toolbar";
 import { ShortcutDispatcher } from "../../core/shortcuts";
-import { PlayerSpeedButtonView } from "./speed-button-view";
 import {
   DEFAULT_PLAYBACK_SPEED,
   DEFAULT_SCREENSHOT_FORMAT,
@@ -296,13 +295,11 @@ export class PlayerController {
       return;
     }
     this.isSpeedControlEnabled = true;
-    PlayerSpeedButtonView.mount();
     this.setupShortcuts();
   }
 
   public disableSpeedControl(): void {
     this.isSpeedControlEnabled = false;
-    PlayerSpeedButtonView.unmount();
     this.teardownShortcuts();
   }
 

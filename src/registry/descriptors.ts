@@ -3,7 +3,7 @@ import { Tabview } from "../features/tabview";
 import { GridCoordinator } from "../features/grid";
 import { ThemeController } from "../features/theme";
 import { VideoDownloadService } from "../features/download";
-import { PlayerController } from "../features/player";
+import { PlayerController, PlayerSpeedButtonView } from "../features/player";
 import { MarkOrRemoveAd } from "../features/adblock";
 import { CaptionController } from "../features/caption";
 
@@ -56,8 +56,14 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     descI18nKey: "feature_speed_control_desc",
     defaultValue: true,
     order: 50,
-    setup: () => PlayerController.getInstance().enableSpeedControl(),
-    teardown: () => PlayerController.getInstance().disableSpeedControl()
+    setup: () => {
+      PlayerController.getInstance().enableSpeedControl();
+      PlayerSpeedButtonView.mount();
+    },
+    teardown: () => {
+      PlayerController.getInstance().disableSpeedControl();
+      PlayerSpeedButtonView.unmount();
+    }
   },
   {
     id: "isOpenMarkOrRemoveAd",
