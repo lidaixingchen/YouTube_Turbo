@@ -1,20 +1,18 @@
 import { SUBTITLE_CONSTANTS } from "./constants";
 import type { YouTubeTimedTextJson3 } from "./types";
-import { SubtitleTimeline } from "./timeline";
 
 export class TimedTextInterceptor {
-  private static isInstalled = false;
-  private static offsetProvider: () => number = () => 0;
-  private static trackCallback: ((key: string) => void) | null = null;
-  private static originalFetch: typeof window.fetch | null = null;
-  private static originalXHROpen: typeof XMLHttpRequest.prototype.open | null = null;
-  private static originalXHRSend: typeof XMLHttpRequest.prototype.send | null = null;
+  private isInstalled: boolean = false;
+  private originalFetch: typeof window.fetch | null = null;
+  private originalXHROpen: typeof XMLHttpRequest.prototype.open | null = null;
+  private originalXHRSend: typeof XMLHttpRequest.prototype.send | null = null;
 
-  public static install(offsetProvider: () => number, onTrackIngested?: (key: string) => void): void {
-    this.offsetProvider = offsetProvider;
-    if (onTrackIngested) {
-      this.trackCallback = onTrackIngested;
-    }
+  public constructor(
+    private readonly offsetProvider: () => number,
+    private readonly onTrackIngested: (key: string, rawText: string) => void
+  ) {}
+
+  public install(): void {
     if (this.isInstalled) {
       return;
     }
@@ -25,16 +23,17 @@ export class TimedTextInterceptor {
     this.hookXHR(targetWindow);
   }
 
-  public static setOffsetProvider(provider: () => number): void {
-    this.offsetProvider = provider;
-  }
-
-  private static isTimedTextUrl(url: string | URL | Request): boolean {
-    const rawUrl = typeof url === "string" ? url : url instanceof Request ? url.url : url.href;
+  private isTimedTextUrl(url: string | URL | Request): boolean {
+    const rawUrl =
+      typeof url === "string"
+        ? url
+        : url && typeof (url as Request).url === "string"
+          ? (url as Request).url
+          : (url as URL)?.href || "";
     return rawUrl.includes(SUBTITLE_CONSTANTS.TIMEDTEXT_API_PATH);
   }
 
-  private static extractKeyFromUrl(url: string): string {
+  private extractKeyFromUrl(url: string): string {
     try {
       const parsed = new URL(url, window.location.origin);
       const videoId = parsed.searchParams.get("v") || "";
@@ -46,7 +45,7 @@ export class TimedTextInterceptor {
     }
   }
 
-  private static modifyJson3(text: string, offsetMs: number): string {
+  private modifyJson3(text: string, offsetMs: number): string {
     if (offsetMs === 0) return text;
     try {
       const data = JSON.parse(text) as YouTubeTimedTextJson3;
@@ -55,14 +54,14 @@ export class TimedTextInterceptor {
       }
 
       for (const event of data.events) {
-        if (typeof event.tStartMs === "number") {
+        if (typeof event.tStartMs === "number" && Number.isFinite(event.tStartMs)) {
           const targetStart = event.tStartMs + offsetMs;
           if (targetStart >= 0) {
             event.tStartMs = targetStart;
           } else {
             const underflowDelta = -targetStart;
             event.tStartMs = 0;
-            if (typeof event.dDurationMs === "number") {
+            if (typeof event.dDurationMs === "number" && Number.isFinite(event.dDurationMs)) {
               event.dDurationMs = Math.max(0, event.dDurationMs - underflowDelta);
             }
           }
@@ -74,11 +73,15 @@ export class TimedTextInterceptor {
     }
   }
 
-  private static modifyXml(text: string, offsetMs: number): string {
+  private modifyXml(text: string, offsetMs: number): string {
     if (offsetMs === 0) return text;
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(text, "text/xml");
+      if (doc.querySelector("parsererror")) {
+        return text;
+      }
+
       const isSrv1 = doc.querySelector("transcript") !== null;
 
       if (isSrv1) {
@@ -88,6 +91,7 @@ export class TimedTextInterceptor {
           const startAttr = node.getAttribute("start");
           if (startAttr !== null) {
             const start = parseFloat(startAttr);
+            if (!Number.isFinite(start)) return;
             const targetStart = start + offsetSec;
             if (targetStart >= 0) {
               node.setAttribute("start", String(+targetStart.toFixed(3)));
@@ -97,7 +101,9 @@ export class TimedTextInterceptor {
               const durAttr = node.getAttribute("dur");
               if (durAttr !== null) {
                 const dur = parseFloat(durAttr);
-                node.setAttribute("dur", String(Math.max(0, +(dur - underflowSec).toFixed(3))));
+                if (Number.isFinite(dur)) {
+                  node.setAttribute("dur", String(Math.max(0, +(dur - underflowSec).toFixed(3))));
+                }
               }
             }
           }
@@ -108,6 +114,7 @@ export class TimedTextInterceptor {
           const tAttr = p.getAttribute("t");
           if (tAttr !== null) {
             const t = parseInt(tAttr, 10);
+            if (!Number.isFinite(t)) return;
             const targetT = t + offsetMs;
             if (targetT >= 0) {
               p.setAttribute("t", String(targetT));
@@ -117,7 +124,9 @@ export class TimedTextInterceptor {
               const dAttr = p.getAttribute("d");
               if (dAttr !== null) {
                 const d = parseInt(dAttr, 10);
-                p.setAttribute("d", String(Math.max(0, d - underflowMs)));
+                if (Number.isFinite(d)) {
+                  p.setAttribute("d", String(Math.max(0, d - underflowMs)));
+                }
               }
             }
           }
@@ -130,7 +139,7 @@ export class TimedTextInterceptor {
     }
   }
 
-  public static modifyPayload(body: string, offsetMs: number): string {
+  public modifyPayload(body: string, offsetMs: number): string {
     if (!body || offsetMs === 0) return body;
     const trimmed = body.trimStart();
     if (trimmed.startsWith("{") && trimmed.includes("events")) {
@@ -142,27 +151,32 @@ export class TimedTextInterceptor {
     return body;
   }
 
-  private static hookFetch(targetWindow: Window): void {
+  private hookFetch(targetWindow: Window): void {
     const originalFetch = targetWindow.fetch;
     this.originalFetch = originalFetch;
+    const self = this;
 
     targetWindow.fetch = async function (
       input: RequestInfo | URL,
       init?: RequestInit
     ): Promise<Response> {
-      const response = await originalFetch.apply(this, [input, init]);
-      if (!TimedTextInterceptor.isTimedTextUrl(input)) {
+      const response = await originalFetch.apply(this || targetWindow, [input, init]);
+      if (!self.isTimedTextUrl(input)) {
         return response;
       }
 
       try {
-        const rawUrl = typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+        const rawUrl =
+          typeof input === "string"
+            ? input
+            : input && typeof (input as Request).url === "string"
+              ? (input as Request).url
+              : (input as URL)?.href || "";
         const originalText = await response.text();
-        const key = TimedTextInterceptor.extractKeyFromUrl(rawUrl);
-        SubtitleTimeline.getInstance().ingest(key, originalText, true);
-        TimedTextInterceptor.trackCallback?.(key);
+        const key = self.extractKeyFromUrl(rawUrl);
+        self.onTrackIngested(key, originalText);
 
-        const offsetMs = TimedTextInterceptor.offsetProvider();
+        const offsetMs = self.offsetProvider();
         if (offsetMs === 0) {
           return new Response(originalText, {
             status: response.status,
@@ -171,7 +185,7 @@ export class TimedTextInterceptor {
           });
         }
 
-        const modifiedText = TimedTextInterceptor.modifyPayload(originalText, offsetMs);
+        const modifiedText = self.modifyPayload(originalText, offsetMs);
 
         return new Response(modifiedText, {
           status: response.status,
@@ -185,7 +199,7 @@ export class TimedTextInterceptor {
     };
   }
 
-  private static hookXHR(targetWindow: Window): void {
+  private hookXHR(targetWindow: Window): void {
     const xhrProto = (targetWindow as unknown as { XMLHttpRequest?: { prototype: XMLHttpRequest } }).XMLHttpRequest?.prototype;
     if (!xhrProto) return;
 
@@ -193,6 +207,7 @@ export class TimedTextInterceptor {
     this.originalXHRSend = xhrProto.send;
     const rawOpen = xhrProto.open;
     const rawSend = xhrProto.send;
+    const self = this;
 
     xhrProto.open = function (
       this: XMLHttpRequest & { __isTimedText?: boolean; __timedTextUrl?: string },
@@ -200,9 +215,9 @@ export class TimedTextInterceptor {
       url: string | URL,
       ...rest: [boolean?, string?, string?]
     ): void {
-      this.__isTimedText = TimedTextInterceptor.isTimedTextUrl(url);
+      this.__isTimedText = self.isTimedTextUrl(url);
       if (this.__isTimedText) {
-        this.__timedTextUrl = typeof url === "string" ? url : url.href;
+        this.__timedTextUrl = typeof url === "string" ? url : url instanceof URL ? url.href : String(url);
       }
       return (rawOpen as unknown as (...args: unknown[]) => void).apply(this, [method, url, ...rest]) as void;
     };
@@ -214,30 +229,45 @@ export class TimedTextInterceptor {
       if (this.__isTimedText) {
         const xhr = this;
         let modifiedResponseText: string | null = null;
+        let isIngested = false;
+
+        // 同步懒解析方法：无论在何处被首次调用，保证当 readyState === 4 时即可同步获取修改后内容
+        const resolveModifiedPayload = (): string | null => {
+          if (modifiedResponseText !== null) {
+            return modifiedResponseText;
+          }
+          if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status < 300) {
+            const raw = Object.getOwnPropertyDescriptor(xhrProto, "responseText")?.get?.call(xhr);
+            if (typeof raw === "string") {
+              if (!isIngested) {
+                const url = xhr.__timedTextUrl || window.location.href;
+                const key = self.extractKeyFromUrl(url);
+                self.onTrackIngested(key, raw);
+                isIngested = true;
+              }
+              const offsetMs = self.offsetProvider();
+              if (offsetMs !== 0) {
+                modifiedResponseText = self.modifyPayload(raw, offsetMs);
+              } else {
+                modifiedResponseText = raw;
+              }
+              return modifiedResponseText;
+            }
+          }
+          return null;
+        };
 
         xhr.addEventListener("readystatechange", function () {
-          if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status < 300) {
-            if (xhr.responseText) {
-              const url = xhr.__timedTextUrl || window.location.href;
-              const key = TimedTextInterceptor.extractKeyFromUrl(url);
-              SubtitleTimeline.getInstance().ingest(key, xhr.responseText, true);
-              TimedTextInterceptor.trackCallback?.(key);
-
-              const offsetMs = TimedTextInterceptor.offsetProvider();
-              if (offsetMs !== 0) {
-                modifiedResponseText = TimedTextInterceptor.modifyPayload(
-                  xhr.responseText,
-                  offsetMs
-                );
-              }
-            }
+          if (xhr.readyState === 4) {
+            resolveModifiedPayload();
           }
         });
 
         Object.defineProperty(xhr, "responseText", {
           get() {
-            return modifiedResponseText !== null
-              ? modifiedResponseText
+            const resolved = resolveModifiedPayload();
+            return resolved !== null
+              ? resolved
               : Object.getOwnPropertyDescriptor(xhrProto, "responseText")?.get?.call(xhr);
           },
           configurable: true
@@ -246,7 +276,10 @@ export class TimedTextInterceptor {
         Object.defineProperty(xhr, "response", {
           get() {
             if (xhr.responseType === "" || xhr.responseType === "text") {
-              return modifiedResponseText !== null ? modifiedResponseText : xhr.responseText;
+              const resolved = resolveModifiedPayload();
+              return resolved !== null
+                ? resolved
+                : Object.getOwnPropertyDescriptor(xhrProto, "responseText")?.get?.call(xhr);
             }
             return Object.getOwnPropertyDescriptor(xhrProto, "response")?.get?.call(xhr);
           },
@@ -258,7 +291,7 @@ export class TimedTextInterceptor {
     };
   }
 
-  public static destroy(): void {
+  public destroy(): void {
     const targetWindow = typeof unsafeWindow !== "undefined" ? (unsafeWindow as unknown as Window) : window;
     if (this.originalFetch) {
       targetWindow.fetch = this.originalFetch;
@@ -272,7 +305,5 @@ export class TimedTextInterceptor {
       this.originalXHRSend = null;
     }
     this.isInstalled = false;
-    this.offsetProvider = () => 0;
-    this.trackCallback = null;
   }
 }

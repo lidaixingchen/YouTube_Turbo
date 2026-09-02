@@ -5,25 +5,22 @@ import { SUBTITLE_CONSTANTS } from "./constants";
 import type { YouTubePlayerElement, CaptionOffsetProvider } from "./types";
 
 export class CaptionOverlayRenderer {
-  private static instance: CaptionOverlayRenderer | null = null;
-
-  private offsetProvider: CaptionOffsetProvider = () => ({ sessionOffsetMs: 0, effectiveOffsetMs: 0 });
-  private isLoopRunning = false;
+  private isLoopRunning: boolean = false;
   private animFrameId: number | null = null;
   private overlayEl: HTMLElement | null = null;
   private textEl: HTMLElement | null = null;
   private videoEl: HTMLVideoElement | null = null;
   private containerEl: HTMLElement | null = null;
 
-  private isCCActive = false;
-  private isPlaying = false;
-  private isNativeCaptionsHidden = false;
+  private isCCActive: boolean = false;
+  private isPlaying: boolean = false;
+  private isNativeCaptionsHidden: boolean = false;
   private lastRenderedText: string = "";
   private lastEffectiveOffsetMs: number = 0;
 
   private ccButtonObserver: MutationObserver | null = null;
   private observedCCButton: HTMLElement | null = null;
-  private containerObserver: MutationObserver | null = null;
+  private controlsObserver: MutationObserver | null = null;
 
   private readonly handleVideoPlay = (): void => {
     this.isPlaying = true;
@@ -45,7 +42,7 @@ export class CaptionOverlayRenderer {
   };
 
   private readonly handleVideoSeeked = (): void => {
-    SubtitleTimeline.getInstance().resetPointer();
+    this.timeline.resetPointer();
     this.renderCurrentFrame(true);
     this.updateGateState();
   };
@@ -54,29 +51,28 @@ export class CaptionOverlayRenderer {
     this.updateGateState();
   };
 
-  public static getInstance(): CaptionOverlayRenderer {
-    if (!this.instance) {
-      this.instance = new CaptionOverlayRenderer();
-    }
-    return this.instance;
-  }
+  public constructor(
+    private readonly offsetProvider: CaptionOffsetProvider,
+    private readonly timeline: SubtitleTimeline
+  ) {}
 
-  public init(offsetProvider: CaptionOffsetProvider): void {
-    this.offsetProvider = offsetProvider;
+  public init(): void {
     this.injectStyles();
     const currentVideo = ReactiveDOMRegistry.getInstance().getVideoElement();
     const currentContainer = ReactiveDOMRegistry.getInstance().getPlayerContainer();
     this.attachVideo(currentVideo, currentContainer);
   }
 
-  public setOffsetProvider(provider: CaptionOffsetProvider): void {
-    this.offsetProvider = provider;
-    this.updateGateState();
-    this.renderCurrentFrame(true);
-  }
+  public attachVideo(video: HTMLVideoElement | null, container?: HTMLElement | null): void {
+    const resolvedContainer =
+      container ||
+      (video ? (video.closest(SUBTITLE_CONSTANTS.SELECTOR_PLAYER_CONTAINER) as HTMLElement | null) : null) ||
+      ReactiveDOMRegistry.getInstance().getPlayerContainer();
 
-  public attachVideo(video: HTMLVideoElement | null, container: HTMLElement | null): void {
-    if (this.videoEl === video && this.containerEl === container && this.observedCCButton) {
+    const isButtonValid = Boolean(this.observedCCButton && this.observedCCButton.isConnected);
+    const isContainerValid = Boolean(this.containerEl && this.containerEl.isConnected);
+
+    if (this.videoEl === video && this.containerEl === resolvedContainer && isButtonValid && isContainerValid) {
       return;
     }
 
@@ -84,7 +80,7 @@ export class CaptionOverlayRenderer {
     this.detachObservers();
 
     this.videoEl = video;
-    this.containerEl = container || (video ? (video.closest(SUBTITLE_CONSTANTS.SELECTOR_PLAYER_CONTAINER) as HTMLElement | null) : null);
+    this.containerEl = resolvedContainer;
 
     if (this.videoEl) {
       this.isPlaying = !this.videoEl.paused && !this.videoEl.ended;
@@ -128,39 +124,47 @@ export class CaptionOverlayRenderer {
     }
     this.observedCCButton = null;
 
-    if (this.containerObserver) {
-      this.containerObserver.disconnect();
-      this.containerObserver = null;
+    if (this.controlsObserver) {
+      this.controlsObserver.disconnect();
+      this.controlsObserver = null;
     }
   }
 
   private setupCCButtonObservation(): void {
-    const root = this.containerEl || document;
+    const root = (this.containerEl && this.containerEl.isConnected ? this.containerEl : null) || document;
     const ccBtn = root.querySelector<HTMLElement>(SUBTITLE_CONSTANTS.SELECTOR_SUBTITLES_BUTTON);
 
     if (ccBtn) {
       this.bindCCButtonObserver(ccBtn);
-    } else if (this.containerEl) {
-      this.containerObserver = new MutationObserver(() => {
-        const foundBtn = this.containerEl?.querySelector<HTMLElement>(SUBTITLE_CONSTANTS.SELECTOR_SUBTITLES_BUTTON);
+      return;
+    }
+
+    // 仅针对底栏控制区进行局部监听，绝不挂载播放器容器整体的 subtree: true，无字幕视频不常驻
+    const chromeBottom = root.querySelector<HTMLElement>(SUBTITLE_CONSTANTS.SELECTOR_CHROME_BOTTOM);
+    if (chromeBottom) {
+      this.controlsObserver = new MutationObserver(() => {
+        const foundBtn = chromeBottom.querySelector<HTMLElement>(SUBTITLE_CONSTANTS.SELECTOR_SUBTITLES_BUTTON);
         if (foundBtn) {
-          if (this.containerObserver) {
-            this.containerObserver.disconnect();
-            this.containerObserver = null;
+          if (this.controlsObserver) {
+            this.controlsObserver.disconnect();
+            this.controlsObserver = null;
           }
           this.bindCCButtonObserver(foundBtn);
           this.syncCCState();
           this.updateGateState();
         }
       });
-      this.containerObserver.observe(this.containerEl, {
+      this.controlsObserver.observe(chromeBottom, {
         childList: true,
-        subtree: true
+        subtree: false
       });
     }
   }
 
   private bindCCButtonObserver(btn: HTMLElement): void {
+    if (this.observedCCButton === btn && this.ccButtonObserver) {
+      return;
+    }
     this.observedCCButton = btn;
     if (this.ccButtonObserver) {
       this.ccButtonObserver.disconnect();
@@ -177,15 +181,23 @@ export class CaptionOverlayRenderer {
 
   public syncCCState(): void {
     if (this.observedCCButton) {
-      const pressed = this.observedCCButton.getAttribute(SUBTITLE_CONSTANTS.ATTR_ARIA_PRESSED);
-      if (pressed !== null) {
-        this.isCCActive = pressed === SUBTITLE_CONSTANTS.ATTR_ARIA_PRESSED_TRUE;
-        return;
+      if (this.observedCCButton.isConnected) {
+        const pressed = this.observedCCButton.getAttribute(SUBTITLE_CONSTANTS.ATTR_ARIA_PRESSED);
+        if (pressed !== null) {
+          this.isCCActive = pressed === SUBTITLE_CONSTANTS.ATTR_ARIA_PRESSED_TRUE;
+          return;
+        }
+      } else {
+        // 幽灵节点失效处理
+        if (this.ccButtonObserver) {
+          this.ccButtonObserver.disconnect();
+          this.ccButtonObserver = null;
+        }
+        this.observedCCButton = null;
       }
     }
 
-    const player = (document.getElementById("movie_player") as YouTubePlayerElement | null) ||
-      (document.querySelector(SUBTITLE_CONSTANTS.SELECTOR_PLAYER_CONTAINER_OUTER) as YouTubePlayerElement | null);
+    const player = ReactiveDOMRegistry.getInstance().getPlayerContainer() as YouTubePlayerElement | null;
     if (player && typeof player.isSubtitlesOn === "function") {
       try {
         this.isCCActive = Boolean(player.isSubtitlesOn());
@@ -195,11 +207,6 @@ export class CaptionOverlayRenderer {
       }
     }
     this.isCCActive = false;
-  }
-
-  public notifySeek(): void {
-    SubtitleTimeline.getInstance().resetPointer();
-    this.renderCurrentFrame(true);
   }
 
   public updateGateState(): void {
@@ -221,10 +228,17 @@ export class CaptionOverlayRenderer {
     if (this.isLoopRunning) return;
     this.isLoopRunning = true;
 
-    const loop = () => {
+    if (this.animFrameId !== null) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+
+    const loop = (): void => {
       if (!this.isLoopRunning) return;
       this.renderCurrentFrame();
-      this.animFrameId = requestAnimationFrame(loop);
+      if (this.isLoopRunning) {
+        this.animFrameId = requestAnimationFrame(loop);
+      }
     };
     this.animFrameId = requestAnimationFrame(loop);
   }
@@ -239,7 +253,7 @@ export class CaptionOverlayRenderer {
 
   private hideNativeCaptions(): void {
     if (this.isNativeCaptionsHidden) return;
-    const container = this.containerEl || ReactiveDOMRegistry.getInstance().getPlayerContainer();
+    const container = (this.containerEl && this.containerEl.isConnected ? this.containerEl : null) || ReactiveDOMRegistry.getInstance().getPlayerContainer();
     if (container) {
       container.classList.add(SUBTITLE_CONSTANTS.CLASS_NATIVE_CAPTIONS_HIDDEN);
       this.isNativeCaptionsHidden = true;
@@ -248,7 +262,7 @@ export class CaptionOverlayRenderer {
 
   private restoreNativeCaptions(): void {
     if (!this.isNativeCaptionsHidden) return;
-    const container = this.containerEl || ReactiveDOMRegistry.getInstance().getPlayerContainer();
+    const container = (this.containerEl && this.containerEl.isConnected ? this.containerEl : null) || ReactiveDOMRegistry.getInstance().getPlayerContainer();
     if (container) {
       container.classList.remove(SUBTITLE_CONSTANTS.CLASS_NATIVE_CAPTIONS_HIDDEN);
       this.isNativeCaptionsHidden = false;
@@ -273,7 +287,7 @@ export class CaptionOverlayRenderer {
       return;
     }
 
-    if (!this.overlayEl || !this.textEl) {
+    if (!this.overlayEl || !this.textEl || !this.overlayEl.isConnected) {
       this.ensureOverlay();
       if (!this.textEl) return;
     }
@@ -283,7 +297,7 @@ export class CaptionOverlayRenderer {
     const currentMs = this.videoEl.currentTime * 1000;
     const targetQueryMs = currentMs - effectiveOffsetMs;
 
-    const targetText = SubtitleTimeline.getInstance().getActiveCueText(targetQueryMs);
+    const targetText = this.timeline.getActiveCueText(targetQueryMs);
 
     if (force || targetText !== this.lastRenderedText || effectiveOffsetMs !== this.lastEffectiveOffsetMs) {
       if (targetText.length > 0) {
@@ -349,11 +363,13 @@ export class CaptionOverlayRenderer {
   }
 
   private ensureOverlay(): HTMLElement | null {
-    if (this.overlayEl && document.body.contains(this.overlayEl)) {
+    if (this.overlayEl && this.overlayEl.isConnected) {
       return this.overlayEl;
     }
 
-    const container = this.containerEl || ReactiveDOMRegistry.getInstance().getPlayerContainer();
+    const container =
+      (this.containerEl && this.containerEl.isConnected ? this.containerEl : null) ||
+      ReactiveDOMRegistry.getInstance().getPlayerContainer();
     if (!container) return null;
 
     let overlay = document.getElementById(SUBTITLE_CONSTANTS.OVERLAY_ID);
@@ -411,6 +427,3 @@ export class CaptionOverlayRenderer {
     StyleEngine.remove(SUBTITLE_CONSTANTS.STYLE_ID);
   }
 }
-
-export const CaptionRenderer = CaptionOverlayRenderer;
-

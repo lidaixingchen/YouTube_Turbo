@@ -2,7 +2,6 @@ import type { SubtitleCue, YouTubeTimedTextJson3 } from "./types";
 import { SUBTITLE_CONSTANTS } from "./constants";
 
 export class SubtitleTimeline {
-  private static instance: SubtitleTimeline | null = null;
   private cuesCache: Map<string, SubtitleCue[]> = new Map();
   private currentCues: SubtitleCue[] = [];
   private currentKey: string = "";
@@ -11,12 +10,7 @@ export class SubtitleTimeline {
   private activeCuesBuffer: SubtitleCue[] = [];
   private cachedTextResult: string = "";
 
-  public static getInstance(): SubtitleTimeline {
-    if (!this.instance) {
-      this.instance = new SubtitleTimeline();
-    }
-    return this.instance;
-  }
+  public constructor() {}
 
   public parseJson3(text: string): SubtitleCue[] {
     try {
@@ -26,10 +20,13 @@ export class SubtitleTimeline {
       }
       const cues: SubtitleCue[] = [];
       for (const ev of data.events) {
-        if (typeof ev.tStartMs === "number" && Array.isArray(ev.segs) && ev.segs.length > 0) {
+        if (typeof ev.tStartMs === "number" && Number.isFinite(ev.tStartMs) && Array.isArray(ev.segs) && ev.segs.length > 0) {
           const segText = ev.segs.map((s) => s.utf8 || "").join("");
           if (segText.trim().length > 0) {
-            const duration = typeof ev.dDurationMs === "number" ? ev.dDurationMs : SUBTITLE_CONSTANTS.FALLBACK_CUE_DURATION_MS;
+            const duration =
+              typeof ev.dDurationMs === "number" && Number.isFinite(ev.dDurationMs)
+                ? ev.dDurationMs
+                : SUBTITLE_CONSTANTS.FALLBACK_CUE_DURATION_MS;
             cues.push({
               startMs: ev.tStartMs,
               endMs: ev.tStartMs + duration,
@@ -48,6 +45,9 @@ export class SubtitleTimeline {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(text, "text/xml");
+      if (doc.querySelector("parsererror")) {
+        return [];
+      }
       const cues: SubtitleCue[] = [];
       const isSrv1 = doc.querySelector("transcript") !== null;
 
@@ -59,7 +59,7 @@ export class SubtitleTimeline {
             node.getAttribute("dur") || String(SUBTITLE_CONSTANTS.FALLBACK_CUE_DURATION_MS / 1000)
           );
           const content = (node.textContent || "").trim();
-          if (content) {
+          if (content && Number.isFinite(startSec) && Number.isFinite(durSec)) {
             cues.push({
               startMs: Math.round(startSec * 1000),
               endMs: Math.round((startSec + durSec) * 1000),
@@ -73,7 +73,7 @@ export class SubtitleTimeline {
           const startMs = parseInt(p.getAttribute("t") || "0", 10);
           const durMs = parseInt(p.getAttribute("d") || String(SUBTITLE_CONSTANTS.FALLBACK_CUE_DURATION_MS), 10);
           const content = (p.textContent || "").trim();
-          if (content) {
+          if (content && Number.isFinite(startMs) && Number.isFinite(durMs)) {
             cues.push({
               startMs,
               endMs: startMs + durMs,
@@ -104,6 +104,12 @@ export class SubtitleTimeline {
     if (!key || !rawText) return [];
     const cues = this.parsePayload(rawText);
     if (cues.length > 0) {
+      if (this.cuesCache.size >= SUBTITLE_CONSTANTS.MAX_CACHE_TRACKS && !this.cuesCache.has(key)) {
+        const oldestKey = this.cuesCache.keys().next().value;
+        if (oldestKey) {
+          this.cuesCache.delete(oldestKey);
+        }
+      }
       this.cuesCache.set(key, cues);
       if (activate || !this.currentKey) {
         this.currentCues = cues;
@@ -112,21 +118,6 @@ export class SubtitleTimeline {
       }
     }
     return cues;
-  }
-
-  public setActiveKey(key: string): void {
-    this.currentKey = key;
-    const cached = this.cuesCache.get(key);
-    this.currentCues = cached || [];
-    this.resetPointer();
-  }
-
-  public getActiveKey(): string {
-    return this.currentKey;
-  }
-
-  public getCurrentCues(): SubtitleCue[] {
-    return this.currentCues;
   }
 
   public resetPointer(): void {
@@ -179,11 +170,11 @@ export class SubtitleTimeline {
             targetIndex = nextIndex;
             this.cursorIndex = nextIndex;
           } else if (effectiveMs < nextCue.startMs) {
-            this.lastQueryMs = effectiveMs;
-            this.activeCuesBuffer.length = 0;
-            this.cachedTextResult = "";
-            return this.activeCuesBuffer;
+            // 处于两段独立字幕之间的间隙，将 targetIndex 保留在上一字幕处，由下方逆向回溯检查是否有更早开始的长重叠字幕
+            targetIndex = this.cursorIndex;
           }
+        } else {
+          targetIndex = this.cursorIndex;
         }
       }
     }
@@ -266,4 +257,3 @@ export class SubtitleTimeline {
     this.resetPointer();
   }
 }
-
