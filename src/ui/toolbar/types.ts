@@ -26,6 +26,7 @@ export interface SlotDefinition {
   elementId: string;
   isApplicable?: (url: URL) => boolean;
   mount: (target: HTMLElement, element: HTMLElement) => void;
+  unmount?: () => void;
 }
 
 export type PopoverState = "closed" | "hover" | "pinned";

@@ -5,6 +5,7 @@ import { SlotMountBus } from "./slot-mount-bus";
 import { ActionRegistry } from "./action-registry";
 import { StyleEngine } from "../../core/style-engine";
 import { Locale } from "../../i18n";
+import { PLAYER_CONSTANTS } from "../../features/player/constants";
 import type { ActionConfig, PopoverController, SlotDefinition } from "./types";
 
 export class ToolbarController {
@@ -17,11 +18,25 @@ export class ToolbarController {
       slotKey: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
       containerSelector: "#player-container-outer .html5-video-player, #movie_player",
       targetSelector: ".ytp-right-controls",
-      elementId: "yt_extension_toolbox_root",
+      elementId: TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID,
       isApplicable: (url: URL) => !url.pathname.startsWith("/shorts"),
       mount: (target: HTMLElement, element: HTMLElement) => {
-        if (!target.contains(element)) {
+        const speedBtn = target.querySelector<HTMLElement>(PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON);
+        if (speedBtn) {
+          speedBtn.after(element);
+        } else if (!target.contains(element)) {
           target.prepend(element);
+        }
+      },
+      unmount: () => {
+        const instance = ToolbarController.getInstance();
+        if (instance.popoverController) {
+          instance.popoverController.destroy();
+          instance.popoverController = null;
+        }
+        const container = document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID);
+        if (container && container.parentNode) {
+          container.parentNode.removeChild(container);
         }
       }
     },
@@ -320,24 +335,24 @@ export class ToolbarController {
     const actions = ActionRegistry.getActionsBySlot(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
     if (!actions.length) return null;
 
-    const existingBox = document.getElementById("yt_extension_toolbox_root");
+    const existingBox = document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID);
     if (existingBox && existingBox.isConnected) {
       return existingBox;
     }
 
     const boxContainer = document.createElement("div");
-    boxContainer.id = "yt_extension_toolbox_root";
+    boxContainer.id = TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID;
     boxContainer.className = "ytp-button";
     boxContainer.style.cssText = "display: flex; justify-content: center; align-items: center; cursor: pointer;";
 
     const iconSvg = IconRegistry.createSvg("toolbox", { size: TOOLBAR_CONSTANTS.ICON_SIZE_PX });
     boxContainer.appendChild(iconSvg);
 
-    const existingContainer = document.getElementById("toolbox_extension_container");
+    const existingContainer = document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID);
     if (existingContainer) existingContainer.remove();
 
     const toolBoxContainer = document.createElement("div");
-    toolBoxContainer.id = "toolbox_extension_container";
+    toolBoxContainer.id = TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID;
     toolBoxContainer.className = "toolbox_extension_container";
 
     const tooltipEl = document.createElement("div");
@@ -480,7 +495,7 @@ export class ToolbarController {
       Object.values(ToolbarController.SLOT_DEFINITIONS).forEach((def: SlotDefinition) => {
         document.getElementById(def.elementId)?.remove();
       });
-      document.getElementById("toolbox_extension_container")?.remove();
+      document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID)?.remove();
       if (this.popoverController) {
         this.popoverController.destroy();
         this.popoverController = null;

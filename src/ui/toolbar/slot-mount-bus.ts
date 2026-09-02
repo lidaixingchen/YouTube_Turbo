@@ -44,6 +44,11 @@ export class SlotMountBus {
     this.pendingSlots.delete(slotKey);
     const entry = this.registeredSlots.get(slotKey);
     if (entry) {
+      try {
+        entry.definition.unmount?.();
+      } catch (err: unknown) {
+        console.error(`[SlotMountBus] error unmounting slot "${slotKey}":`, err);
+      }
       const el = document.getElementById(entry.definition.elementId);
       if (el && el.parentNode) {
         el.parentNode.removeChild(el);
@@ -68,6 +73,11 @@ export class SlotMountBus {
 
       if (!isApplicable) {
         this.pendingSlots.delete(slotKey);
+        try {
+          definition.unmount?.();
+        } catch (err: unknown) {
+          console.error(`[SlotMountBus] error unmounting slot "${slotKey}":`, err);
+        }
         const existing = document.getElementById(definition.elementId);
         if (existing && existing.parentNode) {
           existing.parentNode.removeChild(existing);
@@ -111,6 +121,15 @@ export class SlotMountBus {
 
     if (!isApplicable) {
       this.pendingSlots.delete(slotKey);
+      try {
+        definition.unmount?.();
+      } catch (err: unknown) {
+        console.error(`[SlotMountBus] error unmounting slot "${slotKey}":`, err);
+      }
+      const existing = document.getElementById(definition.elementId);
+      if (existing && existing.parentNode) {
+        existing.parentNode.removeChild(existing);
+      }
       if (this.pendingSlots.size === 0) {
         this.stopObserver();
       }
@@ -210,6 +229,17 @@ export class SlotMountBus {
 
   public destroy(): void {
     this.stopObserver();
+    for (const [slotKey, entry] of this.registeredSlots.entries()) {
+      try {
+        entry.definition.unmount?.();
+      } catch (err: unknown) {
+        console.error(`[SlotMountBus] error unmounting slot "${slotKey}":`, err);
+      }
+      const el = document.getElementById(entry.definition.elementId);
+      if (el && el.parentNode) {
+        el.parentNode.removeChild(el);
+      }
+    }
     this.registeredSlots.clear();
 
     if (this.navigationHandler) {

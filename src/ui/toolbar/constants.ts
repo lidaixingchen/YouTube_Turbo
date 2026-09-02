@@ -1,5 +1,7 @@
 export const TOOLBAR_CONSTANTS = Object.freeze({
   STYLE_ID: "yt-turbo-toolbar-style",
+  TOOLBOX_ROOT_ID: "yt_extension_toolbox_root",
+  TOOLBOX_CONTAINER_ID: "toolbox_extension_container",
   SLOT_PLAYER_CONTROLS: "slot:player_controls",
   SLOT_SHORTS_ACTIONS: "slot:shorts_actions",
   SLOT_WATCH_METADATA: "slot:watch_metadata",
