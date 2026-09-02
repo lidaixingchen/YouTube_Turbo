@@ -3,6 +3,7 @@ import { ObserverRegistry } from "./observer-registry";
 import { PolymerPatcher } from "./polymer-patcher";
 import { PolymerHelper } from "./polymer-helper";
 import { DOMRelocator } from "./relocator";
+import { LinkedCommentAdapter } from "./linked-comment-adapter";
 import { ExpanderFixer } from "./expander-fixer";
 import { InfoMirrorEngine } from "./info-mirror-engine";
 import { ChannelHoverAdapter } from "./channel-hover-adapter";
@@ -13,6 +14,7 @@ export class TabviewLifecycleCoordinator {
   private observerRegistry: ObserverRegistry = ObserverRegistry.getInstance();
   private polymerPatcher: PolymerPatcher = PolymerPatcher.getInstance();
   private relocator: DOMRelocator = DOMRelocator.getInstance();
+  private linkedCommentAdapter: LinkedCommentAdapter = LinkedCommentAdapter.getInstance();
   private channelHoverAdapter: ChannelHoverAdapter = ChannelHoverAdapter.getInstance();
   private expanderFixer: ExpanderFixer | null = null;
 
@@ -81,6 +83,7 @@ export class TabviewLifecycleCoordinator {
   }
 
   public destroy(): void {
+    this.linkedCommentAdapter.destroy();
     this.channelHoverAdapter.destroy();
     this.unmountTabview();
     this.relocator.destroy();
@@ -161,7 +164,7 @@ export class TabviewLifecycleCoordinator {
       this.updatePlaylistTabVisibility();
       this.expanderFixer?.updateCommentsCounter();
       this.expanderFixer?.fixForTabDisplay(false);
-      this.relocator.checkAndHandleLinkedComment();
+      this.linkedCommentAdapter.syncLinkedComment();
       InfoMirrorEngine.getInstance().syncMainDescriptionData();
       this.channelHoverAdapter.onNavigateFinish();
     } else if (prevPageType === "watch") {
@@ -226,7 +229,7 @@ export class TabviewLifecycleCoordinator {
         this.fixInitialTabState(flexy);
       }
       this.observerRegistry.activate();
-      this.relocator.checkAndHandleLinkedComment();
+      this.linkedCommentAdapter.syncLinkedComment();
       InfoMirrorEngine.getInstance().runInfoFix();
     } finally {
       this.isMounting = false;
@@ -281,6 +284,7 @@ export class TabviewLifecycleCoordinator {
     this.expanderFixer = null;
 
     this.relocator.restoreAll();
+    this.linkedCommentAdapter.destroy();
     this.observerRegistry.deactivate();
   }
 

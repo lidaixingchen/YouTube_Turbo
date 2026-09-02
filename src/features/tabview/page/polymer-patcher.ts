@@ -2,6 +2,7 @@ import { PAGE_CONSTANTS } from "./constants";
 import { PolymerHelper } from "./polymer-helper";
 import { ObserverRegistry } from "./observer-registry";
 import { DOMRelocator } from "./relocator";
+import { LinkedCommentAdapter } from "./linked-comment-adapter";
 import { funcCanCollapse, fixInlineExpanderMethods, ExpanderFixer } from "./expander-fixer";
 import { InfoMirrorEngine } from "./info-mirror-engine";
 import { ChannelHoverAdapter } from "./channel-hover-adapter";
@@ -247,7 +248,7 @@ export class PolymerPatcher {
           hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA, "");
           ObserverRegistry.getInstance().observeComments(hostElement);
           DOMRelocator.getInstance().tryRelocateSlot("comments");
-          DOMRelocator.getInstance().checkAndHandleLinkedComment();
+          LinkedCommentAdapter.getInstance().syncLinkedComment();
         }
         return rawMethod.apply(this, args);
       };

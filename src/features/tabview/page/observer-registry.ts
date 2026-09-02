@@ -26,8 +26,6 @@ export class ObserverRegistry {
   private commentIntersectionObserver: IntersectionObserver | null = null;
   private rightTabsResizeObserver: ResizeObserver | null = null;
   private roChannelHover: ResizeObserver | null = null;
-  private linkedCommentObserver: MutationObserver | null = null;
-  private linkedCommentTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private secondaryInnerObserver: MutationObserver | null = null;
   private lastTabsWidth: number = 0;
   private isCommentsTabActive: boolean = false;
@@ -353,46 +351,6 @@ export class ObserverRegistry {
     this.rightTabsResizeObserver.observe(rightTabsElement);
   }
 
-  public observeLinkedComment(_targetLc: string, onFound: () => boolean): void {
-    this.disconnectLinkedCommentSupervisor();
-
-    const commentsContainer =
-      document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER + " ytd-comments #contents") ||
-      document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER + " ytd-comments") ||
-      document.querySelector<HTMLElement>("ytd-comments");
-
-    if (!commentsContainer) {
-      return;
-    }
-
-    this.linkedCommentObserver = new MutationObserver(() => {
-      const isSuccess = onFound();
-      if (isSuccess) {
-        this.disconnectLinkedCommentSupervisor();
-      }
-    });
-
-    this.linkedCommentObserver.observe(commentsContainer, {
-      childList: true,
-      subtree: true
-    });
-
-    this.linkedCommentTimeoutTimer = setTimeout(() => {
-      this.disconnectLinkedCommentSupervisor();
-    }, PAGE_CONSTANTS.TIMEOUTS.LINKED_COMMENT_READY_MS);
-  }
-
-  public disconnectLinkedCommentSupervisor(): void {
-    if (this.linkedCommentObserver) {
-      this.linkedCommentObserver.disconnect();
-      this.linkedCommentObserver = null;
-    }
-    if (this.linkedCommentTimeoutTimer !== null) {
-      clearTimeout(this.linkedCommentTimeoutTimer);
-      this.linkedCommentTimeoutTimer = null;
-    }
-  }
-
   public observeSecondaryInner(secondaryInner: HTMLElement, onMutated: () => void): void {
     if (!this.secondaryInnerObserver) {
       this.secondaryInnerObserver = new MutationObserver((mutations) => {
@@ -465,7 +423,6 @@ export class ObserverRegistry {
     this.disconnectChat();
     this.disconnectPlaylist();
     this.disconnectComments();
-    this.disconnectLinkedCommentSupervisor();
     this.disconnectSecondaryInner();
 
     if (this.egmPanelsObserver) {
