@@ -20,11 +20,11 @@ YouTube 官方播放器在开启字幕后通过内置 WebVTT / TimedText 管线�
 
 我们决定将 `CaptionOverlayRenderer` 重构为基于 **按需激活渲染闸门（ReactiveRenderGate）** 的事件驱动深模块：
 
-1. **单向状态订阅**：`CaptionOverlayRenderer` 订阅 `PlayerController` 与 `CaptionController` 的生命周期，直接获取 `HTMLVideoElement` 实例与 `effectiveOffsetMs`。
+1. **单向状态订阅**：`CaptionOverlayRenderer` 订阅 `PlayerController` 与 `CaptionController` 的生命周期，直接获取 `HTMLVideoElement` 实例与会话增量 `sessionOffsetMs`。
 2. **三元就绪断言（Activation Predicate）**：仅在同时满足以下条件时才激活 rAF 渲染循环：
    - 视频处于播放态（`!video.paused && !video.ended`）；
    - YouTube 字幕处于开启态（`isSubtitlesEnabled === true`）；
-   - 字幕有效偏移量非零（`effectiveOffsetMs !== 0`）。
+   - 会话临时偏移量非零（`sessionOffsetMs !== 0`，持久化基准偏移由网络改包层注入官方播放器原生渲染，覆盖层仅在发生动态临时增量调节时接管）。
 3. **即时停机与 DOM 释放**：一旦任一条件不满足，立即调用 `cancelAnimationFrame` 停止循环并隐藏覆盖层，使 JavaScript 运行时开销归零；在 SPA 路由切歌（`yt-navigate-finish`）时重置句柄。
 
 ---
