@@ -88,14 +88,6 @@ export interface CaptionOffsetState {
   effectiveOffsetMs: number;
 }
 
-export interface CaptionRenderState {
-  isActive: boolean;
-  isPlaying: boolean;
-  isSubtitlesOn: boolean;
-  sessionOffsetMs: number;
-  effectiveOffsetMs: number;
-}
-
 export type CaptionOffsetProvider = () => {
   sessionOffsetMs: number;
   effectiveOffsetMs: number;
