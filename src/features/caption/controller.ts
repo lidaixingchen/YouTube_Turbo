@@ -2,6 +2,7 @@ import { SUBTITLE_CONSTANTS } from "./constants";
 import { TimedTextInterceptor } from "./interceptor";
 import { SubtitleTimeline } from "./timeline";
 import { CaptionOverlayRenderer } from "./renderer";
+import { CaptionSettingsView } from "./settings-view";
 import { ShortcutDispatcher } from "../../core/shortcuts";
 import { PlaybackHUD } from "../../core/hud";
 import { StorageUtil } from "../../core/storage";
@@ -12,20 +13,46 @@ import type { LanguageDefinition } from "../../types";
 
 export class CaptionController {
   private static instance: CaptionController | null = null;
+
+  private readonly timeline: SubtitleTimeline;
+  private readonly renderer: CaptionOverlayRenderer;
+  private readonly interceptor: TimedTextInterceptor;
+
   private globalDefaultOffsetMs: number = SUBTITLE_CONSTANTS.DEFAULT_OFFSET_MS;
   private sessionOffsetMs: number = 0;
   private shortcutCleanups: Array<() => void> = [];
-  private playerStateCleanup: (() => void) | null = null;
   private playerReadyCleanup: (() => void) | null = null;
+  private playerStateCleanup: (() => void) | null = null;
   private navigateHandler: (() => void) | null = null;
-  private ccKeyHandler: ((e: KeyboardEvent) => void) | null = null;
-  private isInitialized = false;
+  private isInitialized: boolean = false;
+
+  private constructor() {
+    this.timeline = new SubtitleTimeline();
+
+    this.renderer = new CaptionOverlayRenderer(
+      () => ({
+        sessionOffsetMs: this.sessionOffsetMs,
+        effectiveOffsetMs: this.getEffectiveOffsetMs()
+      }),
+      this.timeline
+    );
+
+    this.interceptor = new TimedTextInterceptor(
+      () => this.globalDefaultOffsetMs,
+      (key: string, rawText: string) => {
+        this.timeline.ingest(key, rawText);
+        if (this.sessionOffsetMs !== 0) {
+          this.renderer.renderCurrentFrame(true);
+        }
+      }
+    );
+  }
 
   public static getInstance(): CaptionController {
-    if (!this.instance) {
-      this.instance = new CaptionController();
+    if (!CaptionController.instance) {
+      CaptionController.instance = new CaptionController();
     }
-    return this.instance;
+    return CaptionController.instance;
   }
 
   public init(): void {
@@ -40,19 +67,8 @@ export class CaptionController {
     );
     this.sessionOffsetMs = 0;
 
-    TimedTextInterceptor.install(
-      () => this.getEffectiveOffsetMs(),
-      (_trackKey: string) => {
-        if (this.sessionOffsetMs !== 0) {
-          CaptionOverlayRenderer.getInstance().renderCurrentFrame(true);
-        }
-      }
-    );
-
-    CaptionOverlayRenderer.getInstance().init(() => ({
-      sessionOffsetMs: this.sessionOffsetMs,
-      effectiveOffsetMs: this.getEffectiveOffsetMs()
-    }));
+    this.interceptor.install();
+    this.renderer.init();
 
     this.bindPlayerEvents();
     this.bindShortcuts();
@@ -63,13 +79,11 @@ export class CaptionController {
     const playerCtrl = PlayerController.getInstance();
 
     this.playerReadyCleanup = playerCtrl.onReady((state: PlayerState) => {
-      CaptionOverlayRenderer.getInstance().attachVideo(state.videoElement, null);
-      CaptionOverlayRenderer.getInstance().updateGateState();
+      this.renderer.attachVideo(state.videoElement);
     });
 
     this.playerStateCleanup = playerCtrl.onStateChange((state: PlayerState) => {
-      CaptionOverlayRenderer.getInstance().attachVideo(state.videoElement, null);
-      CaptionOverlayRenderer.getInstance().updateGateState();
+      this.renderer.attachVideo(state.videoElement);
     });
   }
 
@@ -119,111 +133,14 @@ export class CaptionController {
   }
 
   public renderSettingsConfig(container: HTMLElement, language: LanguageDefinition): void {
-    const configWrapper = document.createElement("div");
-    configWrapper.className = "yt-subtitle-offset-config";
-
-    const titleRow = document.createElement("div");
-    titleRow.className = "yt-subtitle-offset-header";
-
-    const titleEl = document.createElement("span");
-    titleEl.className = "yt-subtitle-offset-title";
-    titleEl.textContent = language.content.subtitle_global_offset_title || "全局默认基准偏移";
-
-    const badgeEl = document.createElement("kbd");
-    badgeEl.className = "yt-turbo-kbd";
-    badgeEl.textContent = "Alt+[ / ] / \\";
-
-    titleRow.appendChild(titleEl);
-    titleRow.appendChild(badgeEl);
-    configWrapper.appendChild(titleRow);
-
-    const controlsRow = document.createElement("div");
-    controlsRow.className = "yt-subtitle-offset-controls";
-
-    const btnAdvance = document.createElement("button");
-    btnAdvance.type = "button";
-    btnAdvance.className = "yt-offset-btn yt-offset-btn-advance";
-    btnAdvance.textContent = "-0.25s";
-
-    const inputWrap = document.createElement("div");
-    inputWrap.className = "yt-offset-input-wrap";
-
-    const numberInput = document.createElement("input");
-    numberInput.type = "number";
-    numberInput.className = "yt-offset-input";
-    numberInput.step = "0.05";
-    numberInput.min = String(SUBTITLE_CONSTANTS.MIN_OFFSET_MS / 1000);
-    numberInput.max = String(SUBTITLE_CONSTANTS.MAX_OFFSET_MS / 1000);
-    numberInput.value = (this.getGlobalDefaultOffsetMs() / 1000).toFixed(2);
-
-    const unitEl = document.createElement("span");
-    unitEl.className = "yt-offset-unit";
-    unitEl.textContent = language.content.subtitle_offset_unit || "秒";
-
-    inputWrap.appendChild(numberInput);
-    inputWrap.appendChild(unitEl);
-
-    const btnDelay = document.createElement("button");
-    btnDelay.type = "button";
-    btnDelay.className = "yt-offset-btn yt-offset-btn-delay";
-    btnDelay.textContent = "+0.25s";
-
-    const btnReset = document.createElement("button");
-    btnReset.type = "button";
-    btnReset.className = "yt-offset-btn yt-offset-btn-reset";
-    btnReset.textContent = language.content.subtitle_offset_reset_btn || "重置为 0s";
-
-    const updateInputValue = (offsetMs: number) => {
-      numberInput.value = (offsetMs / 1000).toFixed(2);
-    };
-
-    numberInput.addEventListener("input", () => {
-      const valSec = parseFloat(numberInput.value);
-      if (!isNaN(valSec)) {
-        const offsetMs = Math.round(valSec * 1000);
-        this.setGlobalDefaultOffset(offsetMs);
-      }
-    });
-
-    btnAdvance.addEventListener("click", () => {
-      const current = this.getGlobalDefaultOffsetMs();
-      const next = Math.max(SUBTITLE_CONSTANTS.MIN_OFFSET_MS, current - SUBTITLE_CONSTANTS.STEP_OFFSET_MS);
-      this.setGlobalDefaultOffset(next);
-      updateInputValue(next);
-    });
-
-    btnDelay.addEventListener("click", () => {
-      const current = this.getGlobalDefaultOffsetMs();
-      const next = Math.min(SUBTITLE_CONSTANTS.MAX_OFFSET_MS, current + SUBTITLE_CONSTANTS.STEP_OFFSET_MS);
-      this.setGlobalDefaultOffset(next);
-      updateInputValue(next);
-    });
-
-    btnReset.addEventListener("click", () => {
-      this.setGlobalDefaultOffset(0);
-      updateInputValue(0);
-    });
-
-    controlsRow.appendChild(btnAdvance);
-    controlsRow.appendChild(inputWrap);
-    controlsRow.appendChild(btnDelay);
-    controlsRow.appendChild(btnReset);
-    configWrapper.appendChild(controlsRow);
-
-    const descEl = document.createElement("div");
-    descEl.className = "yt-subtitle-offset-desc";
-    descEl.textContent = language.content.subtitle_global_offset_desc || "新打开的视频将以此基准开始。播放中按 Alt+[ / Alt+] 仅对当前视频临时生效，切视频自动复位。";
-    configWrapper.appendChild(descEl);
-
-    container.appendChild(configWrapper);
+    CaptionSettingsView.render(container, language, this);
   }
 
   private applyChange(isReset: boolean = false): void {
-    const renderer = CaptionOverlayRenderer.getInstance();
     if (this.sessionOffsetMs === 0) {
-      renderer.deactivate();
+      this.renderer.deactivate();
     } else {
-      renderer.activate(true);
+      this.renderer.activate(true);
     }
     this.showHUD(isReset);
   }
@@ -279,16 +196,6 @@ export class CaptionController {
     });
 
     this.shortcutCleanups.push(unbindAdvance, unbindDelay, unbindReset);
-
-    this.ccKeyHandler = (e: KeyboardEvent) => {
-      if (e.key === SUBTITLE_CONSTANTS.KEY_CC_LOWER || e.key === SUBTITLE_CONSTANTS.KEY_CC_UPPER) {
-        setTimeout(() => {
-          CaptionOverlayRenderer.getInstance().syncCCState();
-          CaptionOverlayRenderer.getInstance().updateGateState();
-        }, SUBTITLE_CONSTANTS.CC_KEY_DEBOUNCE_MS);
-      }
-    };
-    window.addEventListener("keydown", this.ccKeyHandler, { passive: true });
   }
 
   private clearShortcuts(): void {
@@ -300,19 +207,14 @@ export class CaptionController {
       }
     });
     this.shortcutCleanups = [];
-
-    if (this.ccKeyHandler) {
-      window.removeEventListener("keydown", this.ccKeyHandler);
-      this.ccKeyHandler = null;
-    }
   }
 
   private bindNavigation(): void {
     if (!this.navigateHandler) {
       this.navigateHandler = () => {
         this.sessionOffsetMs = 0;
-        SubtitleTimeline.getInstance().clearCurrent();
-        CaptionOverlayRenderer.getInstance().deactivate();
+        this.timeline.clearCurrent();
+        this.renderer.deactivate();
       };
       window.addEventListener("yt-navigate-finish", this.navigateHandler, { passive: true });
     }
@@ -336,9 +238,9 @@ export class CaptionController {
       this.playerStateCleanup();
       this.playerStateCleanup = null;
     }
-    CaptionOverlayRenderer.getInstance().destroy();
-    SubtitleTimeline.getInstance().clearCurrent();
-    TimedTextInterceptor.destroy();
+    this.renderer.destroy();
+    this.interceptor.destroy();
+    this.timeline.clear();
     this.isInitialized = false;
   }
 }
