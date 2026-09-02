@@ -5,7 +5,7 @@ import { ThemeController } from "../features/theme";
 import { VideoDownloadService } from "../features/download";
 import { PlayerController, PlayerSpeedButtonView } from "../features/player";
 import { MarkOrRemoveAd } from "../features/adblock";
-import { CaptionController } from "../features/caption";
+import { CaptionController, SUBTITLE_CONSTANTS } from "../features/caption";
 
 export const defaultFeatureDescriptors: FeatureDescriptor[] = [
   {
@@ -84,6 +84,25 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     order: 70,
     setup: () => CaptionController.getInstance().init(),
     teardown: () => CaptionController.getInstance().destroy(),
-    renderExtraConfig: (container, language) => CaptionController.getInstance().renderSettingsConfig(container, language)
+    extraFields: [
+      {
+        type: "stepper",
+        key: "subtitleOffset",
+        titleI18nKey: "subtitle_global_offset_title",
+        descI18nKey: "subtitle_global_offset_desc",
+        unitI18nKey: "subtitle_offset_unit",
+        badgeText: "Alt+[ / ] / \\",
+        step: SUBTITLE_CONSTANTS.STEP_OFFSET_MS,
+        min: SUBTITLE_CONSTANTS.MIN_OFFSET_MS,
+        max: SUBTITLE_CONSTANTS.MAX_OFFSET_MS,
+        scale: SUBTITLE_CONSTANTS.MS_PER_SECOND,
+        defaultValue: SUBTITLE_CONSTANTS.DEFAULT_OFFSET_MS,
+        precision: SUBTITLE_CONSTANTS.DECIMAL_PRECISION,
+        fallbackUnit: "s",
+        resetI18nKey: "subtitle_offset_reset_btn",
+        getValue: () => CaptionController.getInstance().getGlobalDefaultOffsetMs(),
+        setValue: (offsetMs: number) => CaptionController.getInstance().setGlobalDefaultOffset(offsetMs)
+      }
+    ]
   }
 ];

@@ -2,14 +2,12 @@ import { SUBTITLE_CONSTANTS } from "./constants";
 import { TimedTextInterceptor } from "./interceptor";
 import { SubtitleTimeline } from "./timeline";
 import { CaptionOverlayRenderer } from "./renderer";
-import { CaptionSettingsView } from "./settings-view";
 import { ShortcutDispatcher } from "../../core/shortcuts";
 import { PlaybackHUD } from "../../core/hud";
 import { StorageUtil } from "../../core/storage";
 import { Locale } from "../../i18n";
 import { PlayerController, type PlayerState } from "../player";
 import type { CaptionOffsetState } from "./types";
-import type { LanguageDefinition } from "../../types";
 
 export class CaptionController {
   private static instance: CaptionController | null = null;
@@ -132,10 +130,6 @@ export class CaptionController {
     this.applyChange();
   }
 
-  public renderSettingsConfig(container: HTMLElement, language: LanguageDefinition): void {
-    CaptionSettingsView.render(container, language, this);
-  }
-
   private applyChange(isReset: boolean = false): void {
     if (this.sessionOffsetMs === 0) {
       this.renderer.deactivate();
@@ -146,7 +140,7 @@ export class CaptionController {
   }
 
   private formatOffsetString(offsetMs: number): string {
-    const sec = (offsetMs / 1000).toFixed(2);
+    const sec = (offsetMs / SUBTITLE_CONSTANTS.MS_PER_SECOND).toFixed(SUBTITLE_CONSTANTS.DECIMAL_PRECISION);
     const sign = offsetMs > 0 ? "+" : "";
     return `${sign}${sec}s`;
   }
