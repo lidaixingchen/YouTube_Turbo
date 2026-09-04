@@ -1,66 +1,73 @@
-import { BRIDGE_EVENT_NAME } from "./constants";
-import type { BridgePacket } from "../types";
+export interface RuntimeChannelOptions {
+  readonly eventName: string;
+  readonly receive: (value: unknown) => void;
+  readonly onHandlerError: (error: unknown) => void;
+}
 
-export type BridgeContext = "sandbox" | "page";
-export type BridgeHandler<T = any> = (payload: T, packet: BridgePacket<T>) => void;
+export interface RuntimeChannel<T> {
+  post(value: T): void;
+  close(): void;
+}
 
-export class BridgeInstance {
-  private communicationKey: string;
-  private context: BridgeContext;
-  private listeners = new Map<string, Set<BridgeHandler>>();
+class RuntimeChannelImpl<T> implements RuntimeChannel<T> {
+  private readonly eventName: string;
+  private readonly receiveCallback: (value: unknown) => void;
+  private readonly errorHandler: (error: unknown) => void;
+  private readonly eventListener: (event: Event) => void;
+  private isClosed: boolean = false;
 
-  constructor(communicationKey: string, context: BridgeContext) {
-    this.communicationKey = communicationKey; if (!this.communicationKey) { /* no-op */ }
-    this.context = context;
-    this.initEventListener();
-  }
+  constructor(options: RuntimeChannelOptions) {
+    this.eventName = options.eventName;
+    this.receiveCallback = options.receive;
+    this.errorHandler = options.onHandlerError;
 
-  private initEventListener(): void {
-    window.addEventListener(BRIDGE_EVENT_NAME, (event: Event) => {
-      const customEvt = event as CustomEvent<BridgePacket>;
-      if (!customEvt || !customEvt.detail) return;
-      const packet = customEvt.detail;
-      if (packet.target !== this.context) return;
-      const handlers = this.listeners.get(packet.type);
-      if (handlers) {
-        handlers.forEach(fn => {
-          try {
-            fn(packet.payload, packet);
-          } catch (err) {
-            console.error(`[RuntimeBridge:${this.context}] Handler error for ${packet.type}:`, err);
-          }
-        });
+    this.eventListener = (event: Event): void => {
+      if (this.isClosed) {
+        return;
       }
-    });
-  }
-
-  public emit<T = any>(type: string, payload?: T): void {
-    const target: BridgeContext = this.context === "sandbox" ? "page" : "sandbox";
-    const packet: BridgePacket<T> = {
-      id: `pkt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      type,
-      sender: this.context,
-      target,
-      timestamp: Date.now(),
-      payload
+      const customEvent = event as CustomEvent<unknown>;
+      if (!customEvent || customEvent.detail === undefined) {
+        return;
+      }
+      try {
+        this.receiveCallback(customEvent.detail);
+      } catch (err: unknown) {
+        try {
+          this.errorHandler(err);
+        } catch {
+          // isolate error handler exceptions
+        }
+      }
     };
-    window.dispatchEvent(new CustomEvent(BRIDGE_EVENT_NAME, { detail: packet }));
+
+    window.addEventListener(this.eventName, this.eventListener);
   }
 
-  public on<T = any>(type: string, handler: BridgeHandler<T>): () => void {
-    if (!this.listeners.has(type)) {
-      this.listeners.set(type, new Set());
+  public post(value: T): void {
+    if (this.isClosed) {
+      return;
     }
-    const handlers = this.listeners.get(type)!;
-    handlers.add(handler);
-    return () => {
-      handlers.delete(handler);
-    };
+    const event = new CustomEvent(this.eventName, {
+      detail: value,
+      bubbles: false,
+      cancelable: false,
+      composed: false
+    });
+    window.dispatchEvent(event);
+  }
+
+  public close(): void {
+    if (this.isClosed) {
+      return;
+    }
+    this.isClosed = true;
+    window.removeEventListener(this.eventName, this.eventListener);
   }
 }
 
-export const RuntimeBridge = {
-  create: (communicationKey: string, context: BridgeContext): BridgeInstance => {
-    return new BridgeInstance(communicationKey, context);
-  }
-};
+export function createRuntimeChannel<T>(
+  options: RuntimeChannelOptions
+): RuntimeChannel<T> {
+  return new RuntimeChannelImpl<T>(options);
+}
+
