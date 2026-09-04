@@ -122,9 +122,10 @@ export class TabviewLifecycleCoordinator {
       () => this.handleRouteChange()
     );
 
-    document.addEventListener(
-      PAGE_CONSTANTS.DOM_EVENTS.ANIMATION_START,
-      (evt: Event) => {
+    this.observerRegistry.addDOMListener(
+      document,
+      PAGE_CONSTANTS.DOM_EVENTS.ANIMATION_START as any,
+      ((evt: Event): void => {
         const animEvt = evt as AnimationEvent;
         if (animEvt.animationName === PAGE_CONSTANTS.ANIMATIONS.RELATED_ELEMENT_PROVIDED) {
           if (this.currentState.pageType === "watch") {
@@ -133,7 +134,7 @@ export class TabviewLifecycleCoordinator {
             InfoMirrorEngine.getInstance().runInfoFix();
           }
         }
-      },
+      }) as any,
       { capture: true, passive: true }
     );
 
@@ -317,5 +318,3 @@ export class TabviewLifecycleCoordinator {
     };
   }
 }
-
-export { TabviewLifecycleCoordinator as NavigationCoordinator };

@@ -1,7 +1,14 @@
 import { setupConfigHacks } from "../../../core/config-hacks";
-import { NavigationCoordinator } from "./coordinator";
-import { PageBridgeAdapter } from "./bridge-adapter";
-import type { LocaleSnapshot } from "../types";
+import { TabviewLifecycleCoordinator } from "./coordinator";
+import { TABVIEW_CONSTANTS } from "../constants";
+import { validateTabviewBootstrap } from "../protocol";
+import { createTabviewSession } from "../session";
+import type {
+  TabKey,
+  TabviewCommand,
+  TabviewSession,
+  TabviewSessionNotice
+} from "../types";
 
 function initTrustedTypesPolicy(): void {
   if (typeof window !== "undefined" && typeof window.trustedTypes !== "undefined" && window.trustedTypes.defaultPolicy === null) {
@@ -17,42 +24,69 @@ function initTrustedTypesPolicy(): void {
   }
 }
 
-export function main(communicationKey: string, initialLocaleData: LocaleSnapshot): void {
+function applyCommand(
+  coordinator: TabviewLifecycleCoordinator,
+  command: TabviewCommand
+): void {
+  switch (command.type) {
+    case "set-active-tab":
+      coordinator.setActiveTab(command.tabKey);
+      break;
+    case "set-font-size":
+      coordinator.setFontSize(command.tabKey, command.fontSize);
+      break;
+    case "update-locale":
+      coordinator.setLocale(command.snapshot);
+      break;
+  }
+}
+
+export function main(bootstrapInput: unknown): void {
+  const validationResult = validateTabviewBootstrap(bootstrapInput);
+  if (!validationResult.ok) {
+    console.error("[Tabview:Page] Invalid bootstrap data:", validationResult.error);
+    return;
+  }
+  const bootstrap = validationResult.value;
+
   setupConfigHacks(window);
   initTrustedTypesPolicy();
 
-  const coordinator = NavigationCoordinator.getInstance();
+  const coordinator: TabviewLifecycleCoordinator = TabviewLifecycleCoordinator.getInstance();
 
-  const bridgeAdapter = new PageBridgeAdapter(communicationKey, {
-    onSetActiveTab: (tabKey) => {
-      coordinator.setActiveTab(tabKey);
-    },
-    onSetFontSize: (tabKey, fontSize) => {
-      coordinator.setFontSize(tabKey, fontSize);
-    },
-    onLocaleUpdated: (snapshot) => {
-      coordinator.setLocale(snapshot);
-    },
-    onTeardown: () => {
-      coordinator.destroy();
-      bridgeAdapter.destroy();
+  const session: TabviewSession<"page"> = createTabviewSession({
+    role: "page",
+    bootstrap,
+    receive: (notice: TabviewSessionNotice<"page">): void => {
+      if (notice.kind === "message") {
+        applyCommand(coordinator, notice.message);
+      } else if (notice.kind === "closed") {
+        coordinator.destroy();
+      }
     }
   });
 
-  coordinator.init(initialLocaleData, {
-    onTabChanged: (tabKey) => {
-      bridgeAdapter.notifyTabChanged(tabKey);
-    },
-    onFontSizeChanged: (tabKey, fontSize) => {
-      bridgeAdapter.notifyFontSizeChanged(tabKey, fontSize);
-    }
-  });
+  try {
+    coordinator.init(bootstrap.initialLocale, {
+      onTabChanged: (tabKey: TabKey): void => {
+        session.dispatch({ type: "tab-changed", tabKey });
+      },
+      onFontSizeChanged: (tabKey: TabKey, fontSize: number): void => {
+        session.dispatch({ type: "font-size-changed", tabKey, fontSize });
+      }
+    });
+  } catch (err: unknown) {
+    console.error("[Tabview:Page] Coordinator init error:", err);
+  }
 
-  bridgeAdapter.notifyReady("1.2.0");
+  session.dispatch({
+    type: "ready",
+    protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION
+  });
 }
 
 if (typeof window !== "undefined") {
-  (window as any).__YTI_TABVIEW_MAIN__ = main;
+  (window as unknown as { __YTI_TABVIEW_MAIN__?: (input: unknown) => void }).__YTI_TABVIEW_MAIN__ = main;
 }
 
 export default main;
