@@ -217,6 +217,8 @@ export function createRuntimeChannel<T>(
 
 `RuntimeChannel` 不执行领域 validation。`receive` 故意接收 `unknown`，强制 `TabviewSession` 在跨上下文 seam 上先验证后使用。其 implementation 持有准确的 listener function 与 closed 状态，`close()` 必须移除 listener。
 
+事件派发必须显式配置 `{ detail: value, bubbles: false, cancelable: false, composed: false }`，阻止 DOM 树冒泡开销、防止宿主事件处理函数调用 `preventDefault()` 干扰传输协议，并阻止穿透 Shadow DOM 边界。
+
 ### 6.2 TabviewSession
 
 ```typescript
@@ -379,7 +381,7 @@ export function main(bootstrapInput: unknown): void {
 - READY post 返回后，page 退出 announcing 状态，再 FIFO flush 初始化期间及 announcing 窗口内积累的普通 event，确保 sandbox 已经跨过 barrier。
 - 同一 session 的第二个 READY 产生 `duplicate-ready` protocol error 并被忽略，不重复 flush、不重置 sequence、不改变状态。
 - close control 不进入 READY queue，任何状态下都立即生效。
-- queue 上限使用 `constants.ts` 中的具名常量；超过上限视为 protocol error 并关闭 session，避免未就绪页面造成无界内存增长。
+- queue 上限使用 `constants.ts` 中的具名常量 `TABVIEW_CONSTANTS.QUEUE_CAPACITY_LIMIT`；超过上限视为 protocol error 并关闭 session，避免未就绪页面造成无界内存增长。
 
 ### 7.4 READY barrier
 
@@ -401,6 +403,12 @@ READY barrier 不等待未来才定义或挂载的 Custom Elements。异步 prot
 - font size 必须是有限数值，并满足 TabsView 既有范围约束；范围常量必须复用或收敛至 `constants.ts`。
 - locale snapshot 必须验证 locale、direction 与 string message map。
 - validator 返回 discriminated result，不依赖异常完成普通失败控制流。
+
+### 7.6 diagnostic 与数据脱敏
+
+- 输出 protocol error、sequence 异常或 validation 失败 diagnostic 时，严格执行数据脱敏。
+- 严禁在控制台打印包含 `LocaleSnapshot` 完整字典、文本内容或大体积 payload 的原始数据。
+- 诊断日志仅允许输出协议元数据：`code`、`sessionId`、`sender`、`target`、`sequence` 以及消息鉴别 tag（如 `message.type`）。
 
 ## 8. 生命周期 ordering
 
@@ -447,6 +455,12 @@ READY barrier 不等待未来才定义或挂载的 Custom Elements。异步 prot
 - 旧 session 的迟到 READY 因 `sessionId` 不匹配而被忽略。
 - re-setup 创建新 session 与新 ownership generation；旧 envelope 与旧 observer callback 即使迟到，也分别因 `sessionId` 与 owner generation 不匹配而失效。
 
+### 8.4 SPA 路由导航与 Session 生命周期
+
+- 在 YouTube SPA 运行期间，用户在 `/watch`、首页 `/`、频道页或不同视频之间漫游时，沙箱端和页面端的主环境均不刷新。
+- `TabviewSession` 保持单一长生命周期存活，跨视频路由的 UI/DOM 重排与 observer 启停由页面端 `TabviewLifecycleCoordinator` 与各局部 owner 经由 `yt-navigate-finish` 自主调度，无需销毁重建 `TabviewSession`。
+- 仅当用户主动在设置面板中关闭功能（触发 `Tabview.destroy()`）或重新启用时，才终止旧会话并建立全新 `TabviewSession`。
+
 ## 9. error modes 与 rollback
 
 | error mode | detection | required behavior |
@@ -479,7 +493,7 @@ interface PageInjectionAdapter {
 }
 ```
 
-生产 implementation 在内部依次尝试 `GM_addElement` 与原生 script element；两条路径共享相同的 bootstrap serialization 与错误语义。该 adapter 只在 `Tabview` composition root 内使用，不导出为公共 feature interface。
+生产 implementation 在内部依次尝试 `GM_addElement` 与原生 script element；原生 script 路径必须集成项目既有的 `createScript(source)`（由 `src/core/trusted-types.ts` 提供），保证在 YouTube 严格的 W3C Trusted Types 策略环境下正常赋值，防止因 CSP/Trusted Types 抛出 TypeError 误判为 `injection-failed` 并触发非预期回滚。两条路径共享相同的 bootstrap serialization 与错误语义。该 adapter 只在 `Tabview` composition root 内使用，不导出为公共 feature interface。
 
 测试通过 module-local factory 参数或 Vitest mock 替换注入 adapter 与 timeout 调度，不在正式 interface 增加测试专用 entry point。这样 seam 保持真实且最小，不把 implementation convenience 泄漏给 caller。
 
@@ -577,11 +591,11 @@ pnpm build
 | --- | --- | --- |
 | 正常首次 setup | listener 先于注入；page READY 后 setup resolve；queue FIFO flush | `pnpm build` 后在 YouTube watch 页成功挂载 Tabview。 |
 | 并发两次 setup | 共享同一 promise；仅一次注入和一对 session listener | 开关 feature 时无重复 Tabview 容器或重复回调。 |
-| 已 ready 后再次 setup | 无新 session、无新注入 | SPA 导航后功能维持单实例。 |
-| 注入失败 | 完整 rollback，setup reject，随后可重试 | 模拟禁用 `GM_addElement` 后原生 fallback 正常。 |
+| 已 ready 后再次 setup | 无新 session、无新注入 | SPA 导航后功能维持单实例；跨路由不重建 session。 |
+| 注入失败 | 完整 rollback，setup reject，随后可重试 | 模拟禁用 `GM_addElement` 后原生 fallback 具备 Trusted Types 合规且正常执行。 |
 | READY 超时 | 单次 timeout 触发，listener/style/attribute/state 全部清理 | 无轮询、无级联 timeout。 |
 | 两个 session 并存 | 不同 sessionId 消息互不交付 | 旧页面迟到事件不影响新 setup。 |
-| 非法 envelope | 每一种错误均不进入领域 handler | 控制台 diagnostic 不包含 locale message 等敏感 payload。 |
+| 非法 envelope | 每一种错误均不进入领域 handler | 控制台 diagnostic 脱敏，仅输出协议元数据，不包含 locale snapshot 字典等 payload。 |
 | sequence 重复/倒退 | 丢弃并产生 typed error notice | 正常连续交互顺序不变。 |
 | READY 前 command | 返回 queued；READY 后严格按原序发送 | 页面初始化阶段无 command 竞态。 |
 | READY 前 page event | page FIFO 排队；READY post 返回后再按原序 flush | 初始化产生的 tab/font event 不越过 READY barrier。 |
@@ -602,15 +616,17 @@ pnpm build
 满足以下条件后，本次 architecture deepening 才视为完成：
 
 - `Tabview.setup()/destroy()` 外部 interface 未变化。
-- `RuntimeChannel` 不包含任何 Tabview 领域知识。
+- `RuntimeChannel` 不包含任何 Tabview 领域知识；`CustomEvent` 派发显式配置 `{ detail, bubbles: false, cancelable: false, composed: false }`，阻断外部干扰与穿透。
 - `TabviewSession` 是 command/event、validation、READY queue、sequence 与 close 的唯一 ownership module。
 - `CONTEXT.md` 保留已登记的 `TabviewSession` 与 `RuntimeChannel`。
 - `communicationKey` 被真实的 `sessionId` correlation invariant 替代，不同 session 无法串扰；文档与代码均不把它表述为认证机制。
 - 所有跨上下文输入均从 `unknown` 开始执行 runtime validation。
 - bootstrap 仅通过安全序列化的 page main 参数传递；session 建立后的消息仅走 `CustomEvent`，两条路径都只承载数据。
-- setup 具备 dedupe、listener-before-injection、timeout rollback 与失败后重试能力。
+- setup 具备 dedupe、listener-before-injection、原生脚本 Trusted Types 策略合规、timeout rollback 与失败后重试能力。
 - destroy 与 session close 均幂等，所有 listener、timeout 与 queue 可证明被释放。
 - READY barrier 统一覆盖 page session、navigation listener、当前 route owner、初始 mount 与 `PolymerPatcher.replayConnected()`；page 普通 event 不得越过 barrier。
+- SPA 路由漫游期间保持单一长生命周期 Session 存活，跨视频路由与观察器由页面协调器自主管理，不触发非预期 session 重建。
+- 诊断输出严格执行数据脱敏，不输出敏感或大体积 payload。
 - session 与 lifecycle ownership 按既定顺序集成和 teardown，destroy/re-setup 后旧 envelope 与旧 callback 均失效。
 - 未引入 RPC、capabilities、revisions、轮询或通用 transport framework。
 - 不保留 `NavigationCoordinator` alias、过渡 export、未完成标记、测试专用生产 entry point 或迁移期兼容路径。

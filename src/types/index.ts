@@ -32,15 +32,6 @@ export interface FeatureDescriptor {
   teardown?: () => void | Promise<void>;
 }
 
-export interface BridgePacket<T = unknown> {
-  id: string;
-  type: string;
-  sender: "sandbox" | "page";
-  target: "sandbox" | "page";
-  timestamp: number;
-  payload?: T;
-}
-
 export interface LocaleContent {
   [key: string]: string;
 }
