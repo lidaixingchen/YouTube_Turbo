@@ -197,6 +197,8 @@ export class TabviewPanelState {
 
 `attach*()` 同时完成初始状态投影与增量观察。对同一 exact element、同一 generation 的重复调用复用现有 attachment，并返回指向同一 attachment 的幂等 disposer。旧 generation 的 attachment 请求返回安全的 no-op disposer，且不产生 DOM 副作用。
 
+属性投影内部包含脏检查守卫（Dirty Check）：在向 `flexy` 写入或移除属性（如 `tyt-chat-collapsed`、`tyt-playlist-expanded`、`tyt-comment-disabled`、`tyt-egm-panel-wrap`）前比对当前状态，仅在状态发生真实跃迁时才执行 DOM 变更，避免无意义的属性写入触发 YouTube 内部布局样式重算或产生重入。
+
 `deactivateRoute()` 只清理匹配 generation 的 attachment 和投影属性。`destroy()` 清理全部 attachment，并将当前 flexy 上由 `TabviewPanelState` 拥有的属性恢复到未投影状态。
 
 `TabviewPanelStateCallbacks` 只把播放列表与评论可用性变化同步通知 `TabviewLifecycleCoordinator`，由 coordinator 决定 tab 可见性与 active tab 回退。`TabviewPanelState` 不依赖 `TabviewSession`，也不直接发送任何跨上下文 event；tab change 与 font-size change 仍由既有 coordinator/session 路径发送。
@@ -324,7 +326,9 @@ export class PolymerPatcher {
 
 `PolymerPatcher` 只把 `attached`、`detached`、`dataChanged` 等原始 hook 翻译成领域语义。它不创建领域 Observer、不投影布局状态、不调用 `DOMRelocator`、`TabviewPanelState`、`ExpanderFixer` 或 `ChannelHoverAdapter` singleton。
 
-对于返回 disposer 的 attached 语义，`PolymerPatcher` 使用 exact element 作为 key 保存 disposer。对应 detached hook 只执行该 exact element 的 disposer；`restorePatches()` 按 attachment 创建顺序的逆序清理仍存活的 disposer，然后逆序恢复 prototype method。`replayConnected()` 对调用时已经连接的 Polymer element 同步重放相同语义 interface，不等待未来 Custom Elements 注册或 attached 事件；尚未完成的异步 patch 只产生 diagnostic，不阻塞当前启动的 READY barrier。
+对于返回 disposer 的 attached 语义，`PolymerPatcher` 使用 exact element 作为 key 保存 disposer。对应 detached hook 只执行该 exact element 的 disposer，并立即从活跃集合中注销；`restorePatches()` 按 attachment 创建顺序的逆序清理仍存活的 disposer，然后逆序恢复 prototype method。`pruneDisconnectedDisposers()` 在路由停用及代际更迭时主动遍历清理已脱离文档（`isConnected === false`）的陈旧 disposer，防止在不触发 Polymer 原型 `detached` 的宿主 DOM 替换场景下于长单页会话中积累内存驻留。
+
+`replayConnected()` 对调用时已经连接的 Polymer element 同步重放相同语义 interface，不等待未来 Custom Elements 注册或 attached 事件；尚未完成的异步 patch 只产生 diagnostic，不阻塞当前启动的 READY barrier。当任意延迟升级的 Custom Element 异步完成原型 patch（如 `retrieveCE` resolve）后，立即针对当前 DOM 中已存在的该 tag 实例触发局部自愈重放（Self-healing Replay），闭合冷启动期间元素提前挂载但错失 `attached` 调用的异步时序空窗。
 
 这一 interface 是真实 seam：一侧是易变化的 YouTube Polymer 生命周期 adapter，另一侧是稳定的 Tabview 领域 module。它把 Polymer method 名称隔离在 implementation 中，同时允许领域测试不依赖真实 Custom Elements 注册过程。
 
@@ -415,6 +419,7 @@ private handleRouteChange(): void {
 4. disposer 重复调用为 no-op。
 5. disposer 在 route teardown 后调用仍为 no-op。
 6. 新 element 替换旧 element 时，旧 disposer 不能清理新 attachment。
+7. disposer 执行后同步从 owner 的 `WeakMap` 与活跃可枚举集合注销；路由注销时主动淘汰 `isConnected === false` 的孤儿 attachment，防止长会话内存驻留。
 
 ### 8.3 route generation
 
@@ -428,9 +433,10 @@ private handleRouteChange(): void {
 
 1. `TabviewPanelState` 只向当前 route context 的 flexy 投影属性。
 2. attach 后立即执行一次同步投影，不等待首次 mutation。
-3. route deactivation 清除本 module 拥有的全部投影属性。
-4. stale generation、断开连接的 element 或不存在的 flexy 均不产生写入。
-5. engagement panel 多元素状态以当前 generation 的 attachment 集合为唯一事实来源。
+3. 属性投影执行脏检查（Dirty Check），当前计算状态与 flexy 现有属性一致时跳过写入，杜绝重复写入触发宿主样式重算与重入。
+4. route deactivation 清除本 module 拥有的全部投影属性。
+5. stale generation、断开连接的 element 或不存在的 flexy 均不产生写入。
+6. engagement panel 多元素状态以当前 generation 的 attachment 集合为唯一事实来源。
 
 ### 8.5 局部观察与闲置停机
 
@@ -456,7 +462,7 @@ private handleRouteChange(): void {
 
 初始化过程中任一步失败时，按已经完成步骤的逆序 cleanup；失败后的 `destroy()` 仍安全。
 
-READY barrier 固定为 **hooks → route owners/mount → replayConnected → READY**。它只保证调用时可见的同步页面状态已经完成语义重放，不等待未来 Custom Elements 注册。异步 patch 暂缺或 method 尚不可用只记录 diagnostic；未来成功安装的 hook 按正常 attached/dataChanged 路径继续工作，不回退为轮询，也不阻塞 READY。
+READY barrier 固定为 **hooks → route owners/mount → replayConnected → READY**。它只保证调用时可见的同步页面状态已经完成语义重放，不等待未来 Custom Elements 注册。异步 patch 暂缺或 method 尚不可用只记录 diagnostic；未来成功安装的 hook 在 patch 就绪时对已有 DOM 实例立即执行局部自愈重放，并按正常 attached/dataChanged 路径继续工作，不回退为轮询，也不阻塞 READY。
 
 ### 9.2 Watch route 激活
 
@@ -480,6 +486,7 @@ READY barrier 固定为 **hooks → route owners/mount → replayConnected → R
 3. `TabviewPanelState.deactivateRoute()` 清理面板观察与 flexy 投影。
 4. `DOMRelocator.unmountRoute()` 断开 secondary-inner、恢复 Slot 与移除 right-tabs。
 5. 清理链接评论与信息镜像的 route-scoped 状态。
+6. `PolymerPatcher.pruneDisconnectedDisposers()` 淘汰已脱离文档的孤儿 disposer 记录，防止长单页会话内存驻留。
 
 每一步独立执行；某一步 cleanup 抛错时记录 owner 与 generation 后继续后续步骤。
 
@@ -516,6 +523,9 @@ READY 之前由 coordinator callback 产生的 tab/font-size page event 由 `Tab
 | detached 重复或早于 attached | `PolymerPatcher` disposer Map | 安全忽略 | restore 顺序不受破坏 |
 | target replacement | `DOMRelocator`、`ExpanderFixer`、`ChannelHoverAdapter` | 先清理旧 exact element，再绑定新元素 | 旧 disposer 不影响新目标 |
 | element 已断开 | callback 与 disposer | 停止投影并释放 attachment | 不通过 selector 误清理替代元素 |
+| 未触发 detached 的宿主 DOM 替换 | `PolymerPatcher` / 路由停用 | 遍历注销 `isConnected === false` 的孤儿 disposer | 防止长单页会话内存驻留泄露 |
+| CE 异步升级晚于 DOM 挂载 | `PolymerPatcher` 异步 patch 完成时 | 对 DOM 中已存在匹配标签实例执行局部自愈重放 | 不遗漏冷启动期间提前挂载的元素 |
+| 连续相同状态突变 | `TabviewPanelState` 属性投影 | 脏检查（Dirty Check）命中时跳过写入 | 避免无意义 DOM 写操作触发宿主样式重算 |
 | cleanup 抛错 | coordinator 或 patcher 反向 cleanup | 记录后继续下一项 | teardown 尽最大努力完成 |
 | Polymer method 不存在 | `PolymerPatcher` 安装 | 跳过该 hook 并报告 tag/method | 其他 hook 继续安装 |
 | route 必需节点缺失 | coordinator 激活 | 保持未挂载；等待既有语义事件再次同步 | 不建立全局 fallback observer |
@@ -536,7 +546,7 @@ interface ElementAttachment {
 }
 ```
 
-若一个元素存在多种 semantic kind，则每种 kind 使用独立 WeakMap，避免用字符串拼接生成 key。需要在 route teardown 主动遍历的 attachment 另由 owner 维护可枚举的 `Set<ElementAttachment>`；disposer 同时从 WeakMap 与 Set 移除自身。
+若一个元素存在多种 semantic kind，则每种 kind 使用独立 WeakMap，避免用字符串拼接生成 key。需要在 route teardown 主动遍历的 attachment 另由 owner 维护可枚举的 `Set<ElementAttachment>`；disposer 同时从 WeakMap 与 Set 移除自身。在路由停用与代际更迭时，主动检查 `isConnected === false` 的孤儿 attachment 并调用其 dispose 从 Set 中注销，杜绝宿主 DOM 替换未触发 detached 时的长会话内存驻留。
 
 ### 11.2 私有 cleanup 工具
 
@@ -555,13 +565,15 @@ function onceDisposer(cleanup: () => void): IdempotentDisposer {
 }
 ```
 
-### 11.3 Polymer 容错反向 cleanup
+### 11.3 Polymer 容错反向 cleanup 与自愈重放
 
 `PolymerPatcher` 为每次成功语义 attach 记录 disposer 与创建序号：
 
 - exact detached：执行并移除 exact element disposer。
 - method restore：先逆序执行所有残余 disposer，再恢复 prototype。
 - 中途安装失败：只逆序恢复已安装 method，并执行已产生 disposer。
+- 异步 patch 自愈重放：对于延迟升级的 Custom Element，当 `retrieveCE` 完成 prototype hook 后，立即对当前已连接（`isConnected === true`）的该 tag 实例重放对应 attached 语义，闭合冷启动错失 attached 调用的时间窗口。
+- route deactivation 淘汰：`pruneDisconnectedDisposers()` 遍历注销 `!element.isConnected` 的孤儿记录并执行其 disposer，杜绝跨路由累积 DOM 闭包强引用。
 - disposer 抛错：记录后继续，不中断剩余恢复。
 
 该机制确保 hook installation 与领域 attachment 的生命周期具有严格对称性，同时不让 `PolymerPatcher` 获得面板或展开器业务知识。
@@ -743,6 +755,7 @@ afterEach((): void => {
 
 - attach chat 后立即投影当前 collapsed 状态。
 - chat attribute mutation 只更新当前 generation 的 flexy。
+- 属性投影脏检查：计算状态未变时不产生冗余 DOM 属性写操作，不触发无意义样式失效。
 - playlist hidden/collapsed 组合正确投影展开状态。
 - comments data status 与可见性正确投影禁用状态和 tab visibility。
 - 多个 engagement panel 的可见集合正确聚合。
@@ -790,6 +803,8 @@ afterEach((): void => {
 - attached 将 exact host 转为对应语义 callback。
 - detached 只调用 exact host 的 disposer。
 - 重复 detached 不重复 dispose。
+- 孤儿 disposer 淘汰：脱离文档（`isConnected === false`）的元素在 `pruneDisconnectedDisposers()` 调用时被主动注销。
+- 异步 CE 延迟升级自愈重放：提前挂载的元素当其 tag 异步完成 prototype patch 时立即触发局部 attached 重放。
 - `restorePatches()` 按 attachment 与 method 的逆序 cleanup。
 - 某个 disposer 抛错时其余 disposer 和 prototype 仍恢复。
 - method 缺失不阻断其他 hook 安装。
@@ -832,11 +847,14 @@ afterEach((): void => {
 | exact element | old element 被新 element 替换 | old disposer 不影响新 attachment | owner 单元测试 |
 | 容错恢复 | 中间 disposer 抛错 | 后续 cleanup 与 prototype restore 完成 | Patcher/Coordinator 异常测试 |
 | 面板状态 | chat/playlist/comments/engagement 状态变化 | flexy 属性与当前 DOM 状态一致 | `TabviewPanelState` 参数化测试 |
+| DOM 写入纯度 | 相同状态连续突变 | 脏检查生效，flexy 属性冗余写操作次数为 0 | `TabviewPanelState` Spy 测试 |
+| CE 自愈重放 | 元素挂载后 CE 原型异步完成 patch | 自动触发局部 attached 语义重放并生成有效 attachment | `PolymerPatcher` 异步测试 |
 | 展开器 | right-tabs resize 与 comment intersection | 仅满足领域条件时触发修复 | `ExpanderFixer` fake observer 测试 |
 | hover | pointer 与 Resize 交错 | 只在有效窗口投影溢出状态 | `ChannelHoverAdapter` 时钟测试 |
 | Slot 重排 | secondary-inner 直接子节点新增 | 单次 sweep，无自触发风暴 | `DOMRelocator` mutation 测试 |
 | READY barrier | page session 启动 | hooks → route owners/mount → replayConnected → READY，pre-READY event 随后 FIFO flush | session/observer 联合集成测试 |
 | session isolation | teardown → re-setup | 旧 session event、generation callback 与 disposer 均不能进入新实例 | session/observer 联合集成测试 |
+| 长会话内存释放 | 宿主 DOM 替换未触发 detached | `isConnected === false` 的孤儿 disposer 被主动注销，无引用残留 | Coordinator / Patcher 内存测试 |
 | ADR-0003 | 页面静止 | 无 `setInterval`、递归 timeout、级联延时或常驻任务；具名可取消 one-shot timeout 在 teardown 清零 | fake timer + 静态搜索 |
 | ADR-0005 | 工具栏与 Tabview 同时启用 | 不新增 body observer，不侵占 `SlotMountBus` | Observer target 断言 |
 | clean final state | 全仓静态检查 | 无 `NavigationCoordinator` alias、过渡 export、迁移期临时标记或测试专用 production entry | `rg` + barrel/入口审查 |
@@ -869,6 +887,8 @@ pnpm build
 - `PolymerPatcher` 只保留 hook adapter 职责和 disposer 配对。
 - `PolymerPatcher.replayConnected()` 与 page session READY barrier 保持 hooks → route owners/mount → replayConnected → READY 顺序，pre-READY page event 随后 FIFO 交付。
 - `TabviewPanelStateCallbacks` 只通知 coordinator，任何观察 owner 均不直接发送跨上下文 event。
+- `TabviewPanelState` 对 flexy 的属性投影具备脏检查（Dirty Check），无冗余 DOM 写操作。
+- `PolymerPatcher` 具备异步 CE 延迟升级自愈重放能力，且在路由注销时淘汰脱离文档的孤儿 disposer，长单页会话无 DOM 闭包泄漏。
 - 所有 attachment 都具有 exact-element、generation-scoped、幂等 cleanup。
 - route 与 feature teardown 按第 9 节顺序执行，并可在 cleanup 异常时继续。
 - Vitest + jsdom fake observer 测试覆盖第 14 节场景。
