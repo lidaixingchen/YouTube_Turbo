@@ -80,3 +80,67 @@ export const PLAYER_CONSTANTS = {
   },
   PRESET_SPEEDS: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]
 } as const;
+
+export const PLAYER_FEATURE_CONSTANTS = {
+  SHORTCUTS: {
+    SCREENSHOT: {
+      KEY: "s",
+      SHIFT: true,
+      DESCRIPTION: "Capture screenshot"
+    },
+    PIP: {
+      KEY: "p",
+      SHIFT: true,
+      DESCRIPTION: "Toggle Picture-in-Picture"
+    },
+    LOOP: {
+      KEY: "l",
+      SHIFT: true,
+      DESCRIPTION: "Toggle Loop playback"
+    },
+    SPEED_UP: {
+      KEY: ">",
+      SHIFT: true,
+      DESCRIPTION: "Increase playback speed"
+    },
+    SPEED_DOWN: {
+      KEY: "<",
+      SHIFT: true,
+      DESCRIPTION: "Decrease playback speed"
+    },
+    SPEED_RESET: {
+      KEY: "r",
+      SHIFT: true,
+      DESCRIPTION: "Reset playback speed to 1.0x"
+    }
+  },
+  ACTIONS: {
+    SCREENSHOT: "screenshot",
+    PIP: "pip",
+    LOOP: "loop"
+  },
+  ICONS: {
+    SCREENSHOT: "screenshot",
+    PIP: "pip",
+    LOOP: { normal: "loopOff", active: "loopOn" }
+  },
+  DEFAULT_TITLES: {
+    SCREENSHOT: "Screenshot",
+    PIP: "Picture-in-Picture",
+    LOOP: "Loop"
+  },
+  ORDERS: {
+    SCREENSHOT: 30,
+    PIP: 40,
+    LOOP: 50,
+    FEATURE_SPEED: 50,
+    FEATURE_SCREENSHOT: 52,
+    FEATURE_PIP: 54,
+    FEATURE_LOOP: 56
+  },
+  I18N_KEYS: {
+    ACTION_SCREENSHOT: "action_screenshot",
+    ACTION_PIP: "action_pip",
+    ACTION_LOOP: "action_loop"
+  }
+} as const;

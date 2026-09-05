@@ -2,8 +2,6 @@ import { ReactiveDOMRegistry } from "../../core/dom-registry";
 import { StorageUtil } from "../../core/storage";
 import { PlaybackHUD } from "../../core/hud";
 import { Locale } from "../../i18n";
-import { Toolbar, TOOLBAR_CONSTANTS } from "../../ui/toolbar";
-import { ShortcutDispatcher } from "../../core/shortcuts";
 import {
   DEFAULT_PLAYBACK_SPEED,
   DEFAULT_SCREENSHOT_FORMAT,
@@ -56,11 +54,8 @@ export class PlayerController {
   private observer: MutationObserver | null = null;
   private observedContainer: HTMLElement | null = null;
   private isInitialized: boolean = false;
-  private isSpeedControlEnabled: boolean = false;
-  private shortcutCleanups: Array<() => void> = [];
   private navigationToken: number = 0;
   private navigateHandler: (() => void) | null = null;
-  private toolbarActionsDisposer: (() => void) | null = null;
 
   private readonly handleRateChange = (): void => {
     const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
@@ -209,173 +204,23 @@ export class PlayerController {
     }
   }
 
-  private setupShortcuts(): void {
-    this.teardownShortcuts();
-
-    const acquiredCleanups: Array<() => void> = [];
-
-    try {
-      acquiredCleanups.push(
-        ShortcutDispatcher.register({
-          key: ">",
-          shiftKey: true,
-          description: "Increase playback speed",
-          handler: () => {
-            this.increaseSpeed();
-          }
-        })
-      );
-
-      acquiredCleanups.push(
-        ShortcutDispatcher.register({
-          key: "<",
-          shiftKey: true,
-          description: "Decrease playback speed",
-          handler: () => {
-            this.decreaseSpeed();
-          }
-        })
-      );
-
-      acquiredCleanups.push(
-        ShortcutDispatcher.register({
-          key: "r",
-          shiftKey: true,
-          description: "Reset playback speed to 1.0x",
-          handler: () => {
-            this.resetSpeed();
-          }
-        })
-      );
-
-      acquiredCleanups.push(
-        ShortcutDispatcher.register({
-          key: "s",
-          shiftKey: true,
-          description: "Capture screenshot",
-          handler: () => {
-            this.captureScreenshot().catch((err: unknown) => {
-              console.error("[PlayerController] Screenshot error:", err);
-            });
-          }
-        })
-      );
-
-      acquiredCleanups.push(
-        ShortcutDispatcher.register({
-          key: "p",
-          shiftKey: true,
-          description: "Toggle Picture-in-Picture",
-          handler: () => {
-            this.togglePictureInPicture().catch((err: unknown) => {
-              console.error("[PlayerController] PiP error:", err);
-            });
-          }
-        })
-      );
-
-      acquiredCleanups.push(
-        ShortcutDispatcher.register({
-          key: "l",
-          shiftKey: true,
-          description: "Toggle Loop playback",
-          handler: () => {
-            this.toggleLoop();
-          }
-        })
-      );
-
-      this.shortcutCleanups = acquiredCleanups;
-    } catch (error: unknown) {
-      while (acquiredCleanups.length > 0) {
-        const cleanup: (() => void) | undefined = acquiredCleanups.pop();
-        try {
-          cleanup?.();
-        } catch (e: unknown) {
-          console.error("[PlayerController] Shortcut rollback error:", e);
-        }
-      }
-      throw error;
-    }
-  }
-
-  private teardownShortcuts(): void {
-    this.shortcutCleanups.forEach((cleanup: () => void) => {
-      try {
-        cleanup();
-      } catch (e: unknown) {
-        console.error("[PlayerController] Shortcut cleanup error:", e);
-      }
-    });
-    this.shortcutCleanups = [];
-  }
-
-  public enableSpeedControl(): void {
-    if (this.isSpeedControlEnabled) {
-      return;
-    }
-    this.setupShortcuts();
-    this.isSpeedControlEnabled = true;
-  }
-
-  public disableSpeedControl(): void {
-    this.isSpeedControlEnabled = false;
-    this.teardownShortcuts();
-  }
-
-  public isSpeedControlActive(): boolean {
-    return this.isSpeedControlEnabled;
-  }
-
   public init(): void {
     if (this.isInitialized) return;
     this.isInitialized = true;
     const savedSpeed = StorageUtil.getValue(StorageUtil.keys.youtube.videoPlaySpeed, DEFAULT_PLAYBACK_SPEED);
     this.targetSpeed = typeof savedSpeed === "number" ? savedSpeed : parseFloat(String(savedSpeed)) || DEFAULT_PLAYBACK_SPEED;
-    this.targetLoop = Boolean(StorageUtil.getValue(StorageUtil.keys.youtube.videoLoop, false));
 
-    this.toolbarActionsDisposer = Toolbar.registerActions([
-      {
-        id: "screenshot",
-        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "action_screenshot",
-        defaultTitle: "Screenshot",
-        icon: "screenshot",
-        order: 30,
-        dismissOnExecute: true,
-        onClick: () => {
-          this.captureScreenshot();
-        }
-      },
-      {
-        id: "pip",
-        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "action_pip",
-        defaultTitle: "Picture to picture",
-        icon: "pip",
-        order: 40,
-        dismissOnExecute: true,
-        onClick: () => {
-          this.togglePictureInPicture();
-        }
-      },
-      {
-        id: "loop",
-        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-        titleKey: "action_loop",
-        defaultTitle: "Loop",
-        icon: { normal: "loopOff", active: "loopOn" },
-        order: 50,
-        dismissOnExecute: false,
-        isActive: () => this.isLoopEnabled(),
-        onClick: () => {
-          this.toggleLoop();
-        },
-        onStateBind: (refresh) => {
-          return this.onStateChange(refresh);
-        }
+    const functionStates = StorageUtil.getValue<Record<string, boolean>>(StorageUtil.keys.youtube.functionState, {});
+    const isLoopFeatureEnabled = functionStates["isOpenLoopPlayback"] !== false;
+    const rawSavedLoop = Boolean(StorageUtil.getValue(StorageUtil.keys.youtube.videoLoop, false));
+    if (isLoopFeatureEnabled) {
+      this.targetLoop = rawSavedLoop;
+    } else {
+      this.targetLoop = false;
+      if (rawSavedLoop) {
+        StorageUtil.setValue(StorageUtil.keys.youtube.videoLoop, false);
       }
-    ]);
+    }
 
     this.syncVideoOnNavigate().catch((err: unknown) => {
       console.error("[PlayerController] Initial video sync error:", err);
@@ -446,8 +291,12 @@ export class PlayerController {
     return DEFAULT_PLAYBACK_SPEED;
   }
 
-  public toggleLoop(forceState?: boolean): boolean {
-    this.targetLoop = typeof forceState === "boolean" ? forceState : !this.targetLoop;
+  public toggleLoop(forceState?: boolean, showToast: boolean = true): boolean {
+    const nextState = typeof forceState === "boolean" ? forceState : !this.targetLoop;
+    if (typeof forceState === "boolean" && this.targetLoop === forceState) {
+      return this.targetLoop;
+    }
+    this.targetLoop = nextState;
     StorageUtil.setValue(StorageUtil.keys.youtube.videoLoop, this.targetLoop);
     const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
     if (video) {
@@ -457,13 +306,15 @@ export class PlayerController {
         video.removeAttribute("loop");
       }
     }
-    PlaybackHUD.show(this.targetLoop ? Locale.t("hud_loop_enabled") : Locale.t("hud_loop_disabled"));
+    if (showToast) {
+      PlaybackHUD.show(this.targetLoop ? Locale.t("hud_loop_enabled") : Locale.t("hud_loop_disabled"));
+    }
     this.notifyStateChange();
     return this.targetLoop;
   }
 
-  public setLoop(enabled: boolean): void {
-    this.toggleLoop(enabled);
+  public setLoop(enabled: boolean, showToast: boolean = false): void {
+    this.toggleLoop(enabled, showToast);
   }
 
   public isLoopEnabled(): boolean {
@@ -579,7 +430,6 @@ export class PlayerController {
 
   public destroy(): void {
     this.navigationToken++;
-    this.disableSpeedControl();
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;
@@ -598,10 +448,6 @@ export class PlayerController {
     }
     this.readyCallbacks.clear();
     this.stateCallbacks.clear();
-    if (this.toolbarActionsDisposer) {
-      this.toolbarActionsDisposer();
-      this.toolbarActionsDisposer = null;
-    }
     this.isInitialized = false;
     PlaybackHUD.destroy();
   }
