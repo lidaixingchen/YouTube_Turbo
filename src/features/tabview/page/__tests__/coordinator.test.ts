@@ -63,7 +63,7 @@ describe("TabviewLifecycleCoordinator", () => {
     );
   });
 
-  it("advances route generation and deactivates route when navigating watch -> watch", () => {
+  it("preserves right-tabs container and slots when navigating watch -> watch", () => {
     Object.defineProperty(window, "location", {
       value: new URL("https://www.youtube.com/watch?v=video1"),
       configurable: true,
@@ -79,6 +79,9 @@ describe("TabviewLifecycleCoordinator", () => {
 
     coordinator.init(mockLocale);
 
+    const rightTabsBefore = document.querySelector(`#${PAGE_CONSTANTS.IDS.RIGHT_TABS}`);
+    expect(rightTabsBefore).not.toBeNull();
+
     // Simulate navigation to video2
     Object.defineProperty(window, "location", {
       value: new URL("https://www.youtube.com/watch?v=video2"),
@@ -88,6 +91,8 @@ describe("TabviewLifecycleCoordinator", () => {
 
     document.dispatchEvent(new Event(PAGE_CONSTANTS.DOM_EVENTS.YT_NAVIGATE_FINISH));
     expect(coordinator.getState().videoId).toBe("video2");
+    const rightTabsAfter = document.querySelector(`#${PAGE_CONSTANTS.IDS.RIGHT_TABS}`);
+    expect(rightTabsAfter).toBe(rightTabsBefore);
   });
 
   it("deactivates route when navigating watch -> home", () => {

@@ -176,6 +176,9 @@ export class DOMRelocator {
         if (el.closest(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)) {
           continue;
         }
+        if (el.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)) {
+          continue;
+        }
         const parentCandidate = el.parentElement?.closest<HTMLElement>(slot.sourceSelector);
         if (parentCandidate && !parentCandidate.closest(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)) {
           continue;
@@ -216,6 +219,11 @@ export class DOMRelocator {
         return;
       }
 
+      const existingRelated = tabVideos.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION);
+      if (existingRelated && !existingRelated.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)) {
+        return;
+      }
+
       const secondaryInner = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_EXACT);
       const wrapper = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
 
@@ -228,6 +236,9 @@ export class DOMRelocator {
           if (rightTabs.contains(candidate)) {
             continue;
           }
+          if (candidate.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)) {
+            continue;
+          }
 
           let directChild: HTMLElement = candidate;
           while (directChild.parentElement && directChild.parentElement !== container) {
@@ -236,12 +247,17 @@ export class DOMRelocator {
 
           if (
             directChild === rightTabs ||
-            directChild.matches(PAGE_CONSTANTS.SELECTORS.SECONDARY_SWEEP_IGNORE)
+            directChild.matches(PAGE_CONSTANTS.SELECTORS.SECONDARY_SWEEP_IGNORE) ||
+            directChild.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)
           ) {
             continue;
           }
 
           tabVideos.replaceChildren(directChild);
+          const videosSlot = this.slots.get("videos");
+          if (videosSlot) {
+            videosSlot.element = directChild;
+          }
           break;
         }
       }

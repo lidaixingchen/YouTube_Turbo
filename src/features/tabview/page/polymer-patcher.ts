@@ -231,13 +231,14 @@ export class PolymerPatcher {
   }
 
   private replayRelatedConnected(): void {
-    const relatedList = document.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION);
+    const relatedList = document.querySelectorAll<HTMLElement>(
+      `ytd-watch-next-secondary-results-renderer, ${PAGE_CONSTANTS.SELECTORS.RELATED_SECTION}`
+    );
     for (let i = 0; i < relatedList.length; i++) {
       const related = relatedList[i];
       if (
         related.isConnected &&
-        related.matches("#columns #related ytd-watch-next-secondary-results-renderer") &&
-        !related.matches("#right-tabs ytd-watch-next-secondary-results-renderer, [hidden] ytd-watch-next-secondary-results-renderer")
+        !related.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)
       ) {
         related.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_VIDEOS_LIST, "");
         this.hooks?.onRelatedAttached(related);
@@ -400,8 +401,7 @@ export class PolymerPatcher {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
         if (
           hostElement instanceof HTMLElement &&
-          hostElement.matches("#columns #related ytd-watch-next-secondary-results-renderer") &&
-          !hostElement.matches("#right-tabs ytd-watch-next-secondary-results-renderer, [hidden] ytd-watch-next-secondary-results-renderer")
+          !hostElement.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)
         ) {
           hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_VIDEOS_LIST, "");
           patcher.hooks?.onRelatedAttached(hostElement);

@@ -182,4 +182,37 @@ describe("PolymerPatcher", () => {
     expect(chatProto.attached).toBe(origChatAttached);
     expect(playlistProto.attached).toBe(origPlaylistAttached);
   });
+
+  it("replays related connected and ignores skeleton elements", () => {
+    const hooks: PolymerSemanticHooks = {
+      onChatAttached: vi.fn(() => vi.fn()),
+      onPlaylistAttached: vi.fn(() => vi.fn()),
+      onCommentsAttached: vi.fn(() => vi.fn()),
+      onEngagementPanelAttached: vi.fn(() => vi.fn()),
+      onCommentEntryAttached: vi.fn(() => vi.fn()),
+      onMetadataAttached: vi.fn(() => vi.fn()),
+      onRelatedAttached: vi.fn(),
+      onCommentsHeaderDataChanged: vi.fn()
+    };
+
+    // Real related renderer
+    const realRenderer = document.createElement("ytd-watch-next-secondary-results-renderer");
+    document.body.appendChild(realRenderer);
+
+    // Skeleton element
+    const skeleton = document.createElement("div");
+    skeleton.id = "related-skeleton";
+    skeleton.setAttribute("hidden", "");
+    const fakeRenderer = document.createElement("ytd-watch-next-secondary-results-renderer");
+    skeleton.appendChild(fakeRenderer);
+    document.body.appendChild(skeleton);
+
+    patcher.applyPatches(hooks);
+    patcher.replayConnected();
+
+    expect(hooks.onRelatedAttached).toHaveBeenCalledWith(realRenderer);
+    expect(hooks.onRelatedAttached).not.toHaveBeenCalledWith(fakeRenderer);
+    expect(realRenderer.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_VIDEOS_LIST)).toBe(true);
+    expect(fakeRenderer.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_VIDEOS_LIST)).toBe(false);
+  });
 });

@@ -191,4 +191,71 @@ describe("DOMRelocator", () => {
 
     expect(sweepSpy).not.toHaveBeenCalled();
   });
+
+  it("ignores skeleton elements and hidden containers during tryRelocateSlot and sweepSecondary", () => {
+    const secondaryInner = document.createElement("div");
+    secondaryInner.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
+    document.body.appendChild(secondaryInner);
+
+    // Create a hidden skeleton with a fake related inside
+    const skeletonWrapper = document.createElement("div");
+    skeletonWrapper.id = "related-skeleton";
+    skeletonWrapper.className = "watch-skeleton style-scope ytd-watch-flexy";
+    skeletonWrapper.setAttribute("hidden", "");
+    const fakeRelated = document.createElement("div");
+    fakeRelated.id = "related";
+    skeletonWrapper.appendChild(fakeRelated);
+    secondaryInner.appendChild(skeletonWrapper);
+
+    relocator.mountRoute({
+      generation: gen1,
+      secondaryInner,
+      tabsOptions: mockTabsOptions
+    });
+
+    const tabVideos = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER);
+    expect(tabVideos).not.toBeNull();
+    // Skeleton related must NOT be relocated into tab-videos
+    expect(tabVideos?.contains(fakeRelated)).toBe(false);
+    expect(tabVideos?.contains(skeletonWrapper)).toBe(false);
+
+    // Trigger mutation with skeleton node
+    const mo = FakeMutationObserver.allInstances[0];
+    mo.trigger([
+      {
+        target: secondaryInner,
+        addedNodes: [skeletonWrapper] as unknown as NodeList
+      }
+    ]);
+
+    expect(tabVideos?.contains(fakeRelated)).toBe(false);
+  });
+
+  it("preserves already relocated related element in tab-videos during sweepSecondary", () => {
+    const secondaryInner = document.createElement("div");
+    secondaryInner.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
+    document.body.appendChild(secondaryInner);
+
+    const realRelated = document.createElement("div");
+    realRelated.id = "related";
+    secondaryInner.appendChild(realRelated);
+
+    relocator.mountRoute({
+      generation: gen1,
+      secondaryInner,
+      tabsOptions: mockTabsOptions
+    });
+
+    const tabVideos = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER);
+    expect(tabVideos?.contains(realRelated)).toBe(true);
+
+    // If another candidate arrives in secondaryInner, sweepSecondary does not overwrite
+    const extraRelated = document.createElement("div");
+    extraRelated.id = "related";
+    secondaryInner.appendChild(extraRelated);
+
+    relocator.sweepSecondary();
+    expect(tabVideos?.contains(realRelated)).toBe(true);
+    expect(tabVideos?.contains(extraRelated)).toBe(false);
+  });
 });

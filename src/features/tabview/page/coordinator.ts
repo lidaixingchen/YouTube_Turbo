@@ -253,6 +253,10 @@ export class TabviewLifecycleCoordinator {
         const animEvt = evt as AnimationEvent;
         if (animEvt.animationName === PAGE_CONSTANTS.ANIMATIONS.RELATED_ELEMENT_PROVIDED) {
           if (this.currentState.pageType === "watch") {
+            const target = animEvt.target as HTMLElement | null;
+            if (target && target.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)) {
+              return;
+            }
             this.tryMount();
             this.relocator.refreshAllSlots();
             InfoMirrorEngine.getInstance().runInfoFix();
@@ -276,20 +280,60 @@ export class TabviewLifecycleCoordinator {
 
   private handleRouteChange(): void {
     const nextState = this.resolveNavigationState();
+    const isWatchRoute = nextState.pageType === "watch";
+    const wasWatchRoute = this.currentState.pageType === "watch";
+
+    if (wasWatchRoute && isWatchRoute) {
+      this.currentState = nextState;
+      this.handleWatchRouteUpdate(nextState);
+      return;
+    }
+
     const oldGeneration = this.routeGeneration;
     const generation = this.advanceRouteGeneration();
 
     this.deactivateCurrentRoute(oldGeneration);
     this.currentState = nextState;
 
-    if (nextState.pageType === "watch") {
+    if (isWatchRoute) {
       this.activateWatchRoute(generation, nextState);
     }
   }
 
+  private handleWatchRouteUpdate(nextState: NavigationState): void {
+    if (!this.relocator.isContainerMounted()) {
+      this.activateWatchRoute(this.routeGeneration, nextState);
+      return;
+    }
+
+    const flexy = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+    if (flexy) {
+      this.polymerPatcher.patchFlexyInstance(flexy);
+      flexy.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.HIDE_DEFAULT_TEXT_INLINE_EXPANDER, "");
+    }
+
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.has("lc")) {
+      this.setActiveTab("comments");
+    }
+
+    this.relocator.refreshAllSlots();
+    this.updatePlaylistTabVisibility();
+    this.expanderFixer?.updateCommentsCounter();
+    this.linkedCommentAdapter.syncLinkedComment();
+    InfoMirrorEngine.getInstance().runInfoFix();
+    InfoMirrorEngine.getInstance().syncMainDescriptionData();
+    this.polymerPatcher.pruneDisconnectedDisposers();
+    this.polymerPatcher.replayConnected();
+  }
+
   public tryMount(): void {
     if (this.currentState.pageType === "watch") {
-      this.activateWatchRoute(this.routeGeneration, this.currentState);
+      if (this.relocator.isContainerMounted()) {
+        this.relocator.refreshAllSlots();
+      } else {
+        this.activateWatchRoute(this.routeGeneration, this.currentState);
+      }
     }
   }
 
