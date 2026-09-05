@@ -3,7 +3,13 @@ import { Tabview } from "../features/tabview";
 import { GridCoordinator } from "../features/grid";
 import { ThemeController } from "../features/theme";
 import { VideoDownloadService } from "../features/download";
-import { PlayerSpeedFeature } from "../features/player";
+import {
+  PlayerSpeedFeature,
+  PlayerScreenshotFeature,
+  PlayerPiPFeature,
+  PlayerLoopFeature,
+  PLAYER_FEATURE_CONSTANTS
+} from "../features/player";
 import { MarkOrRemoveAd } from "../features/adblock";
 import { CaptionController, SUBTITLE_CONSTANTS } from "../features/caption";
 
@@ -55,9 +61,39 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     titleI18nKey: "feature_speed_control_title",
     descI18nKey: "feature_speed_control_desc",
     defaultValue: true,
-    order: 50,
+    order: PLAYER_FEATURE_CONSTANTS.ORDERS.FEATURE_SPEED,
     setup: (): void => PlayerSpeedFeature.enable(),
     teardown: (): void => PlayerSpeedFeature.disable()
+  },
+  {
+    id: "isOpenScreenshot",
+    i18nKey: "function_is_screenshot_open",
+    titleI18nKey: "feature_screenshot_title",
+    descI18nKey: "feature_screenshot_desc",
+    defaultValue: true,
+    order: PLAYER_FEATURE_CONSTANTS.ORDERS.FEATURE_SCREENSHOT,
+    setup: (): void => PlayerScreenshotFeature.enable(),
+    teardown: (): void => PlayerScreenshotFeature.disable()
+  },
+  {
+    id: "isOpenPictureInPicture",
+    i18nKey: "function_is_pip_open",
+    titleI18nKey: "feature_pip_title",
+    descI18nKey: "feature_pip_desc",
+    defaultValue: true,
+    order: PLAYER_FEATURE_CONSTANTS.ORDERS.FEATURE_PIP,
+    setup: (): void => PlayerPiPFeature.enable(),
+    teardown: (): void => PlayerPiPFeature.disable()
+  },
+  {
+    id: "isOpenLoopPlayback",
+    i18nKey: "function_is_loop_open",
+    titleI18nKey: "feature_loop_title",
+    descI18nKey: "feature_loop_desc",
+    defaultValue: true,
+    order: PLAYER_FEATURE_CONSTANTS.ORDERS.FEATURE_LOOP,
+    setup: (): void => PlayerLoopFeature.enable(),
+    teardown: (): void => PlayerLoopFeature.disable()
   },
   {
     id: "isOpenMarkOrRemoveAd",
