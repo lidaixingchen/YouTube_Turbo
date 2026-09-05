@@ -46,6 +46,7 @@ class PrefCookieCodec {
 
 export class ThemeController {
   private static instance: ThemeController | null = null;
+  private unregisterAction: (() => void) | null = null;
 
   private constructor() {}
 
@@ -57,7 +58,11 @@ export class ThemeController {
   }
 
   public init(): void {
-    Toolbar.registerAction({
+    if (this.unregisterAction) {
+      return;
+    }
+
+    this.unregisterAction = Toolbar.registerAction({
       id: "theme",
       slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
       titleKey: "action_switch_theme",
@@ -69,6 +74,13 @@ export class ThemeController {
         this.toggleTheme();
       }
     });
+  }
+
+  public destroy(): void {
+    if (this.unregisterAction) {
+      this.unregisterAction();
+      this.unregisterAction = null;
+    }
   }
 
   private readPrefCookie(): string {

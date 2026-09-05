@@ -1,22 +1,31 @@
 export interface ActionContext {
-  actionId: string;
-  slot: string;
-  buttonElement: HTMLElement;
-  refresh: () => void;
+  readonly actionId: string;
+  readonly slot: string;
+  readonly buttonElement: HTMLElement;
 }
 
 export interface ActionConfig {
-  id: string;
-  slot: string;
-  titleKey: string;
-  defaultTitle: string;
-  icon: string | { normal: string; active: string };
-  order?: number;
-  dismissOnExecute?: boolean;
-  isVisible?: () => boolean;
-  isActive?: () => boolean;
-  onClick: (event: MouseEvent, ctx: ActionContext) => void;
-  onStateBind?: (refreshCallback: () => void) => (() => void) | void;
+  readonly id: string;
+  readonly slot: string;
+  readonly titleKey: string;
+  readonly defaultTitle: string;
+  readonly icon:
+    | string
+    | Readonly<{
+        readonly normal: string;
+        readonly active: string;
+      }>;
+  readonly order?: number;
+  readonly dismissOnExecute?: boolean;
+  readonly isVisible?: () => boolean;
+  readonly isActive?: () => boolean;
+  readonly onClick: (
+    event: MouseEvent,
+    context: ActionContext
+  ) => void | Promise<void>;
+  readonly onStateBind?: (
+    notifyChanged: () => void
+  ) => (() => void) | void;
 }
 
 export interface SlotDefinition {

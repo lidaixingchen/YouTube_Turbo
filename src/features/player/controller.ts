@@ -60,6 +60,7 @@ export class PlayerController {
   private shortcutCleanups: Array<() => void> = [];
   private navigationToken: number = 0;
   private navigateHandler: (() => void) | null = null;
+  private toolbarActionsDisposer: (() => void) | null = null;
 
   private readonly handleRateChange = (): void => {
     const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
@@ -333,7 +334,7 @@ export class PlayerController {
     this.targetSpeed = typeof savedSpeed === "number" ? savedSpeed : parseFloat(String(savedSpeed)) || DEFAULT_PLAYBACK_SPEED;
     this.targetLoop = Boolean(StorageUtil.getValue(StorageUtil.keys.youtube.videoLoop, false));
 
-    Toolbar.registerActions([
+    this.toolbarActionsDisposer = Toolbar.registerActions([
       {
         id: "screenshot",
         slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
@@ -367,9 +368,8 @@ export class PlayerController {
         order: 50,
         dismissOnExecute: false,
         isActive: () => this.isLoopEnabled(),
-        onClick: (_e, ctx) => {
+        onClick: () => {
           this.toggleLoop();
-          ctx.refresh();
         },
         onStateBind: (refresh) => {
           return this.onStateChange(refresh);
@@ -598,6 +598,10 @@ export class PlayerController {
     }
     this.readyCallbacks.clear();
     this.stateCallbacks.clear();
+    if (this.toolbarActionsDisposer) {
+      this.toolbarActionsDisposer();
+      this.toolbarActionsDisposer = null;
+    }
     this.isInitialized = false;
     PlaybackHUD.destroy();
   }
