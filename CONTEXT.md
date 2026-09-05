@@ -36,6 +36,10 @@ _Avoid_: VideoManager, PlaybackService, SpeedControl
 播放器控制栏右下角倍速展示按钮与悬浮倍速菜单的轻量视图适配层。
 _Avoid_: SpeedControl, SpeedToolbar, PlayerSpeedModule
 
+**PlayerSpeedFeature**:
+播放器倍速特性的生命周期深模块，原子协调 `PlayerController` 快捷交互与 `PlayerSpeedButtonView` 视图适配器，封装正向装配、逆序注销及失败回滚机制。
+_Avoid_: SpeedControlManager, PlayerSpeedCoordinator, FeatureComposer
+
 **PlayerShortcuts**:
 播放器快捷键（调速/重置/截图/画中画/循环）调度适配器，统管播放器键盘交互生命周期。
 _Avoid_: KeyBinder, PlayerKeymap, SpeedShortcuts
