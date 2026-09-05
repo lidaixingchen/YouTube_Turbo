@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, vi, expect } from "vitest";
+import {
+  installFakeObservers,
+  resetFakeObservers,
+  assertNoActiveFakeObservers
+} from "./fake-observers";
 
 interface TrackedListener {
   target: EventTarget;
@@ -70,11 +75,18 @@ window.removeEventListener = ((
 
 beforeEach(() => {
   activeListeners.clear();
+  installFakeObservers();
+  resetFakeObservers();
 });
 
 afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
+  try {
+    assertNoActiveFakeObservers();
+  } finally {
+    resetFakeObservers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
 
   // 清理 DOM
   if (document.head) {
