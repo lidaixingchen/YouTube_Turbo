@@ -29,7 +29,7 @@ YouTube 深浅色主题统管深模块，封装 Cookie `PREF` 中的 `f6` 标记
 _Avoid_: ThemeEngine, ThemeCookieAdapter, ThemeManager
 
 **PlayerController**:
-播放器核心深模块，统管播放速率、单曲循环、原生画中画、物理分辨率截图及播放器快捷键全生命周期。
+播放器核心深模块，统管播放速率、单曲循环、原生画中画、物理分辨率截图底层领域能力与媒体元素生命周期。
 _Avoid_: VideoManager, PlaybackService, SpeedControl
 
 **PlayerSpeedButtonView**:
@@ -37,12 +37,20 @@ _Avoid_: VideoManager, PlaybackService, SpeedControl
 _Avoid_: SpeedControl, SpeedToolbar, PlayerSpeedModule
 
 **PlayerSpeedFeature**:
-播放器倍速特性的生命周期深模块，原子协调 `PlayerController` 快捷交互与 `PlayerSpeedButtonView` 视图适配器，封装正向装配、逆序注销及失败回滚机制。
+播放器倍速特性的生命周期深模块，原子协调调速快捷键（>、<、Shift+R）与 `PlayerSpeedButtonView` 视图适配器，封装正向装配、逆序注销及失败回滚机制。
 _Avoid_: SpeedControlManager, PlayerSpeedCoordinator, FeatureComposer
 
-**PlayerShortcuts**:
-播放器快捷键（调速/重置/截图/画中画/循环）调度适配器，统管播放器键盘交互生命周期。
-_Avoid_: KeyBinder, PlayerKeymap, SpeedShortcuts
+**PlayerScreenshotFeature**:
+视频截图特性的生命周期深模块，原子协调快捷键（Shift+S）与控制栏截图 Action 的挂载与注销，调度 `PlayerController` 执行画布截帧。
+_Avoid_: ScreenshotManager, CaptureCoordinator, ScreenshotService, PlayerShortcuts
+
+**PlayerPiPFeature**:
+原生画中画特性的生命周期深模块，原子协调快捷键（Shift+P）与控制栏画中画 Action 的挂载与注销，调度 `PlayerController` 切换画中画状态。
+_Avoid_: PiPCoordinator, PictureInPictureManager, PlayerShortcuts
+
+**PlayerLoopFeature**:
+单曲循环播放特性的生命周期深模块，原子协调快捷键（Shift+L）与控制栏循环 Action 的挂载与注销，响应循环状态双向联动。
+_Avoid_: LoopManager, RepeatCoordinator, PlayerShortcuts
 
 **CaptionController**:
 字幕偏移校准与同步深模块，统管 `/api/timedtext` 网络拦截、Cue 缓存解析与覆盖层实时渲染。
