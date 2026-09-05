@@ -70,8 +70,9 @@ export const PAGE_CONSTANTS = {
     EXTRA_CONTENT_SOURCES: 'ytd-watch-metadata.ytd-watch-flexy div[slot="extra-content"] > *, ytd-watch-metadata.ytd-watch-flexy #extra-content > *',
     EXTRA_CONTENT_CONTAINER: 'div[slot="extra-content"], #extra-content',
     NATIVE_DESCRIPTION_CANDIDATES: 'ytd-watch-metadata ytd-expandable-video-description-body-renderer:not([tyt-info-renderer]), #below ytd-expandable-video-description-body-renderer:not([tyt-info-renderer]), ytd-expandable-video-description-body-renderer:not([tyt-info-renderer]):not([tyt-main-info])',
-    SECONDARY_SWEEP_IGNORE: "secondary-wrapper, ytd-live-chat-frame, [tyt-chat-container], #chat, #chat-container, .tyt-relocator-anchor",
+    SECONDARY_SWEEP_IGNORE: "secondary-wrapper, ytd-live-chat-frame, [tyt-chat-container], #chat, #chat-container, .tyt-relocator-anchor, #right-tabs",
     UPLOAD_INFO: "#primary.ytd-watch-flexy ytd-watch-metadata #upload-info",
+    UPLOAD_INFO_CONTAINER: "#upload-info",
     MOVIE_PLAYER: "#movie_player",
     HIDDEN_CONTAINER: "[hidden]",
     BROWSE_WITH_SUBTYPE: "ytd-page-manager#page-manager > ytd-browse[page-subtype]",
@@ -145,8 +146,13 @@ export const PAGE_CONSTANTS = {
     CHANNEL_HANDLE_ABOUT: /\/@[a-zA-Z0-9_.-]+\/about/,
     CHANNEL_CUSTOM_ABOUT: /\/(?:c|user)\/[a-zA-Z0-9_.-]+\/about/
   },
+  COMMENTS_STATUS: {
+    ENABLED: "1",
+    DISABLED: "2"
+  },
   MASKS: {
-    TOKEN_MASK: 0x3fffffff
+    TOKEN_MASK: 0x3fffffff,
+    ROUTE_GENERATION_MASK: 0x7fffffff
   },
   THRESHOLDS: {
     MINIPLAYER_MIN_TIME_SEC: 3,

@@ -12,35 +12,71 @@ export interface NavigationState {
   isLiveStream: boolean;
 }
 
-export type ObserverType = "mutation" | "resize" | "intersection";
+declare const routeGenerationBrand: unique symbol;
 
-export interface MutationObserverConfig {
-  id: string;
-  type: "mutation";
-  getTarget: () => Node | null;
-  options: MutationObserverInit;
-  callback: MutationCallback;
+export type RouteGeneration = number & {
+  readonly [routeGenerationBrand]: true;
+};
+
+export type IdempotentDisposer = () => void;
+
+export interface WatchRouteContext {
+  readonly generation: RouteGeneration;
+  readonly state: Readonly<NavigationState>;
+  readonly flexy: HTMLElement;
 }
 
-export interface ResizeObserverConfig {
-  id: string;
-  type: "resize";
-  getTarget: () => Element | null;
-  callback: ResizeObserverCallback;
+export interface PolymerSemanticHooks {
+  readonly onChatAttached: (
+    element: HTMLElement
+  ) => IdempotentDisposer;
+
+  readonly onPlaylistAttached: (
+    element: HTMLElement
+  ) => IdempotentDisposer;
+
+  readonly onCommentsAttached: (
+    element: HTMLElement
+  ) => IdempotentDisposer;
+
+  readonly onEngagementPanelAttached: (
+    element: HTMLElement
+  ) => IdempotentDisposer;
+
+  readonly onCommentEntryAttached: (
+    element: HTMLElement
+  ) => IdempotentDisposer;
+
+  readonly onMetadataAttached: (
+    element: HTMLElement
+  ) => IdempotentDisposer;
+
+  readonly onRelatedAttached: (element: HTMLElement) => void;
+  readonly onCommentsHeaderDataChanged: (element: HTMLElement) => void;
 }
 
-export interface IntersectionObserverConfig {
-  id: string;
-  type: "intersection";
-  getTarget: () => Element | null;
-  options?: IntersectionObserverInit;
-  callback: IntersectionObserverCallback;
+export interface TabviewPanelStateCallbacks {
+  readonly onPlaylistAvailabilityChanged: (
+    isAvailable: boolean
+  ) => void;
+
+  readonly onCommentsAvailabilityChanged: (
+    isAvailable: boolean
+  ) => void;
 }
 
-export type ObserverConfig =
-  | MutationObserverConfig
-  | ResizeObserverConfig
-  | IntersectionObserverConfig;
+export interface ExpanderRouteContext {
+  readonly generation: RouteGeneration;
+  readonly rightTabs: HTMLElement;
+  readonly initialTab: TabKey;
+}
+
+export interface RelocatorRouteOptions {
+  readonly generation: RouteGeneration;
+  readonly secondaryInner: HTMLElement;
+  readonly tabsOptions: TabsViewOptions;
+}
+
 
 export interface RelocationSlot {
   tabKey: TabKey;

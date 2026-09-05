@@ -1,13 +1,14 @@
 import { PAGE_CONSTANTS } from "./constants";
 import { PolymerHelper } from "./polymer-helper";
-import { ObserverRegistry } from "./observer-registry";
-import { DOMRelocator } from "./relocator";
-import { LinkedCommentAdapter } from "./linked-comment-adapter";
-import { funcCanCollapse, fixInlineExpanderMethods, ExpanderFixer } from "./expander-fixer";
-import { InfoMirrorEngine } from "./info-mirror-engine";
-import { ChannelHoverAdapter } from "./channel-hover-adapter";
 import { MinibrowserRouter } from "./minibrowser-router";
-import type { PolymerElementInstance, AnyFunction } from "./types";
+import { InfoMirrorEngine } from "./info-mirror-engine";
+import { funcCanCollapse, fixInlineExpanderMethods } from "./expander-fixer";
+import type {
+  PolymerElementInstance,
+  AnyFunction,
+  PolymerSemanticHooks,
+  IdempotentDisposer
+} from "./types";
 
 interface PrototypeRestoreEntry {
   proto: Record<string, unknown>;
@@ -15,11 +16,19 @@ interface PrototypeRestoreEntry {
   originalMethod: AnyFunction;
 }
 
+interface DisposerEntry {
+  readonly element: HTMLElement;
+  readonly kind: string;
+  readonly disposer: IdempotentDisposer;
+}
+
 export class PolymerPatcher {
   private static instance: PolymerPatcher | null = null;
   private isPatched: boolean = false;
   private protectionDepth: number = 0;
   private restoreEntries: PrototypeRestoreEntry[] = [];
+  private disposerEntries: DisposerEntry[] = [];
+  private hooks: PolymerSemanticHooks | null = null;
 
   public static getInstance(): PolymerPatcher {
     if (!PolymerPatcher.instance) {
@@ -56,7 +65,10 @@ export class PolymerPatcher {
     return callback();
   }
 
-  public applyPatches(): void {
+  public applyPatches(hooks?: PolymerSemanticHooks): void {
+    if (hooks) {
+      this.hooks = hooks;
+    }
     if (this.isPatched) {
       return;
     }
@@ -92,15 +104,182 @@ export class PolymerPatcher {
     }
   }
 
-  private makeInitAttached(selector: string, handler: (hostElement: HTMLElement) => void): void {
-    const elements = document.querySelectorAll<HTMLElement>(selector);
-    for (let i = 0; i < elements.length; i++) {
-      const el = elements[i];
-      if (el.isConnected) {
+  private registerDisposer(element: HTMLElement, kind: string, disposer: IdempotentDisposer): void {
+    this.runDisposer(element, kind);
+    this.disposerEntries.push({ element, kind, disposer });
+  }
+
+  private runDisposer(element: HTMLElement, kind: string): void {
+    const idx = this.disposerEntries.findIndex((e) => e.element === element && e.kind === kind);
+    if (idx !== -1) {
+      const [entry] = this.disposerEntries.splice(idx, 1);
+      try {
+        entry.disposer();
+      } catch {
+        // 忽略清理异常
+      }
+    }
+  }
+
+  private hasDisposer(element: HTMLElement, kind: string): boolean {
+    return this.disposerEntries.some((e) => e.element === element && e.kind === kind);
+  }
+
+  public clearAllDisposers(): void {
+    while (this.disposerEntries.length > 0) {
+      const entry = this.disposerEntries.pop()!;
+      try {
+        entry.disposer();
+      } catch {
+        // 忽略清理异常
+      }
+    }
+  }
+
+  public pruneDisconnectedDisposers(): void {
+    const remaining: DisposerEntry[] = [];
+    for (let i = 0; i < this.disposerEntries.length; i++) {
+      const entry = this.disposerEntries[i];
+      if (!entry.element.isConnected) {
         try {
-          handler(el);
+          entry.disposer();
         } catch {
-          // 忽略初始化异常
+          // 忽略清理异常
+        }
+      } else {
+        remaining.push(entry);
+      }
+    }
+    this.disposerEntries = remaining;
+  }
+
+  public replayConnected(): void {
+    this.replayChatConnected();
+    this.replayPlaylistConnected();
+    this.replayCommentsConnected();
+    this.replayEngagementPanelsConnected();
+    this.replayMetadataConnected();
+    this.replayRelatedConnected();
+    this.replayCommentEntriesConnected();
+    this.replayExpandableDescriptionConnected();
+  }
+
+  private replayChatConnected(): void {
+    const chat = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.LIVE_CHAT_FRAME);
+    if (chat && chat.isConnected && !this.hasDisposer(chat, "chat")) {
+      chat.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_ACTIVE_CHAT_FRAME, "CF");
+      const chatContainer = chat.closest("#chat-container") || chat;
+      if (chatContainer instanceof HTMLElement && !chatContainer.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_CHAT_CONTAINER)) {
+        chatContainer.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_CHAT_CONTAINER, "");
+      }
+      if (this.hooks?.onChatAttached) {
+        const disposer = this.hooks.onChatAttached(chat);
+        this.registerDisposer(chat, "chat", disposer);
+      }
+    }
+  }
+
+  private replayPlaylistConnected(): void {
+    const playlist = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.PLAYLIST_PANEL);
+    if (playlist && playlist.isConnected && !this.hasDisposer(playlist, "playlist")) {
+      if (this.hooks?.onPlaylistAttached) {
+        const disposer = this.hooks.onPlaylistAttached(playlist);
+        this.registerDisposer(playlist, "playlist", disposer);
+      }
+    }
+  }
+
+  private replayCommentsConnected(): void {
+    const comments = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.COMMENTS_SECTION);
+    if (comments && comments.isConnected && !this.hasDisposer(comments, "comments")) {
+      comments.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA, "");
+      if (this.hooks?.onCommentsAttached) {
+        const disposer = this.hooks.onCommentsAttached(comments);
+        this.registerDisposer(comments, "comments", disposer);
+      }
+    }
+  }
+
+  private replayEngagementPanelsConnected(): void {
+    const panels = document.querySelectorAll<HTMLElement>(
+      PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANELS_CONTAINER + " > " + PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANEL_ITEM
+    );
+    for (let i = 0; i < panels.length; i++) {
+      const panel = panels[i];
+      if (panel.isConnected && !this.hasDisposer(panel, "engagementPanel")) {
+        if (!panel.hasAttribute("target-id")) {
+          panel.setAttribute("target-id", `tid051-${Math.random().toString(36).slice(2, 10)}`);
+        }
+        panel.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EGM_PANEL, "");
+        if (this.hooks?.onEngagementPanelAttached) {
+          const disposer = this.hooks.onEngagementPanelAttached(panel);
+          this.registerDisposer(panel, "engagementPanel", disposer);
+        }
+      }
+    }
+  }
+
+  private replayMetadataConnected(): void {
+    const metadata = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.WATCH_METADATA);
+    if (metadata && metadata.isConnected && !this.hasDisposer(metadata, "metadata")) {
+      InfoMirrorEngine.getInstance().syncMainDescriptionData();
+      if (this.hooks?.onMetadataAttached) {
+        const disposer = this.hooks.onMetadataAttached(metadata);
+        this.registerDisposer(metadata, "metadata", disposer);
+      }
+    }
+  }
+
+  private replayRelatedConnected(): void {
+    const relatedList = document.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION);
+    for (let i = 0; i < relatedList.length; i++) {
+      const related = relatedList[i];
+      if (
+        related.isConnected &&
+        related.matches("#columns #related ytd-watch-next-secondary-results-renderer") &&
+        !related.matches("#right-tabs ytd-watch-next-secondary-results-renderer, [hidden] ytd-watch-next-secondary-results-renderer")
+      ) {
+        related.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_VIDEOS_LIST, "");
+        this.hooks?.onRelatedAttached(related);
+      }
+    }
+  }
+
+  private replayCommentEntriesConnected(): void {
+    const expanders = document.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.COMMENT_ENTRY_EXPANDER);
+    for (let i = 0; i < expanders.length; i++) {
+      const expander = expanders[i];
+      if (expander.isConnected && !this.hasDisposer(expander, "commentEntry")) {
+        expander.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_CONTENT_COMMENT_ENTRY, "");
+        if (this.hooks?.onCommentEntryAttached) {
+          const disposer = this.hooks.onCommentEntryAttached(expander);
+          this.registerDisposer(expander, "commentEntry", disposer);
+        }
+      }
+    }
+  }
+
+  private replayExpandableDescriptionConnected(): void {
+    const descriptions = document.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER);
+    for (let i = 0; i < descriptions.length; i++) {
+      const desc = descriptions[i];
+      if (desc.isConnected) {
+        if (desc.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER)) {
+          desc.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO, "");
+          desc.classList.add(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO);
+          const inlineExpander = desc.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
+          if (inlineExpander) {
+            const inlineCnt = PolymerHelper.insp(inlineExpander);
+            if (inlineCnt) {
+              fixInlineExpanderMethods(inlineCnt);
+            }
+          }
+          const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
+          if (tabInfo && !desc.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER)) {
+            tabInfo.insertBefore(desc, tabInfo.firstChild);
+          }
+        } else if (!desc.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER) && !desc.closest("noscript")) {
+          InfoMirrorEngine.getInstance().syncMainDescriptionData();
         }
       }
     }
@@ -157,6 +336,7 @@ export class PolymerPatcher {
       return funcCanCollapse as AnyFunction;
     });
 
+    const patcher = this;
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
@@ -166,7 +346,10 @@ export class PolymerPatcher {
           !hostElement.matches("[hidden] ytd-expander#expander")
         ) {
           hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_CONTENT_COMMENT_ENTRY, "");
-          ObserverRegistry.getInstance().observeCommentEntry(hostElement);
+          if (patcher.hooks?.onCommentEntryAttached) {
+            const disposer = patcher.hooks.onCommentEntryAttached(hostElement);
+            patcher.registerDisposer(hostElement, "commentEntry", disposer);
+          }
         }
         return rawMethod.apply(this, args);
       };
@@ -177,7 +360,7 @@ export class PolymerPatcher {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
         if (hostElement instanceof HTMLElement) {
           if (hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_CONTENT_COMMENT_ENTRY)) {
-            ObserverRegistry.getInstance().unobserveCommentEntry(hostElement);
+            patcher.runDisposer(hostElement, "commentEntry");
             hostElement.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_CONTENT_COMMENT_ENTRY);
           } else if (hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO)) {
             hostElement.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO);
@@ -201,6 +384,8 @@ export class PolymerPatcher {
         return rawMethod.apply(this, args);
       };
     });
+
+    this.replayCommentEntriesConnected();
   }
 
   private async patchWatchNextSecondaryResults(): Promise<void> {
@@ -209,6 +394,7 @@ export class PolymerPatcher {
       return;
     }
 
+    const patcher = this;
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
@@ -218,7 +404,7 @@ export class PolymerPatcher {
           !hostElement.matches("#right-tabs ytd-watch-next-secondary-results-renderer, [hidden] ytd-watch-next-secondary-results-renderer")
         ) {
           hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_VIDEOS_LIST, "");
-          DOMRelocator.getInstance().tryRelocateSlot("videos");
+          patcher.hooks?.onRelatedAttached(hostElement);
         }
         return rawMethod.apply(this, args);
       };
@@ -233,6 +419,8 @@ export class PolymerPatcher {
         return rawMethod.apply(this, args);
       };
     });
+
+    this.replayRelatedConnected();
   }
 
   private async patchComments(): Promise<void> {
@@ -241,14 +429,16 @@ export class PolymerPatcher {
       return;
     }
 
+    const patcher = this;
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
         if (hostElement instanceof HTMLElement && hostElement.id === "comments") {
           hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA, "");
-          ObserverRegistry.getInstance().observeComments(hostElement);
-          DOMRelocator.getInstance().tryRelocateSlot("comments");
-          LinkedCommentAdapter.getInstance().syncLinkedComment();
+          if (patcher.hooks?.onCommentsAttached) {
+            const disposer = patcher.hooks.onCommentsAttached(hostElement);
+            patcher.registerDisposer(hostElement, "comments", disposer);
+          }
         }
         return rawMethod.apply(this, args);
       };
@@ -259,7 +449,7 @@ export class PolymerPatcher {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
         if (hostElement instanceof HTMLElement && hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA)) {
           hostElement.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA);
-          ObserverRegistry.getInstance().disconnectComments();
+          patcher.runDisposer(hostElement, "comments");
         }
         return rawMethod.apply(this, args);
       };
@@ -290,6 +480,8 @@ export class PolymerPatcher {
         // 忽略属性观察者注入异常
       }
     }
+
+    this.replayCommentsConnected();
   }
 
   private async patchCommentsHeader(): Promise<void> {
@@ -325,9 +517,13 @@ export class PolymerPatcher {
       };
     });
 
+    const patcher = this;
     this.hookMethod(proto, "dataChanged", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
-        ExpanderFixer.getInstance()?.updateCommentsCounter();
+        const hostElement = this.hostElement || (this as unknown as HTMLElement);
+        if (hostElement instanceof HTMLElement) {
+          patcher.hooks?.onCommentsHeaderDataChanged(hostElement);
+        }
         return rawMethod.apply(this, args);
       };
     });
@@ -339,12 +535,16 @@ export class PolymerPatcher {
       return;
     }
 
+    const patcher = this;
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
         if (hostElement instanceof HTMLElement && hostElement.id === "chat") {
           hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_ACTIVE_CHAT_FRAME, "CF");
-          ObserverRegistry.getInstance().observeChat(hostElement);
+          if (patcher.hooks?.onChatAttached) {
+            const disposer = patcher.hooks.onChatAttached(hostElement);
+            patcher.registerDisposer(hostElement, "chat", disposer);
+          }
           const chatContainer = hostElement.closest("#chat-container") || hostElement;
           if (chatContainer instanceof HTMLElement && !chatContainer.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_CHAT_CONTAINER)) {
             chatContainer.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_CHAT_CONTAINER, "");
@@ -405,12 +605,14 @@ export class PolymerPatcher {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
         if (hostElement instanceof HTMLElement && hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_ACTIVE_CHAT_FRAME)) {
-          ObserverRegistry.getInstance().disconnectChat();
+          patcher.runDisposer(hostElement, "chat");
           hostElement.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_ACTIVE_CHAT_FRAME);
         }
         return rawMethod.apply(this, args);
       };
     });
+
+    this.replayChatConnected();
   }
 
   private async patchEngagementPanel(): Promise<void> {
@@ -419,15 +621,22 @@ export class PolymerPatcher {
       return;
     }
 
+    const patcher = this;
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
-        if (hostElement instanceof HTMLElement && hostElement.matches(PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANELS_CONTAINER + " > " + PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANEL_ITEM)) {
+        if (
+          hostElement instanceof HTMLElement &&
+          hostElement.matches(PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANELS_CONTAINER + " > " + PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANEL_ITEM)
+        ) {
           if (!hostElement.hasAttribute("target-id")) {
             hostElement.setAttribute("target-id", `tid051-${Math.random().toString(36).slice(2, 10)}`);
           }
           hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EGM_PANEL, "");
-          ObserverRegistry.getInstance().observeEgmPanel(hostElement);
+          if (patcher.hooks?.onEngagementPanelAttached) {
+            const disposer = patcher.hooks.onEngagementPanelAttached(hostElement);
+            patcher.registerDisposer(hostElement, "engagementPanel", disposer);
+          }
         }
         return rawMethod.apply(this, args);
       };
@@ -438,11 +647,13 @@ export class PolymerPatcher {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
         if (hostElement instanceof HTMLElement && hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EGM_PANEL)) {
           hostElement.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EGM_PANEL);
-          ObserverRegistry.getInstance().updateEgmPanelsStatus();
+          patcher.runDisposer(hostElement, "engagementPanel");
         }
         return rawMethod.apply(this, args);
       };
     });
+
+    this.replayEngagementPanelsConnected();
   }
 
   private async patchYtdApp(): Promise<void> {
@@ -462,18 +673,32 @@ export class PolymerPatcher {
       return;
     }
 
+    const patcher = this;
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
-        ChannelHoverAdapter.getInstance().bindHoverEvents();
-        InfoMirrorEngine.getInstance().syncMainDescriptionData();
+        const hostElement = this.hostElement || (this as unknown as HTMLElement);
+        if (hostElement instanceof HTMLElement) {
+          InfoMirrorEngine.getInstance().syncMainDescriptionData();
+          if (patcher.hooks?.onMetadataAttached) {
+            const disposer = patcher.hooks.onMetadataAttached(hostElement);
+            patcher.registerDisposer(hostElement, "metadata", disposer);
+          }
+        }
         return rawMethod.apply(this, args);
       };
     });
 
-    this.makeInitAttached(PAGE_CONSTANTS.SELECTORS.WATCH_METADATA, () => {
-      ChannelHoverAdapter.getInstance().bindHoverEvents();
-      InfoMirrorEngine.getInstance().syncMainDescriptionData();
+    this.hookMethod(proto, "detached", (rawMethod) => {
+      return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
+        const hostElement = this.hostElement || (this as unknown as HTMLElement);
+        if (hostElement instanceof HTMLElement) {
+          patcher.runDisposer(hostElement, "metadata");
+        }
+        return rawMethod.apply(this, args);
+      };
     });
+
+    this.replayMetadataConnected();
   }
 
   private async patchPlaylistPanel(): Promise<void> {
@@ -482,12 +707,15 @@ export class PolymerPatcher {
       return;
     }
 
+    const patcher = this;
     this.hookMethod(proto, "attached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement || (this as unknown as HTMLElement);
         if (hostElement instanceof HTMLElement) {
-          ObserverRegistry.getInstance().observePlaylist(hostElement);
-          DOMRelocator.getInstance().tryRelocateSlot("playlist");
+          if (patcher.hooks?.onPlaylistAttached) {
+            const disposer = patcher.hooks.onPlaylistAttached(hostElement);
+            patcher.registerDisposer(hostElement, "playlist", disposer);
+          }
         }
         return rawMethod.apply(this, args);
       };
@@ -495,10 +723,15 @@ export class PolymerPatcher {
 
     this.hookMethod(proto, "detached", (rawMethod) => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
-        ObserverRegistry.getInstance().disconnectPlaylist();
+        const hostElement = this.hostElement || (this as unknown as HTMLElement);
+        if (hostElement instanceof HTMLElement) {
+          patcher.runDisposer(hostElement, "playlist");
+        }
         return rawMethod.apply(this, args);
       };
     });
+
+    this.replayPlaylistConnected();
   }
 
   private async patchExpandableDescription(): Promise<void> {
@@ -512,7 +745,6 @@ export class PolymerPatcher {
         return;
       }
       if (hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_INFO_RENDERER)) {
-        // 通道 1：镜像节点挂载完成，仅维护样式与位置，杜绝递归触发
         hostElement.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO, "");
         hostElement.classList.add(PAGE_CONSTANTS.ATTRIBUTES.TYT_MAIN_INFO);
         const inlineExpander = hostElement.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
@@ -527,7 +759,6 @@ export class PolymerPatcher {
           tabInfo.insertBefore(hostElement, tabInfo.firstChild);
         }
       } else if (!hostElement.closest(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER) && !hostElement.closest("noscript")) {
-        // 通道 2：原生节点挂载完成，委托 InfoMirrorEngine 执行统一镜像与数据同步
         InfoMirrorEngine.getInstance().syncMainDescriptionData();
       }
     };
@@ -552,11 +783,13 @@ export class PolymerPatcher {
       };
     });
 
-    this.makeInitAttached(PAGE_CONSTANTS.TAGS.EXPANDABLE_DESC_BODY_RENDERER, onAttached);
+    this.replayExpandableDescriptionConnected();
   }
 
   public restorePatches(): void {
-    for (let i = 0; i < this.restoreEntries.length; i++) {
+    this.clearAllDisposers();
+
+    for (let i = this.restoreEntries.length - 1; i >= 0; i--) {
       const entry = this.restoreEntries[i];
       entry.proto[entry.methodName] = entry.originalMethod;
     }
@@ -569,5 +802,3 @@ export class PolymerPatcher {
     this.applyPatches();
   }
 }
-
-

@@ -1,7 +1,24 @@
 import { PAGE_CONSTANTS } from "./constants";
 import { PolymerHelper } from "./polymer-helper";
 import { TabsView } from "./tabs-view";
-import type { PolymerElementInstance } from "./types";
+import type {
+  PolymerElementInstance,
+  RouteGeneration,
+  IdempotentDisposer,
+  TabKey,
+  ExpanderRouteContext
+} from "./types";
+
+function onceDisposer(cleanup: () => void): IdempotentDisposer {
+  let disposed: boolean = false;
+  return (): void => {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    cleanup();
+  };
+}
 
 export function funcCanCollapse(this: PolymerElementInstance, _force?: boolean): void {
   const content = this.content || (this.$ && this.$.content);
@@ -81,10 +98,21 @@ export function fixInlineExpanderMethods(cnt: PolymerElementInstance): void {
   fixInlineExpanderDisplay(cnt);
 }
 
+interface CommentEntryAttachment {
+  readonly generation: RouteGeneration;
+  readonly element: HTMLElement;
+  readonly dispose: IdempotentDisposer;
+}
+
 export class ExpanderFixer {
   private static instance: ExpanderFixer | null = null;
   private tabsView: TabsView;
-  private isFixing: boolean = false;
+  private currentGeneration: RouteGeneration | null = null;
+  private isCommentsTabActive: boolean = false;
+  private lastTabsWidth: number = 0;
+  private rightTabsResizeObserver: ResizeObserver | null = null;
+  private commentIntersectionObserver: IntersectionObserver | null = null;
+  private commentAttachments: WeakMap<HTMLElement, CommentEntryAttachment> = new WeakMap();
 
   public static getInstance(tabsView?: TabsView): ExpanderFixer | null {
     if (!ExpanderFixer.instance && tabsView) {
@@ -93,14 +121,110 @@ export class ExpanderFixer {
     return ExpanderFixer.instance;
   }
 
-  constructor(tabsView: TabsView) {
+  public constructor(tabsView: TabsView) {
     this.tabsView = tabsView;
     ExpanderFixer.instance = this;
   }
 
-  public init(): void {
+  public activateRoute(context: ExpanderRouteContext): void {
+    this.currentGeneration = context.generation;
+    this.isCommentsTabActive = context.initialTab === "comments";
+
+    if (this.rightTabsResizeObserver) {
+      this.rightTabsResizeObserver.disconnect();
+      this.rightTabsResizeObserver = null;
+    }
+
+    if (context.rightTabs) {
+      this.rightTabsResizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]): void => {
+        if (this.currentGeneration !== null && this.currentGeneration !== context.generation) {
+          return;
+        }
+        const entry = entries[entries.length - 1];
+        if (!entry) {
+          return;
+        }
+        const width = Math.round(entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width);
+        if (this.lastTabsWidth !== width) {
+          this.lastTabsWidth = width;
+          this.fixForTabDisplay(true);
+        }
+      });
+      this.rightTabsResizeObserver.observe(context.rightTabs);
+    }
+
     this.updateCommentsCounter();
-    this.fixForTabDisplay(false, PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
+    const contentSelector = `#tab-${context.initialTab === "playlist" ? "list" : context.initialTab}`;
+    this.fixForTabDisplay(false, contentSelector);
+  }
+
+  public setActiveTab(tabKey: TabKey, generation: RouteGeneration): void {
+    if (this.currentGeneration === null || this.currentGeneration !== generation) {
+      return;
+    }
+    this.isCommentsTabActive = tabKey === "comments";
+    const contentSelector = `#tab-${tabKey === "playlist" ? "list" : tabKey}`;
+    this.fixForTabDisplay(false, contentSelector);
+  }
+
+  public attachCommentEntry(
+    element: HTMLElement,
+    generation: RouteGeneration
+  ): IdempotentDisposer {
+    if (this.currentGeneration === null || this.currentGeneration !== generation) {
+      return (): void => {};
+    }
+
+    const existing = this.commentAttachments.get(element);
+    if (existing && existing.generation === generation) {
+      return existing.dispose;
+    }
+
+    if (!this.commentIntersectionObserver) {
+      this.commentIntersectionObserver = new IntersectionObserver(
+        (entries: IntersectionObserverEntry[]): void => {
+          if (!this.isCommentsTabActive) {
+            return;
+          }
+          for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i];
+            const target = entry.target as HTMLElement;
+            const cnt = PolymerHelper.insp(target);
+            if (entry.isIntersecting && typeof cnt?.calculateCanCollapse === "function") {
+              try {
+                cnt.calculateCanCollapse(true);
+              } catch {
+                // 忽略异常
+              }
+              target.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.IO_INTERSECTED, "");
+              const flexy = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+              if (flexy && !flexy.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.KEEP_COMMENTS_SCROLLER)) {
+                flexy.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.KEEP_COMMENTS_SCROLLER, "");
+              }
+            } else if (target.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.IO_INTERSECTED)) {
+              target.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.IO_INTERSECTED);
+            }
+          }
+        },
+        { threshold: [0], rootMargin: "32px" }
+      );
+    }
+
+    this.commentIntersectionObserver.observe(element);
+
+    const disposer = onceDisposer((): void => {
+      this.commentIntersectionObserver?.unobserve(element);
+      element.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.IO_INTERSECTED);
+      this.commentAttachments.delete(element);
+    });
+
+    this.commentAttachments.set(element, {
+      generation,
+      element,
+      dispose: disposer
+    });
+
+    return disposer;
   }
 
   public fixForTabDisplay(isResize: boolean = false, activeTabSelector?: string): void {
@@ -171,51 +295,6 @@ export class ExpanderFixer {
     }
   }
 
-  public fixExpanders(): void {
-    if (this.isFixing) {
-      return;
-    }
-    const infoContainer = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
-    if (!infoContainer) {
-      return;
-    }
-
-    this.isFixing = true;
-    try {
-      const inlineExpanders = infoContainer.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TEXT_INLINE_EXPANDER);
-      for (let i = 0; i < inlineExpanders.length; i++) {
-        const expander = inlineExpanders[i];
-        const cnt = PolymerHelper.insp(expander);
-        if (cnt) {
-          if (typeof cnt.resize === "function") {
-            try {
-              cnt.resize(false);
-            } catch {
-              // 忽略异常
-            }
-          }
-          fixInlineExpanderDisplay(cnt);
-          fixInlineExpanderMethods(cnt);
-        }
-      }
-    } finally {
-      this.isFixing = false;
-    }
-
-    const resizableRenderers = infoContainer.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RESIZABLE_RENDERERS_INFO);
-    for (let i = 0; i < resizableRenderers.length; i++) {
-      const renderer = resizableRenderers[i];
-      const cnt = PolymerHelper.insp(renderer);
-      if (cnt && typeof cnt.notifyResize === "function") {
-        try {
-          cnt.notifyResize();
-        } catch {
-          // 忽略异常
-        }
-      }
-    }
-  }
-
   public updateCommentsCounter(): void {
     const header = document.querySelector<HTMLElement>(
       `${PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER} ${PAGE_CONSTANTS.SELECTORS.COMMENTS_HEADER_RENDERER}`
@@ -225,11 +304,13 @@ export class ExpanderFixer {
     }
 
     const cnt = PolymerHelper.insp(header);
-    const data = cnt?.data as Record<string, any> | undefined;
+    const data = cnt?.data as Record<string, unknown> | undefined;
     let extractedCount = "";
 
     if (data) {
-      const runs = (data.commentsCount?.runs || data.countText?.runs) as Array<{ text?: string }> | undefined;
+      const commentsCount = data.commentsCount as { runs?: Array<{ text?: string }> } | undefined;
+      const countText = data.countText as { runs?: Array<{ text?: string }> } | undefined;
+      const runs = commentsCount?.runs || countText?.runs;
       if (Array.isArray(runs) && runs.length > 0) {
         let maxDigits = -1;
         for (let i = 0; i < runs.length; i++) {
@@ -258,7 +339,39 @@ export class ExpanderFixer {
     }
   }
 
+  public deactivateRoute(generation: RouteGeneration): void {
+    if (this.currentGeneration === generation) {
+      this.commentAttachments = new WeakMap();
+
+      if (this.commentIntersectionObserver) {
+        this.commentIntersectionObserver.disconnect();
+        this.commentIntersectionObserver = null;
+      }
+      if (this.rightTabsResizeObserver) {
+        this.rightTabsResizeObserver.disconnect();
+        this.rightTabsResizeObserver = null;
+      }
+      this.lastTabsWidth = 0;
+      this.isCommentsTabActive = false;
+      this.currentGeneration = null;
+    }
+  }
+
   public destroy(): void {
+    this.commentAttachments = new WeakMap();
+
+    if (this.commentIntersectionObserver) {
+      this.commentIntersectionObserver.disconnect();
+      this.commentIntersectionObserver = null;
+    }
+    if (this.rightTabsResizeObserver) {
+      this.rightTabsResizeObserver.disconnect();
+      this.rightTabsResizeObserver = null;
+    }
+    this.lastTabsWidth = 0;
+    this.isCommentsTabActive = false;
+    this.currentGeneration = null;
+
     const tabInfo = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER);
     if (tabInfo) {
       tabInfo.innerHTML = "";
@@ -266,5 +379,3 @@ export class ExpanderFixer {
     ExpanderFixer.instance = null;
   }
 }
-
-
