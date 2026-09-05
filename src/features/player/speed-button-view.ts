@@ -62,6 +62,7 @@ export class PlayerSpeedButtonView {
         } else if (!target.contains(element)) {
           target.prepend(element);
         }
+        this.ensureMenuAndPopover();
       },
       unmount: (): void => {
         this.cleanupViewDOM();
@@ -76,37 +77,35 @@ export class PlayerSpeedButtonView {
     StyleEngine.inject(PLAYER_CONSTANTS.STYLES.SPEED_CONTROL_STYLE_ID, combinedStyle);
   }
 
-  public createSlotElement(): HTMLElement | null {
+  private resolvePlayerContainer(): HTMLElement | null {
     if (this.buttonEl && this.buttonEl.isConnected) {
-      return this.buttonEl;
+      const closestPlayer: HTMLElement | null = this.buttonEl.closest<HTMLElement>("#movie_player, .html5-video-player");
+      if (closestPlayer) {
+        return closestPlayer;
+      }
     }
-
-    this.injectStyles();
-
-    const currentSpeed: number = PlayerController.getInstance().getSpeed();
-
-    this.buttonEl = document.createElement("div");
-    this.buttonEl.id = PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON_ID;
-    this.buttonEl.className = PLAYER_CONSTANTS.CLASSES.SPEED_BUTTON;
-    this.buttonEl.tabIndex = 0;
-    this.buttonEl.setAttribute("role", "button");
-    this.buttonEl.setAttribute("aria-haspopup", "true");
-
-    const speedText: HTMLSpanElement = document.createElement("span");
-    speedText.textContent = `${currentSpeed}×`;
-    this.buttonEl.appendChild(speedText);
-
-    this.setupMenuAndPopover(currentSpeed);
-    this.bindPlayerState();
-
-    return this.buttonEl;
+    return (
+      document.querySelector<HTMLElement>("#movie_player, #player-container-outer .html5-video-player") ||
+      ReactiveDOMRegistry.getInstance().getPlayerContainer()
+    );
   }
 
-  private setupMenuAndPopover(currentSpeed: number): void {
-    const player: HTMLElement | null =
-      ReactiveDOMRegistry.getInstance().getPlayerContainer() ||
-      document.querySelector<HTMLElement>(PLAYER_CONSTANTS.SELECTORS.PLAYER_CONTAINER);
-    if (!player || !this.buttonEl) return;
+  public ensureMenuAndPopover(currentSpeed?: number): boolean {
+    const player: HTMLElement | null = this.resolvePlayerContainer();
+    if (!player || !this.buttonEl) {
+      return false;
+    }
+
+    const effectiveSpeed: number =
+      typeof currentSpeed === "number" ? currentSpeed : PlayerController.getInstance().getSpeed();
+
+    const isMenuAttached: boolean = Boolean(
+      this.menuEl && this.menuEl.isConnected && player.contains(this.menuEl)
+    );
+
+    if (isMenuAttached && this.popoverController) {
+      return false;
+    }
 
     if (this.menuEl) {
       this.menuEl.remove();
@@ -122,7 +121,7 @@ export class PlayerSpeedButtonView {
       option.textContent = `${speedNum}×`;
       option.dataset.speed = String(speedNum);
 
-      if (Math.abs(speedNum - currentSpeed) < PLAYBACK_RATE_EPSILON) {
+      if (Math.abs(speedNum - effectiveSpeed) < PLAYBACK_RATE_EPSILON) {
         option.classList.add(PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM_ACTIVE);
       }
 
@@ -141,6 +140,41 @@ export class PlayerSpeedButtonView {
       this.popoverController.destroy();
     }
     this.popoverController = PopoverEngine.bind(this.buttonEl, this.menuEl, player);
+    return true;
+  }
+
+  public createSlotElement(): HTMLElement | null {
+    if (this.buttonEl && this.buttonEl.isConnected) {
+      this.ensureMenuAndPopover();
+      return this.buttonEl;
+    }
+
+    this.injectStyles();
+
+    const currentSpeed: number = PlayerController.getInstance().getSpeed();
+
+    this.buttonEl = document.createElement("div");
+    this.buttonEl.id = PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON_ID;
+    this.buttonEl.className = PLAYER_CONSTANTS.CLASSES.SPEED_BUTTON;
+    this.buttonEl.tabIndex = 0;
+    this.buttonEl.setAttribute("role", "button");
+    this.buttonEl.setAttribute("aria-haspopup", "true");
+
+    const speedText: HTMLSpanElement = document.createElement("span");
+    speedText.textContent = `${currentSpeed}×`;
+    this.buttonEl.appendChild(speedText);
+
+    this.buttonEl.addEventListener("mouseenter", (): void => {
+      const wasRebound: boolean = this.ensureMenuAndPopover();
+      if (wasRebound) {
+        this.popoverController?.open("hover");
+      }
+    });
+
+    this.ensureMenuAndPopover(currentSpeed);
+    this.bindPlayerState();
+
+    return this.buttonEl;
   }
 
   private bindPlayerState(): void {
