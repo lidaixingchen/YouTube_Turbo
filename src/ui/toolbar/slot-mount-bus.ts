@@ -64,6 +64,14 @@ export class SlotMountBus {
     this.tryMountSingleSlot(slotKey);
   }
 
+  public hasSlot(slotKey: string): boolean {
+    return this.registeredSlots.has(slotKey);
+  }
+
+  public isSlotPending(slotKey: string): boolean {
+    return this.pendingSlots.has(slotKey);
+  }
+
   public refreshAll(): void {
     const currentUrl = new URL(window.location.href);
 
