@@ -211,72 +211,91 @@ export class PlayerController {
   private setupShortcuts(): void {
     this.teardownShortcuts();
 
-    const unbindSpeedUp = ShortcutDispatcher.register({
-      key: ">",
-      shiftKey: true,
-      description: "Increase playback speed",
-      handler: () => {
-        this.increaseSpeed();
-      }
-    });
+    const acquiredCleanups: Array<() => void> = [];
 
-    const unbindSpeedDown = ShortcutDispatcher.register({
-      key: "<",
-      shiftKey: true,
-      description: "Decrease playback speed",
-      handler: () => {
-        this.decreaseSpeed();
-      }
-    });
+    try {
+      acquiredCleanups.push(
+        ShortcutDispatcher.register({
+          key: ">",
+          shiftKey: true,
+          description: "Increase playback speed",
+          handler: () => {
+            this.increaseSpeed();
+          }
+        })
+      );
 
-    const unbindResetSpeed = ShortcutDispatcher.register({
-      key: "r",
-      shiftKey: true,
-      description: "Reset playback speed to 1.0x",
-      handler: () => {
-        this.resetSpeed();
-      }
-    });
+      acquiredCleanups.push(
+        ShortcutDispatcher.register({
+          key: "<",
+          shiftKey: true,
+          description: "Decrease playback speed",
+          handler: () => {
+            this.decreaseSpeed();
+          }
+        })
+      );
 
-    const unbindScreenshot = ShortcutDispatcher.register({
-      key: "s",
-      shiftKey: true,
-      description: "Capture screenshot",
-      handler: () => {
-        this.captureScreenshot().catch((err: unknown) => {
-          console.error("[PlayerController] Screenshot error:", err);
-        });
-      }
-    });
+      acquiredCleanups.push(
+        ShortcutDispatcher.register({
+          key: "r",
+          shiftKey: true,
+          description: "Reset playback speed to 1.0x",
+          handler: () => {
+            this.resetSpeed();
+          }
+        })
+      );
 
-    const unbindPiP = ShortcutDispatcher.register({
-      key: "p",
-      shiftKey: true,
-      description: "Toggle Picture-in-Picture",
-      handler: () => {
-        this.togglePictureInPicture().catch((err: unknown) => {
-          console.error("[PlayerController] PiP error:", err);
-        });
-      }
-    });
+      acquiredCleanups.push(
+        ShortcutDispatcher.register({
+          key: "s",
+          shiftKey: true,
+          description: "Capture screenshot",
+          handler: () => {
+            this.captureScreenshot().catch((err: unknown) => {
+              console.error("[PlayerController] Screenshot error:", err);
+            });
+          }
+        })
+      );
 
-    const unbindLoop = ShortcutDispatcher.register({
-      key: "l",
-      shiftKey: true,
-      description: "Toggle Loop playback",
-      handler: () => {
-        this.toggleLoop();
-      }
-    });
+      acquiredCleanups.push(
+        ShortcutDispatcher.register({
+          key: "p",
+          shiftKey: true,
+          description: "Toggle Picture-in-Picture",
+          handler: () => {
+            this.togglePictureInPicture().catch((err: unknown) => {
+              console.error("[PlayerController] PiP error:", err);
+            });
+          }
+        })
+      );
 
-    this.shortcutCleanups.push(
-      unbindSpeedUp,
-      unbindSpeedDown,
-      unbindResetSpeed,
-      unbindScreenshot,
-      unbindPiP,
-      unbindLoop
-    );
+      acquiredCleanups.push(
+        ShortcutDispatcher.register({
+          key: "l",
+          shiftKey: true,
+          description: "Toggle Loop playback",
+          handler: () => {
+            this.toggleLoop();
+          }
+        })
+      );
+
+      this.shortcutCleanups = acquiredCleanups;
+    } catch (error: unknown) {
+      while (acquiredCleanups.length > 0) {
+        const cleanup: (() => void) | undefined = acquiredCleanups.pop();
+        try {
+          cleanup?.();
+        } catch (e: unknown) {
+          console.error("[PlayerController] Shortcut rollback error:", e);
+        }
+      }
+      throw error;
+    }
   }
 
   private teardownShortcuts(): void {
@@ -294,13 +313,17 @@ export class PlayerController {
     if (this.isSpeedControlEnabled) {
       return;
     }
-    this.isSpeedControlEnabled = true;
     this.setupShortcuts();
+    this.isSpeedControlEnabled = true;
   }
 
   public disableSpeedControl(): void {
     this.isSpeedControlEnabled = false;
     this.teardownShortcuts();
+  }
+
+  public isSpeedControlActive(): boolean {
+    return this.isSpeedControlEnabled;
   }
 
   public init(): void {

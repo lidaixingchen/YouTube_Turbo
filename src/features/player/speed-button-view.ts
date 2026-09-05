@@ -5,6 +5,7 @@ import { PopoverEngine } from "../../ui/toolbar/popover";
 import { SlotMountBus } from "../../ui/toolbar/slot-mount-bus";
 import { TOOLBAR_CONSTANTS } from "../../ui/toolbar/constants";
 import { PLAYBACK_RATE_EPSILON } from "../../core/constants";
+import { ReactiveDOMRegistry } from "../../core/dom-registry";
 import type { PopoverController, SlotDefinition } from "../../ui/toolbar/types";
 
 export class PlayerSpeedButtonView {
@@ -13,6 +14,7 @@ export class PlayerSpeedButtonView {
   private menuEl: HTMLElement | null = null;
   private popoverController: PopoverController | null = null;
   private stateUnbind: (() => void) | null = null;
+  private isRegistered: boolean = false;
 
   public static getInstance(): PlayerSpeedButtonView {
     if (!this.instance) {
@@ -21,8 +23,12 @@ export class PlayerSpeedButtonView {
     return this.instance;
   }
 
+  public static isMounted(): boolean {
+    return Boolean(this.instance?.isRegistered);
+  }
+
   public static mount(): void {
-    if (!/youtube\.com/.test(window.location.host)) {
+    if (typeof window !== "undefined" && !/youtube\.com/.test(window.location?.host ?? "")) {
       return;
     }
     this.getInstance().registerToBus();
@@ -37,6 +43,10 @@ export class PlayerSpeedButtonView {
   }
 
   private registerToBus(): void {
+    if (this.isRegistered) {
+      return;
+    }
+    this.isRegistered = true;
     this.injectStyles();
 
     const slotDef: SlotDefinition = {
@@ -46,7 +56,7 @@ export class PlayerSpeedButtonView {
       elementId: PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON_ID,
       isApplicable: (url: URL): boolean => !url.pathname.startsWith("/shorts"),
       mount: (target: HTMLElement, element: HTMLElement): void => {
-        const toolbox = target.querySelector<HTMLElement>(`#${TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID}`);
+        const toolbox: HTMLElement | null = target.querySelector<HTMLElement>(`#${TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID}`);
         if (toolbox) {
           toolbox.before(element);
         } else if (!target.contains(element)) {
@@ -54,7 +64,7 @@ export class PlayerSpeedButtonView {
         }
       },
       unmount: (): void => {
-        this.destroy();
+        this.cleanupViewDOM();
       }
     };
 
@@ -62,7 +72,7 @@ export class PlayerSpeedButtonView {
   }
 
   private injectStyles(): void {
-    const combinedStyle = `${PLAYER_CONSTANTS.STYLES.SPEED_BTN_CSS}\n${PLAYER_CONSTANTS.STYLES.SPEED_OPTIONS_CSS}`;
+    const combinedStyle: string = `${PLAYER_CONSTANTS.STYLES.SPEED_BTN_CSS}\n${PLAYER_CONSTANTS.STYLES.SPEED_OPTIONS_CSS}`;
     StyleEngine.inject(PLAYER_CONSTANTS.STYLES.SPEED_CONTROL_STYLE_ID, combinedStyle);
   }
 
@@ -73,7 +83,7 @@ export class PlayerSpeedButtonView {
 
     this.injectStyles();
 
-    const currentSpeed = PlayerController.getInstance().getSpeed();
+    const currentSpeed: number = PlayerController.getInstance().getSpeed();
 
     this.buttonEl = document.createElement("div");
     this.buttonEl.id = PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON_ID;
@@ -82,7 +92,7 @@ export class PlayerSpeedButtonView {
     this.buttonEl.setAttribute("role", "button");
     this.buttonEl.setAttribute("aria-haspopup", "true");
 
-    const speedText = document.createElement("span");
+    const speedText: HTMLSpanElement = document.createElement("span");
     speedText.textContent = `${currentSpeed}×`;
     this.buttonEl.appendChild(speedText);
 
@@ -93,7 +103,9 @@ export class PlayerSpeedButtonView {
   }
 
   private setupMenuAndPopover(currentSpeed: number): void {
-    const player = document.querySelector<HTMLElement>(PLAYER_CONSTANTS.SELECTORS.PLAYER_CONTAINER);
+    const player: HTMLElement | null =
+      ReactiveDOMRegistry.getInstance().getPlayerContainer() ||
+      document.querySelector<HTMLElement>(PLAYER_CONSTANTS.SELECTORS.PLAYER_CONTAINER);
     if (!player || !this.buttonEl) return;
 
     if (this.menuEl) {
@@ -105,7 +117,7 @@ export class PlayerSpeedButtonView {
     this.menuEl.className = PLAYER_CONSTANTS.CLASSES.SPEED_OPTIONS_MENU;
 
     PLAYER_CONSTANTS.PRESET_SPEEDS.forEach((speedNum: number): void => {
-      const option = document.createElement("div");
+      const option: HTMLDivElement = document.createElement("div");
       option.className = PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM;
       option.textContent = `${speedNum}×`;
       option.dataset.speed = String(speedNum);
@@ -142,13 +154,13 @@ export class PlayerSpeedButtonView {
 
   private updateView(speed: number): void {
     if (this.buttonEl) {
-      const span = this.buttonEl.querySelector("span");
+      const span: HTMLSpanElement | null = this.buttonEl.querySelector("span");
       if (span) span.textContent = `${speed}×`;
     }
     if (this.menuEl) {
-      const options = this.menuEl.querySelectorAll<HTMLElement>(`.${PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM}`);
+      const options: NodeListOf<HTMLElement> = this.menuEl.querySelectorAll<HTMLElement>(`.${PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM}`);
       options.forEach((opt: HTMLElement): void => {
-        const optSpeed = parseFloat(opt.dataset.speed || "0");
+        const optSpeed: number = parseFloat(opt.dataset.speed || "0");
         if (Math.abs(optSpeed - speed) < PLAYBACK_RATE_EPSILON) {
           opt.classList.add(PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM_ACTIVE);
         } else {
@@ -158,7 +170,7 @@ export class PlayerSpeedButtonView {
     }
   }
 
-  public destroy(): void {
+  private cleanupViewDOM(): void {
     if (this.stateUnbind) {
       this.stateUnbind();
       this.stateUnbind = null;
@@ -175,6 +187,12 @@ export class PlayerSpeedButtonView {
       this.buttonEl.remove();
       this.buttonEl = null;
     }
+  }
+
+  public destroy(): void {
+    this.isRegistered = false;
+    this.cleanupViewDOM();
     StyleEngine.remove(PLAYER_CONSTANTS.STYLES.SPEED_CONTROL_STYLE_ID);
   }
 }
+
