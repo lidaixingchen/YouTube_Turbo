@@ -70,15 +70,18 @@ main / PlayerController / ThemeController / VideoDownloadService
                          |
                          | registerAction(s) / disposer
                          v
-                 ToolbarController
+                 ToolbarController (门面与调度中枢)
                          |
                          |-- action catalog + owner token
                          |-- state subscription ledger
-                         |-- visibility / order / active icon
-                         |-- affected-slot invalidation
-                         |-- renderer + Popover lifecycle
+                         |-- microtask invalidation & reconciliation
                          |
-                         +--> SlotMountBus
+                         +--> ToolbarRenderers (私有 DOM 模板渲染)
+                         |        |
+                         |        +--> PlayerControls / Shorts / Metadata DOM
+                         |        +--> PopoverEngine
+                         |
+                         +--> SlotMountBus (共享挂载总线)
                                   |
                                   +--> route events
                                   +--> single MutationObserver
@@ -86,7 +89,8 @@ main / PlayerController / ThemeController / VideoDownloadService
 
 模块职责如下：
 
-- `ToolbarController`：动作贡献、状态、渲染、Popover 与自身插槽 presentation 的唯一 owner；
+- `ToolbarController`：动作贡献、状态、微任务协调与自身插槽 presentation 的唯一公共门面；
+- `ToolbarRenderers`：Toolbar 内部私有渲染辅助模块，专注插槽 DOM 模板构建与 Popover 挂载，不对外导出；
 - `SlotMountBus`：Toolbar 与倍速视图共享的插槽挂载 seam，只负责目标 DOM 何时可挂载；
 - action contributor：声明自身动作并持有 disposer，不调用 mount、refresh 或 registry；
 - `StyleEngine`、`IconRegistry`、`Locale`、`PopoverEngine`：Toolbar 的本地可替换 implementation dependency，不扩展为公共 port。
@@ -140,6 +144,11 @@ export interface ActionConfig {
 
 配置使用 `readonly`，Toolbar 在注册时保存规范化快照，不允许 caller 在注册后通过对象突变绕过 reconciliation。默认顺序、默认可见性、默认激活态与默认 dismiss 行为必须使用 [`constants.ts`](../src/ui/toolbar/constants.ts) 中的具名常量或私有具名常量，不散落魔法值。
 
+`isVisible` 与 `isActive` 契约约定：
+- 必须为同步、轻量、无副作用的纯探测函数（Pure Probes）；
+- 严禁在探测函数中执行耗时 DOM 查询、触发强制重排（Reflow/Layout Thrashing）或发起网络请求；
+- 探测抛错时 Toolbar 降级至安全默认值，不影响其他动作。
+
 `onStateBind` 保持现有能力与名称。它只发布“状态可能变化”的 invalidation，不直接操作 DOM；Toolbar 重新读取 `isVisible()` 与 `isActive()` 并更新视图。
 
 ### 5.3 ToolbarController
@@ -157,9 +166,20 @@ export const Toolbar: ToolbarController;
 
 `registerAction()` 仅调用同一个私有 `registerBatch()`，不维护第二套规则。`mount()`、`unmount()`、`refresh()` 与 `syncSlots()` 全部变为 private，外部 feature 不再直接操纵 presentation。
 
-## 6. 私有数据模型
+## 6. 内部架构与私有数据模型
 
-建议在 `ToolbarController` implementation 内使用以下局部结构，不从 barrel export：
+深模块的核心在于公共 interface 的极简与强信息隐藏，其物理实现应遵循清晰的单一职责划分。
+
+### 6.1 内部物理组织 (Internal Seams)
+
+为防止 `ToolbarController` 演化为冗长的上帝类，模块物理落位分为两部分：
+
+1. `src/ui/toolbar/toolbar.ts`：集中管理生命周期状态、注册事务、所有权 Token、状态订阅账本、微任务调度与插槽协调。
+2. `src/ui/toolbar/renderers.ts`：内部私有渲染辅助模块（不从 `index.ts` 导出），封装三类插槽的 DOM 构建、Popover 绑定与按钮更新渲染，由 `ToolbarController` 统一组装调用。
+
+### 6.2 私有数据模型
+
+在 `ToolbarController` 内部维护以下数据模型：
 
 ```typescript
 interface ToolbarActionRecord {
@@ -168,6 +188,8 @@ interface ToolbarActionRecord {
   readonly config: Readonly<ActionConfig>;
   stateDisposer: (() => void) | null;
   stateBindingStatus: "unbound" | "bound" | "unavailable";
+  isExecuting: boolean;
+  executionTimer: ReturnType<typeof setTimeout> | null;
 }
 
 interface ToolbarActionRegistration {
@@ -206,7 +228,7 @@ interface ToolbarActionRegistration {
 
 ### 7.2 提交阶段
 
-1. 创建唯一 owner token 与 registration sequence；
+1. 创建唯一 owner token（`Symbol()`）与 registration sequence；
 2. 复制并规范化整批 `ActionConfig`；
 3. 原子写入 `actionsById` 与 registration record；
 4. Toolbar 已初始化时，为本批动作建立状态订阅；
@@ -229,7 +251,7 @@ interface ToolbarActionRegistration {
 
 首次 `isVisible()` 或 `isActive()` 读取失败时使用安全默认值：动作保持可见、激活态为 false。存在 last-known state 时沿用上一次成功结果。
 
-## 8. disposer ownership
+## 8. Disposer Ownership 与释放语义
 
 注册返回的 disposer 必须满足：
 
@@ -238,16 +260,22 @@ interface ToolbarActionRegistration {
 3. 逆序释放本批 action 的状态订阅；
 4. 清空本 registration 的 ownership 记录；
 5. 对受影响 slot 去重并触发一次 reconciliation；
-6. 重复调用不重复解绑、不重复删除、不重复刷新。
+6. 重复调用为幂等 no-op，不重复解绑、不重复删除、不重复刷新。
 
-owner token 防止以下 stale disposer 场景：
+Owner token 防止以下 stale disposer 场景：
 
 1. action A 注册 ID `loop`；
 2. A 的 disposer 释放该动作；
 3. action B 随后重新注册同一 ID；
 4. 再次调用 A 的旧 disposer 不得删除 B。
 
-状态 disposer 抛错时，其余状态订阅、动作记录与 slot cleanup 仍继续。显式 disposer 在完成全部清理尝试后通过 `AggregateError` 报告错误；已成功释放的 ownership 不得因异常恢复。
+### 8.1 异常隔离与尽力释放 (Best-effort Teardown)
+
+在执行 Disposer 期间：
+- 逐项解绑状态 Disposer，每个 Disposer 调用必须包裹在独立的 `try...catch` 中；
+- 单项解绑抛错记录 `console.error` 诊断日志，严禁向外抛出异常；
+- 确保所有属于该 registration 的状态订阅、动作记录与 slot 刷新路径均被完全执行；
+- 坚决杜绝因局部清理异常导致上层调用者的级联清理中断。
 
 ## 9. 状态失效与局部 reconciliation
 
@@ -268,25 +296,27 @@ owner token 防止以下 stale disposer 场景：
 - 每个受影响 slot 最多 reconcile 一次；
 - 不扫描未受影响 slot；
 - 不使用 `setInterval`、递归 timeout 或常驻任务；
-- callback 捕获 owner token 与 lifecycle generation；动作已释放或 Toolbar 已 destroy 时成为 no-op。
+- callback 校验当前 `lifecycleGeneration`；若在微任务执行前 Toolbar 已 destroy 或重新初始化，排队 callback 自动失效；
+- 过滤已注销动作的悬挂通知，保证无副作用。
 
 ### 9.3 slot reconciliation
 
 对一个 slot 的协调顺序：
 
-1. 读取该 slot 的 action records；
-2. 安全求值 `isVisible()`；
-3. 按 order 与 registration sequence 稳定排序；
-4. 没有可见动作时，销毁该 slot presentation 并调用 `SlotMountBus.unmountSlot(slot)`；
-5. 存在可见动作时，通过 `SlotMountBus.mountSlot()` 或 `refreshSlot()` 建立或刷新 slot root；
-6. renderer 读取 `isActive()`、解析图标和标题并创建 DOM；
-7. 播放器工具箱 Popover 只在 player-controls slot presentation 存在时持有。
+1. **路由适用性前置判定**：读取该 slot 的 `SlotDefinition.isApplicable`。若当前 `window.location.href` 与该 slot 不匹配（例如在微任务排队期间发生了 SPA 路由切换），立即卸载该 slot 的已有 DOM 并通知 `SlotMountBus.unmountSlot(slot)`，结束该 slot 的本轮协调，坚决杜绝在非适用路由下实例化孤儿 DOM；
+2. 读取该 slot 的 action records；
+3. 安全求值 `isVisible()`；
+4. 按 order 与 registration sequence 稳定排序；
+5. 没有可见动作时，销毁该 slot presentation 并调用 `SlotMountBus.unmountSlot(slot)`；
+6. 存在可见动作时，通过 `SlotMountBus.mountSlot()` 或 `refreshSlot()` 建立或刷新 slot root；
+7. 由 `ToolbarRenderers` 读取 `isActive()`、解析图标和标题并创建 DOM；
+8. 播放器工具箱 Popover 只在 player-controls slot presentation 存在时持有。
 
 DOM 暂缺是 `SlotMountBus` 的正常 pending 状态，不是 action 注册失败。renderer 的单 slot 异常被隔离并记录；action definition 保留，后续状态通知或路由 reconciliation 可重试。
 
-## 10. 动作执行语义
+## 10. 动作执行语义与看门狗自愈
 
-Toolbar 为每个 action 安装统一执行 wrapper：
+Toolbar 为每个 action 安装统一执行 wrapper，内置并发防重入互斥锁、超时看门狗与异常隔离：
 
 ```typescript
 const executeAction = async (
@@ -294,6 +324,26 @@ const executeAction = async (
   event: MouseEvent,
   context: ActionContext
 ): Promise<void> => {
+  if (action.isExecuting) {
+    return;
+  }
+  action.isExecuting = true;
+
+  // 启动安全看门狗定时器，防止 onClick 返回挂起永不 resolve 的 Promise 导致按钮永久死锁
+  const releaseLock = (): void => {
+    if (action.executionTimer !== null) {
+      clearTimeout(action.executionTimer);
+      action.executionTimer = null;
+    }
+    action.isExecuting = false;
+    invalidateSlot(action.config.slot);
+  };
+
+  action.executionTimer = setTimeout(() => {
+    console.warn(`[ToolbarController] Action "${action.config.id}" execution timed out, releasing lock.`);
+    releaseLock();
+  }, TOOLBAR_CONSTANTS.ACTION_EXECUTION_TIMEOUT_MS);
+
   try {
     const result: void | Promise<void> = action.config.onClick(event, context);
     if (action.config.dismissOnExecute) {
@@ -301,16 +351,19 @@ const executeAction = async (
     }
     await result;
   } catch (error: unknown) {
-    reportActionError(action.config.id, error);
+    console.error(`[ToolbarController] Error executing action "${action.config.id}":`, error);
   } finally {
-    invalidateSlot(action.config.slot);
+    releaseLock();
   }
 };
 ```
 
-以上为接口级伪代码。`dismissOnExecute` 在动作成功发起后立即关闭 Popover，不等待远程或异步命令完成；同步异常与 Promise rejection 均在 Toolbar 内隔离，且 `finally` 必须重新求值 action 状态。
+关键保障：
 
-caller 不再调用 `context.refresh()`，也不直接触碰 slot 或 Popover。
+- `isExecuting` 互斥锁拦截同一动作执行期间的高频重复点击，保护 Shorts 与元数据栏等无遮罩动作；
+- **看门狗兜底（Safety Timeout）**：通过 `TOOLBAR_CONSTANTS.ACTION_EXECUTION_TIMEOUT_MS`（常量定义为 5000ms）兜底。若业务 Promise 挂起，看门狗强制释放互斥锁并恢复可点击态，彻底消除按钮僵死隐患；
+- `dismissOnExecute` 在动作发起后立即收起 Popover，不阻塞远程/异步耗时操作；
+- 所有的同步抛错与 Promise rejection 均在内部记录并隔离，不逃逸到原生事件监听器。
 
 ## 11. Toolbar 生命周期
 
@@ -328,21 +381,21 @@ caller 不再调用 `context.refresh()`，也不直接触碰 slot 或 Popover。
 
 ### 11.2 destroy
 
-`destroy()` 保持既有兼容语义：销毁 Toolbar presentation 与状态订阅，但保留 caller 注册的 action definitions。
+`destroy()` 负责撤销 Toolbar 所有的 DOM 展示层、Popover 实例及状态监听：
 
 确定性顺序如下：
 
 1. 标记未初始化并推进 lifecycle generation，使排队 invalidation 失效；
 2. 清空 pending invalidation 集合；
-3. 逆序释放全部状态订阅；
+3. 逆序释放全部状态订阅（独立异常隔离保护）；
 4. 销毁 Toolbar 持有的 Popover；
-5. 分别调用 `SlotMountBus.unmountSlot()` 卸载三个 Toolbar-owned slot；
+5. 分别调用 `SlotMountBus.unmountSlot()` 仅卸载三个 Toolbar 自身拥有的 slot；
 6. 移除 Toolbar 自身 DOM 和样式；
 7. 保留 `actionsById` 与 registration ownership，供后续 `init()` 重建。
 
-`destroy()` 不得调用共享 `SlotMountBus.destroy()`，不得注销 `PlayerSpeedButtonView` 的插槽，也不得删除 caller-owned action definitions。
-
-清理采用 best-effort：某一状态 disposer 或 slot cleanup 抛错时继续其余步骤，完成后以 `AggregateError` 报告。重复 `destroy()` 为幂等操作。
+**核心生命周期红线**：
+- `destroy()` **绝对严禁调用共享 `SlotMountBus.destroy()`**，不得注销 `PlayerSpeedButtonView` 的插槽或断开全局路由监听；
+- 清理流程严格遵循 **Best-effort Teardown** 原则：每一项卸载均使用独立 `try...catch` 包裹，错误记录至 `console.error`，**严禁向调用方抛出任何未捕获异常**，保证宿主清理通道通畅。
 
 ### 11.3 re-init
 
@@ -353,11 +406,13 @@ caller 不再调用 `context.refresh()`，也不直接触碰 slot 或 Popover。
 - 不复用旧 DOM、Popover、subscription 或 pending callback；
 - registration disposer 仍保持原 owner token 与幂等语义。
 
-## 12. caller ownership
+## 12. Caller Ownership
+
+外部业务特性拥有自己动作的完整注册生命周期，必须严格在自身停用时显式调用 Disposer：
 
 ### 12.1 PlayerController
 
-`PlayerController` 保存 `Toolbar.registerActions()` 返回的 disposer，并在自身 `destroy()` 时释放。循环动作移除 `ctx.refresh()`，仅调用领域命令；Toolbar 通过执行 wrapper 与 `onStateBind` 自动刷新：
+`PlayerController` 保存 `Toolbar.registerActions()` 返回的 disposer，并在自身 `destroy()` 时显式释放。循环动作移除 `ctx.refresh()`，仅调用领域命令；Toolbar 通过执行 wrapper 与 `onStateBind` 自动刷新：
 
 ```typescript
 this.toolbarActionsDisposer = Toolbar.registerActions([
@@ -387,11 +442,11 @@ public static disable(): void {
 }
 ```
 
-三个下载 action 保持各自 ID 与 slot，不引入多 placement 数据模型。
+三个下载 action 保持各自 ID 与 slot，不引入多 placement 数据模型。下载特性关闭时显式触发 Disposer，从 Toolbar 目录中彻底注销自身定义。
 
 ### 12.3 ThemeController
 
-`ThemeController.init()` 保存单项注册 disposer 或至少以已有 disposer 作为幂等 guard，避免严格重复 ID 校验下重复注册。主题动作与脚本生命周期一致；若未来引入应用 teardown，再由 `ThemeController` 显式释放。
+`ThemeController.init()` 保存单项注册 disposer 并以已有 disposer 作为幂等 guard，避免严格重复 ID 校验下重复注册。主题动作与脚本生命周期一致。
 
 ### 12.4 main bootstrap
 
@@ -401,19 +456,20 @@ public static disable(): void {
 
 | 文件 | 目标职责 |
 | --- | --- |
-| `src/ui/toolbar/toolbar.ts` | 吸收 action catalog、registration transaction、state ledger、局部 invalidation 与 slot reconciliation。 |
-| `src/ui/toolbar/types.ts` | 将 action 配置设为 readonly，移除 `ActionContext.refresh`，允许异步 `onClick`。 |
-| `src/ui/toolbar/constants.ts` | 收敛默认顺序、默认状态及 invalidation 所需具名常量。 |
+| `src/ui/toolbar/toolbar.ts` | 核心深模块门面，统管 action catalog、registration transaction、state ledger、微任务 invalidation 与 slot reconciliation 调度。 |
+| `src/ui/toolbar/renderers.ts` | 内部私有渲染辅助模块（不对外导出），封装播放器控制网格、Shorts 按钮与元数据外框的 DOM 模板构建与 Popover 绑定。 |
+| `src/ui/toolbar/types.ts` | 将 action 配置设为 readonly，移除 `ActionContext.refresh`，明确纯函数探针与异步 `onClick` 契约。 |
+| `src/ui/toolbar/constants.ts` | 收敛默认顺序、默认状态、看门狗超时时间（`ACTION_EXECUTION_TIMEOUT_MS`）及具名常量。 |
 | `src/ui/toolbar/action-registry.ts` | 迁移完成后逐一删除；不保留别名或等价 registry。 |
 | `src/ui/toolbar/index.ts` | 移除 `ActionRegistry` export，仅保留 Toolbar public types 与 controller facade。 |
 | `src/features/player/controller.ts` | 保存 action disposer，移除手动 `ctx.refresh()`，在 destroy 时释放。 |
 | `src/features/theme/theme-controller.ts` | 使 action 注册幂等并明确脚本级 ownership。 |
 | `src/features/download/index.ts` | 复用现有 feature-scoped disposer，适配 readonly batch。 |
 | `src/main.ts` | 保持设置 action 为 bootstrap contribution，不调用 presentation interface。 |
-| `src/ui/toolbar/__tests__/toolbar-actions.test.ts` | action 注册、状态、排序、disposer 与错误隔离单元测试。 |
-| `src/ui/toolbar/__tests__/toolbar-actions.integration.test.ts` | Toolbar、SlotMountBus、Popover 与 DOM 生命周期联合测试。 |
+| `src/ui/toolbar/__tests__/toolbar-actions.test.ts` | action 注册、状态、排序、disposer、并发防重、看门狗自愈与错误隔离单元测试。 |
+| `src/ui/toolbar/__tests__/toolbar-actions.integration.test.ts` | Toolbar、SlotMountBus、Popover、微任务跨路由竞态与 DOM 生命周期联合测试。 |
 
-删除文件属于实施阶段的显式步骤；执行时遵循项目规范逐一删除，不批量删除。
+> **删除规范**：`action-registry.ts` 的删除遵循项目规范逐一删除，严禁批量删除。
 
 ## 14. 迁移阶段
 
@@ -426,30 +482,31 @@ public static disable(): void {
 
 完成条件：删除或绕过 ownership、binding 或 slot cleanup 时测试能够失败。
 
-### 阶段二：内聚 ActionRegistry implementation
+### 阶段二：抽离内部私有渲染器并内聚动作目录
 
-- 将 actions Map、bindings Map、按 slot 查询、排序和图标解析迁入 `ToolbarController`；
+- 新建私有模块 `src/ui/toolbar/renderers.ts`，迁入模板构建与更新逻辑；
+- 将 actions Map、bindings Map、按 slot 查询、排序迁入 `ToolbarController`；
 - 引入 owner token、registration record 与 sequence；
 - 让单项注册委托批量 transaction；
 - 保持 production caller interface 可编译。
 
-完成条件：Toolbar 不再依赖 `ActionRegistry`，且没有建立等价的新 registry class。
+完成条件：Toolbar 不再依赖 `ActionRegistry`，内部渲染职责分离清晰。
 
 ### 阶段三：收拢状态订阅与失效
 
 - 将 `onStateBind` 从 render-time binding 改为每 action、每 Toolbar 初始化周期一次；
 - 建立受影响 slot 的微任务合并；
 - 为 state callback 增加 owner/generation gate；
-- 在 click wrapper 的 `finally` 自动 invalidation；
+- 在 click wrapper 的 `finally` 自动 invalidation，并增加超时看门狗；
 - 删除 `ActionContext.refresh` 与调用方手动刷新。
 
-完成条件：DOM 重绘不增加 subscription 数量，不可见动作可由状态通知重新出现。
+完成条件：DOM 重绘不增加 subscription 数量，不可见动作可由状态通知重新出现，异步挂起自动超时自愈。
 
 ### 阶段四：收窄 Toolbar public surface
 
 - 将 `syncSlots()`、`mount()`、`unmount()` 与 `refresh()` 转为 private；
 - 统一三个 slot 的 reconciliation；
-- `destroy()` 改为逐一卸载 Toolbar-owned slot；
+- `destroy()` 改为逐一卸载 Toolbar-owned slot，执行 Best-effort 隔离清理；
 - 保留 definitions，释放 presentation 与状态 subscription。
 
 完成条件：外部 caller 只使用 `init/registerAction/registerActions/destroy`。
@@ -500,14 +557,17 @@ public static disable(): void {
 - 不可见 action 的状态通知可使其出现；
 - `isActive()` 变化更新 class 与 active icon；
 - 高频同步通知在一个 microtask 内只刷新受影响 slot 一次；
+- 微任务调度期间路由发生变化时，非适用 slot 自动跳过或卸载，不实例化孤儿 DOM；
 - 注销后排队 callback 因 owner/generation gate 失效；
 - `isVisible()`、`isActive()` 或 `onStateBind` 抛错时其他 action 正常工作；
 - state disposer 抛错时其余 subscription 与 DOM 仍完成 cleanup。
 
-### 15.3 动作执行
+### 15.3 动作执行与看门狗
 
 - 同步 action 完成后自动刷新对应 slot；
 - Promise action settle 后自动刷新；
+- 异步动作执行中连续点击被防重互斥锁拦截，零重复调用，执行完毕后释放锁并刷新；
+- 异步动作 Promise 挂起超时后，看门狗自动释放互斥锁并恢复可交互性；
 - 同步异常与 Promise rejection 被记录，不逃逸 DOM event listener；
 - `dismissOnExecute` 在动作成功发起后立即关闭 Popover；
 - 一个 action 失败不阻断同 slot 其他 action；
@@ -524,13 +584,11 @@ public static disable(): void {
 - `destroy()` 清理 Toolbar-owned DOM、Popover、样式、subscription 与 pending callback；
 - `destroy()` 后再次 `init()` 从保留 definitions 重建且不复用旧资源。
 
-测试复用现有 Vitest、jsdom、`src/test/setup.ts` 与 fake Observer，不增加新的测试运行器或 public dependency port。
-
 ## 16. 删除测试与 depth 验收
 
 ### 16.1 ActionRegistry
 
-删除 `ActionRegistry` 后，其 Map、过滤、排序、图标解析与 binding 逻辑只需移动到唯一 caller `ToolbarController`，复杂度不会向其他模块扩散，因此它不具备独立 module depth，应被折叠。
+删除 `ActionRegistry` 后，其存储、过滤、排序与 binding 逻辑内聚到唯一 caller `ToolbarController`，复杂度不会向外部其他业务模块扩散，因此它不具备独立 module depth，应被折叠。
 
 ### 16.2 ToolbarController
 
@@ -539,9 +597,9 @@ public static disable(): void {
 - 重复 ID 与批量事务；
 - action ownership 与 stale disposer；
 - 稳定排序与状态读取；
-- state subscription 与 invalidation 合并；
+- state subscription 与 invalidation 微任务合并；
 - DOM renderer 与 active icon；
-- slot eligibility、mount/unmount 与 Popover；
+- slot eligibility、mount/unmount 与 Popover 调度；
 - destroy/re-init 与共享总线 ownership。
 
 因此 `ToolbarController` 通过删除测试：较小 public interface 隐藏了明显更大的 implementation 与跨调用方规则。
@@ -554,20 +612,23 @@ public static disable(): void {
 
 | 维度 | 场景 | 通过标准 |
 | --- | --- | --- |
-| interface | 扫描外部 Toolbar caller | 只使用 `init/registerAction/registerActions/destroy` |
-| atomicity | 批内或跨批 ID 冲突 | 同步报错且 catalog、DOM、subscription 零变化 |
-| ownership | disposer 重复或晚到 | 只清理所属 registration，不影响新 owner |
-| state binding | 多次 rerender | 每 action 每初始化周期最多一个 subscription |
-| invalidation | 同步连续状态通知 | 单微任务、单受影响 slot reconciliation |
-| action error | 同步异常或 Promise rejection | 错误被隔离，Popover 与状态刷新语义完整 |
-| destroy | Toolbar 销毁 | 清理自身资源并保留 action definitions |
-| re-init | destroy 后 init | 从 definitions 重建，无旧 DOM、listener 或 callback |
-| shared bus | 倍速 slot 与 Toolbar 并存 | Toolbar destroy 不注销倍速 slot或销毁总线 |
-| ADR-0005 | 全部 slot 已挂载 | 活跃 `MutationObserver` 数量为零 |
-| deletion test | 删除浅层 registry | 逻辑内聚进 Toolbar，无等价 registry 替代物 |
-| type safety | `pnpm check` | TypeScript strict 零错误 |
-| tests | `pnpm test` | action 与集成测试全部通过 |
-| build | `pnpm build` | Userscript 生产构建成功 |
+| **interface** | 扫描外部 Toolbar caller | 只使用 `init/registerAction/registerActions/destroy` |
+| **atomicity** | 批内或跨批 ID 冲突 | 同步报错且 catalog、DOM、subscription 零变化 |
+| **ownership** | disposer 重复或晚到 | 只清理所属 registration，不影响新 owner |
+| **state binding** | 多次 rerender | 每 action 每初始化周期最多一个 subscription |
+| **invalidation** | 同步连续状态通知 | 单微任务、单受影响 slot reconciliation |
+| **route race** | 微任务调度期间路由变更 | 自动跳过或卸载非适用 slot，无孤儿 DOM 节点残留 |
+| **concurrency guard** | 异步 action 执行中连续触发 | 互斥锁拦截重复点击，执行完毕后释放并刷新 |
+| **watchdog recovery** | 异步 action 永远挂起超时 | 超时看门狗自动释放互斥锁并恢复可点击态 |
+| **action error** | 同步异常或 Promise rejection | 错误被隔离，Popover 与状态刷新语义完整 |
+| **destroy** | Toolbar 销毁 | 清理自身资源并保留 action definitions，绝不向外抛出未捕获异常 |
+| **re-init** | destroy 后 init | 从 definitions 重建，无旧 DOM、listener 或 callback |
+| **shared bus** | 倍速 slot 与 Toolbar 并存 | Toolbar destroy 不注销倍速 slot 或销毁总线 |
+| **ADR-0005** | 全部 slot 已挂载 | 活跃 `MutationObserver` 数量为零 |
+| **deletion test** | 删除浅层 registry | 逻辑内聚进 Toolbar，内部渲染职责分离清晰 |
+| **type safety** | `pnpm check` | TypeScript strict 零错误 |
+| **tests** | `pnpm test` | action 与集成测试全部通过 |
+| **build** | `pnpm build` | Userscript 生产构建成功 |
 
 ## 18. 交付验收命令
 
@@ -591,13 +652,16 @@ pnpm build
 
 满足以下条件时，本架构深化完成：
 
-- `ActionRegistry` 已删除，且不存在等价的 registry、store 或 repository 替代物；
+- `ActionRegistry` 已逐一删除，且不存在等价的 registry、store 或 repository 替代物；
 - `ToolbarController` 私有拥有 action catalog、registration ownership、state ledger 与 slot reconciliation；
+- 内部私有渲染辅助模块 `renderers.ts` 独立承载 DOM 模板构建，主类保持纯净门面；
 - public interface 只保留 `init/registerAction/registerActions/destroy`；
 - `ActionContext.refresh` 已移除，状态变化和 action 执行由 Toolbar 自动 invalidation；
 - 批量注册原子、重复 ID 明确失败、disposer 幂等且具备 stale-owner 防护；
 - 状态订阅不随 DOM rerender 重复建立；
-- `destroy()` 释放 presentation 与 subscription、保留 action definitions，并且不调用 `SlotMountBus.destroy()`；
+- slot reconciliation 具备路由适用性前置判定，微任务调度具备跨路由竞态防护；
+- action 执行具备异步并发防重入互斥锁与看门狗超时自愈保护；
+- `destroy()` 遵循 Best-effort Teardown 原则释放自身资源，严禁向外抛错，且不调用 `SlotMountBus.destroy()`；
 - `SlotMountBus` 继续满足 ADR-0005 的单 Observer 与挂载即停机约束；
 - 各 action contributor 的 disposer ownership 明确；
 - 不引入多 placement、公共 action storage port 或测试专用 production seam；
