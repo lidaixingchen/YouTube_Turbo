@@ -40,16 +40,20 @@ _Avoid_: SpeedControl, SpeedToolbar, PlayerSpeedModule
 播放器倍速特性的生命周期深模块，原子协调调速快捷键（>、<、Shift+R）与 `PlayerSpeedButtonView` 视图适配器，封装正向装配、逆序注销及失败回滚机制。
 _Avoid_: SpeedControlManager, PlayerSpeedCoordinator, FeatureComposer
 
+**createToolbarActionFeature**:
+通用复合动作特性门面工厂，标准化协调快捷键注册、控制栏动作注入、严格逆序注销（LIFO）与异常回滚机制。
+_Avoid_: ActionFeatureBuilder, ToolbarActionHelper, ShortcutActionBridge
+
 **PlayerScreenshotFeature**:
-视频截图特性的生命周期深模块，原子协调快捷键（Shift+S）与控制栏截图 Action 的挂载与注销，调度 `PlayerController` 执行画布截帧。
+视频截图特性的生命周期深模块，基于复合门面工厂协调快捷键（Shift+S）与控制栏截图 Action 的挂载与注销，调度 `PlayerController` 执行画布截帧。
 _Avoid_: ScreenshotManager, CaptureCoordinator, ScreenshotService, PlayerShortcuts
 
 **PlayerPiPFeature**:
-原生画中画特性的生命周期深模块，原子协调快捷键（Shift+P）与控制栏画中画 Action 的挂载与注销，调度 `PlayerController` 切换画中画状态。
+原生画中画特性的生命周期深模块，基于复合门面工厂协调快捷键（Shift+P）与控制栏画中画 Action 的挂载与注销，调度 `PlayerController` 切换画中画状态。
 _Avoid_: PiPCoordinator, PictureInPictureManager, PlayerShortcuts
 
 **PlayerLoopFeature**:
-单曲循环播放特性的生命周期深模块，原子协调快捷键（Shift+L）与控制栏循环 Action 的挂载与注销，响应循环状态双向联动。
+单曲循环播放特性的生命周期深模块，基于复合门面工厂协调快捷键（Shift+L）与控制栏循环 Action 的双向联动，并在停用时执行底层循环自愈重置。
 _Avoid_: LoopManager, RepeatCoordinator, PlayerShortcuts
 
 **CaptionController**:
