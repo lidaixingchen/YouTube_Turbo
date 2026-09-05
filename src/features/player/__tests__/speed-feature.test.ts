@@ -1,11 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PlayerSpeedFeature } from "../speed-feature";
-import { PlayerController } from "../controller";
 import { PlayerSpeedButtonView } from "../speed-button-view";
+import { ShortcutDispatcher } from "../../../core/shortcuts";
 
 describe("PlayerSpeedFeature", () => {
   beforeEach(() => {
-    // 确保每个测试前处于干净的禁用状态
     PlayerSpeedFeature.disable();
     vi.restoreAllMocks();
   });
@@ -15,107 +14,111 @@ describe("PlayerSpeedFeature", () => {
     vi.restoreAllMocks();
   });
 
-  it("should enable components in Controller -> View order", () => {
-    const callOrder: string[] = [];
-
-    vi.spyOn(PlayerController.getInstance(), "enableSpeedControl").mockImplementation(() => {
-      callOrder.push("controller");
-    });
-    vi.spyOn(PlayerSpeedButtonView, "mount").mockImplementation(() => {
-      callOrder.push("view");
-    });
+  it("should register 3 speed shortcuts and mount view on enable", () => {
+    const registerSpy = vi.spyOn(ShortcutDispatcher, "register");
+    const mountSpy = vi.spyOn(PlayerSpeedButtonView, "mount").mockImplementation(() => {});
 
     PlayerSpeedFeature.enable();
 
-    expect(callOrder).toEqual(["controller", "view"]);
+    expect(registerSpy).toHaveBeenCalledTimes(3);
+    const keys = registerSpy.mock.calls.map((call) => call[0].key);
+    expect(keys).toEqual([">", "<", "r"]);
+    expect(mountSpy).toHaveBeenCalledTimes(1);
     expect(PlayerSpeedFeature.isActive()).toBe(true);
   });
 
   it("should be idempotent when enable is called multiple times", () => {
-    const enableSpy = vi.spyOn(PlayerController.getInstance(), "enableSpeedControl").mockImplementation(() => {});
+    const registerSpy = vi.spyOn(ShortcutDispatcher, "register");
     const mountSpy = vi.spyOn(PlayerSpeedButtonView, "mount").mockImplementation(() => {});
 
     PlayerSpeedFeature.enable();
     PlayerSpeedFeature.enable();
     PlayerSpeedFeature.enable();
 
-    expect(enableSpy).toHaveBeenCalledTimes(1);
+    expect(registerSpy).toHaveBeenCalledTimes(3);
     expect(mountSpy).toHaveBeenCalledTimes(1);
     expect(PlayerSpeedFeature.isActive()).toBe(true);
   });
 
-  it("should teardown components in View -> Controller reverse order", () => {
+  it("should teardown components in View -> Shortcuts reverse order (LIFO)", () => {
     const callOrder: string[] = [];
+    const cleanups: Array<() => void> = [];
 
-    vi.spyOn(PlayerController.getInstance(), "enableSpeedControl").mockImplementation(() => {});
+    vi.spyOn(ShortcutDispatcher, "register").mockImplementation(() => {
+      const cleanup = vi.fn(() => {
+        callOrder.push("shortcut");
+      });
+      cleanups.push(cleanup);
+      return cleanup;
+    });
+
     vi.spyOn(PlayerSpeedButtonView, "mount").mockImplementation(() => {});
     PlayerSpeedFeature.enable();
 
     vi.spyOn(PlayerSpeedButtonView, "unmount").mockImplementation(() => {
       callOrder.push("view");
     });
-    vi.spyOn(PlayerController.getInstance(), "disableSpeedControl").mockImplementation(() => {
-      callOrder.push("controller");
-    });
 
     PlayerSpeedFeature.disable();
 
-    expect(callOrder).toEqual(["view", "controller"]);
+    expect(callOrder[0]).toBe("view");
+    expect(callOrder.slice(1)).toEqual(["shortcut", "shortcut", "shortcut"]);
     expect(PlayerSpeedFeature.isActive()).toBe(false);
   });
 
   it("should be idempotent when disable is called multiple times", () => {
     const unmountSpy = vi.spyOn(PlayerSpeedButtonView, "unmount").mockImplementation(() => {});
-    const disableSpy = vi.spyOn(PlayerController.getInstance(), "disableSpeedControl").mockImplementation(() => {});
 
     PlayerSpeedFeature.disable();
     PlayerSpeedFeature.disable();
 
     expect(unmountSpy).not.toHaveBeenCalled();
-    expect(disableSpy).not.toHaveBeenCalled();
     expect(PlayerSpeedFeature.isActive()).toBe(false);
   });
 
-  it("should rollback completely if view mount fails during enable", () => {
+  it("should rollback shortcuts in reverse order if view mount fails during enable", () => {
+    const rollbackCalls: number[] = [];
+    let count = 0;
+
+    vi.spyOn(ShortcutDispatcher, "register").mockImplementation(() => {
+      count++;
+      const id = count;
+      return () => {
+        rollbackCalls.push(id);
+      };
+    });
+
     const viewError = new Error("View mount failed");
-    vi.spyOn(PlayerController.getInstance(), "enableSpeedControl").mockImplementation(() => {});
     vi.spyOn(PlayerSpeedButtonView, "mount").mockImplementation(() => {
       throw viewError;
     });
 
-    const unmountSpy = vi.spyOn(PlayerSpeedButtonView, "unmount").mockImplementation(() => {});
-    const disableSpy = vi.spyOn(PlayerController.getInstance(), "disableSpeedControl").mockImplementation(() => {});
-
     expect(() => PlayerSpeedFeature.enable()).toThrow(viewError);
-    expect(unmountSpy).toHaveBeenCalledTimes(1);
-    expect(disableSpy).toHaveBeenCalledTimes(1);
-    expect(PlayerSpeedFeature.isActive()).toBe(false);
-  });
-
-  it("should not call view mount if controller fails during enable", () => {
-    const controllerError = new Error("Controller enable failed");
-    vi.spyOn(PlayerController.getInstance(), "enableSpeedControl").mockImplementation(() => {
-      throw controllerError;
-    });
-    const mountSpy = vi.spyOn(PlayerSpeedButtonView, "mount").mockImplementation(() => {});
-
-    expect(() => PlayerSpeedFeature.enable()).toThrow(controllerError);
-    expect(mountSpy).not.toHaveBeenCalled();
+    expect(rollbackCalls).toEqual([3, 2, 1]);
     expect(PlayerSpeedFeature.isActive()).toBe(false);
   });
 
   it("should isolate teardown exceptions and continue releasing other resources", () => {
-    vi.spyOn(PlayerController.getInstance(), "enableSpeedControl").mockImplementation(() => {});
+    const cleanup1 = vi.fn();
+    const cleanup2 = vi.fn();
+    const cleanup3 = vi.fn();
+
+    vi.spyOn(ShortcutDispatcher, "register")
+      .mockReturnValueOnce(cleanup1)
+      .mockReturnValueOnce(cleanup2)
+      .mockReturnValueOnce(cleanup3);
+
     vi.spyOn(PlayerSpeedButtonView, "mount").mockImplementation(() => {});
     PlayerSpeedFeature.enable();
 
     vi.spyOn(PlayerSpeedButtonView, "unmount").mockImplementation(() => {
       throw new Error("View unmount error");
     });
-    const disableSpy = vi.spyOn(PlayerController.getInstance(), "disableSpeedControl").mockImplementation(() => {});
 
     expect(() => PlayerSpeedFeature.disable()).not.toThrow();
-    expect(disableSpy).toHaveBeenCalledTimes(1);
+    expect(cleanup1).toHaveBeenCalledTimes(1);
+    expect(cleanup2).toHaveBeenCalledTimes(1);
+    expect(cleanup3).toHaveBeenCalledTimes(1);
     expect(PlayerSpeedFeature.isActive()).toBe(false);
   });
 });

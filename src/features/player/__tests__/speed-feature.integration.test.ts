@@ -3,7 +3,6 @@ import { PlayerSpeedFeature } from "../speed-feature";
 import { SlotMountBus } from "../../../ui/toolbar/slot-mount-bus";
 import { PLAYER_CONSTANTS } from "../constants";
 import { defaultFeatureDescriptors } from "../../../registry/descriptors";
-import { PlayerController } from "../controller";
 import { PlayerSpeedButtonView } from "../speed-button-view";
 import { StyleEngine } from "../../../core/style-engine";
 
@@ -34,12 +33,10 @@ describe("PlayerSpeedFeature Integration", () => {
 
     await descriptor?.setup();
     expect(PlayerSpeedFeature.isActive()).toBe(true);
-    expect(PlayerController.getInstance().isSpeedControlActive()).toBe(true);
     expect(PlayerSpeedButtonView.isMounted()).toBe(true);
 
     await descriptor?.teardown?.();
     expect(PlayerSpeedFeature.isActive()).toBe(false);
-    expect(PlayerController.getInstance().isSpeedControlActive()).toBe(false);
     expect(PlayerSpeedButtonView.isMounted()).toBe(false);
   });
 
@@ -100,12 +97,10 @@ describe("PlayerSpeedFeature Integration", () => {
     for (let i: number = 0; i < 3; i++) {
       PlayerSpeedFeature.enable();
       expect(PlayerSpeedFeature.isActive()).toBe(true);
-      expect(PlayerController.getInstance().isSpeedControlActive()).toBe(true);
       expect(PlayerSpeedButtonView.isMounted()).toBe(true);
 
       PlayerSpeedFeature.disable();
       expect(PlayerSpeedFeature.isActive()).toBe(false);
-      expect(PlayerController.getInstance().isSpeedControlActive()).toBe(false);
       expect(PlayerSpeedButtonView.isMounted()).toBe(false);
     }
   });

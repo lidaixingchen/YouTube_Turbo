@@ -1,85 +1,42 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { PlayerController } from "../controller";
-import { ShortcutDispatcher } from "../../../core/shortcuts";
 
-describe("PlayerController Shortcuts Transaction", () => {
+describe("PlayerController Core State Machine", () => {
   beforeEach(() => {
-    PlayerController.getInstance().disableSpeedControl();
-    vi.restoreAllMocks();
+    PlayerController.getInstance().resetSpeed(false);
+    PlayerController.getInstance().setLoop(false, false);
   });
 
-  afterEach(() => {
-    PlayerController.getInstance().disableSpeedControl();
-    vi.restoreAllMocks();
+  it("should initialize with default playback settings", () => {
+    const controller = PlayerController.getInstance();
+    expect(controller.getSpeed()).toBe(1.0);
+    expect(controller.isLoopEnabled()).toBe(false);
   });
 
-  it("should register all 6 shortcuts and commit active state on success", () => {
-    const registerSpy = vi.spyOn(ShortcutDispatcher, "register");
+  it("should correctly adjust speed within bounds", () => {
+    const controller = PlayerController.getInstance();
 
-    PlayerController.getInstance().enableSpeedControl();
+    controller.increaseSpeed(0.25, false);
+    expect(controller.getSpeed()).toBe(1.25);
 
-    expect(registerSpy).toHaveBeenCalledTimes(6);
-    expect(PlayerController.getInstance().isSpeedControlActive()).toBe(true);
+    controller.decreaseSpeed(0.5, false);
+    expect(controller.getSpeed()).toBe(0.75);
 
-    // 验证按键覆盖完整性：>, <, r, s, p, l
-    const registeredKeys: string[] = registerSpy.mock.calls.map((call) => call[0].key);
-    expect(registeredKeys).toEqual([">", "<", "r", "s", "p", "l"]);
+    controller.resetSpeed(false);
+    expect(controller.getSpeed()).toBe(1.0);
   });
 
-  it("should rollback previously acquired shortcuts in reverse order when registration fails", () => {
-    const mockCleanups: Array<() => void> = [];
-    const rollbackCalls: number[] = [];
+  it("should support toggling and explicitly setting loop state", () => {
+    const controller = PlayerController.getInstance();
 
-    // 为前 3 次成功注册返回带编号的 cleanup
-    let callCount: number = 0;
-    vi.spyOn(ShortcutDispatcher, "register").mockImplementation(() => {
-      callCount++;
-      if (callCount <= 3) {
-        const index: number = callCount;
-        const cleanup = vi.fn((): void => {
-          rollbackCalls.push(index);
-        });
-        mockCleanups.push(cleanup);
-        return cleanup;
-      }
-      throw new Error(`Failed registering shortcut index ${callCount}`);
-    });
+    controller.setLoop(true, false);
+    expect(controller.isLoopEnabled()).toBe(true);
 
-    expect(() => PlayerController.getInstance().enableSpeedControl()).toThrow(
-      "Failed registering shortcut index 4"
-    );
+    controller.toggleLoop(undefined, false);
+    expect(controller.isLoopEnabled()).toBe(false);
 
-    // 前 3 个 disposer 应该严格逆序调用（3, 2, 1）
-    expect(rollbackCalls).toEqual([3, 2, 1]);
-    expect(PlayerController.getInstance().isSpeedControlActive()).toBe(false);
-  });
-
-  it("should execute all disposers during teardown even if one throws", () => {
-    const cleanups: Array<() => void> = [];
-    let callCount: number = 0;
-
-    vi.spyOn(ShortcutDispatcher, "register").mockImplementation(() => {
-      callCount++;
-      const index: number = callCount;
-      const cleanup = vi.fn((): void => {
-        if (index === 2) {
-          throw new Error("Teardown error at index 2");
-        }
-      });
-      cleanups.push(cleanup);
-      return cleanup;
-    });
-
-    PlayerController.getInstance().enableSpeedControl();
-    expect(PlayerController.getInstance().isSpeedControlActive()).toBe(true);
-
-    expect(() => PlayerController.getInstance().disableSpeedControl()).not.toThrow();
-
-    // 验证所有 6 个 cleanup 均被尝试执行
-    expect(cleanups).toHaveLength(6);
-    cleanups.forEach((cleanup: () => void): void => {
-      expect(cleanup).toHaveBeenCalledTimes(1);
-    });
-    expect(PlayerController.getInstance().isSpeedControlActive()).toBe(false);
+    // 显式静默重置
+    controller.setLoop(false, false);
+    expect(controller.isLoopEnabled()).toBe(false);
   });
 });
