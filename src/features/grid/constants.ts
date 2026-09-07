@@ -18,5 +18,14 @@ export const GRID_CONSTANTS = {
     THREE: 3,
     TWO: 2
   },
-  ITEM_MARGIN_PX: 16
+  ITEM_MARGIN_PX: 16,
+  ANCHOR_TEXT: "yt-turbo-grid-anchor",
+  NODE_NAMES: {
+    ITEM: "YTD-RICH-ITEM-RENDERER",
+    SECTION: "YTD-RICH-SECTION-RENDERER"
+  },
+  DATA_ATTRS: {
+    REBALANCED: "data-yt-turbo-rebalanced"
+  },
+  HOST_CONTAINER_SELECTOR: "#primary, ytd-browse[page-subtype='home'], ytd-browse"
 } as const;
