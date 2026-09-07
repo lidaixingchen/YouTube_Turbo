@@ -1,14 +1,22 @@
 import type { SubtitleCue, YouTubeTimedTextJson3 } from "./types";
 import { SUBTITLE_CONSTANTS } from "./constants";
 
+interface SubtitleIntervalSnapshot {
+  readonly startMs: number;
+  readonly endMs: number;
+  readonly text: string;
+}
+
 export class SubtitleTimeline {
   private cuesCache: Map<string, SubtitleCue[]> = new Map();
   private currentCues: SubtitleCue[] = [];
   private currentKey: string = "";
   private cursorIndex: number = -1;
   private lastQueryMs: number = -1;
+  private lastHistoricalEndMs: number = SUBTITLE_CONSTANTS.INTERVAL_START_MIN_MS;
   private activeCuesBuffer: SubtitleCue[] = [];
-  private cachedTextResult: string = "";
+  private matchedBuffer: SubtitleCue[] = [];
+  private intervalSnapshot: SubtitleIntervalSnapshot | null = null;
 
   public constructor() {}
 
@@ -123,8 +131,10 @@ export class SubtitleTimeline {
   public resetPointer(): void {
     this.cursorIndex = -1;
     this.lastQueryMs = -1;
+    this.lastHistoricalEndMs = SUBTITLE_CONSTANTS.INTERVAL_START_MIN_MS;
     this.activeCuesBuffer.length = 0;
-    this.cachedTextResult = "";
+    this.matchedBuffer.length = 0;
+    this.intervalSnapshot = null;
   }
 
   public findActiveCues(effectiveMs: number): readonly SubtitleCue[] {
@@ -146,40 +156,29 @@ export class SubtitleTimeline {
     const len = cues.length;
     if (len === 0) {
       this.activeCuesBuffer.length = 0;
-      this.cachedTextResult = "";
       return this.activeCuesBuffer;
     }
 
     let targetIndex = -1;
     const isLinearForward =
-      this.lastQueryMs >= 0 &&
+      this.lastQueryMs !== -1 &&
       effectiveMs >= this.lastQueryMs &&
       effectiveMs - this.lastQueryMs <= SUBTITLE_CONSTANTS.SEEK_THRESHOLD_MS &&
-      this.cursorIndex >= 0 &&
+      this.cursorIndex >= -1 &&
       this.cursorIndex < len;
 
     if (isLinearForward) {
-      const currentCue = cues[this.cursorIndex];
-      if (effectiveMs >= currentCue.startMs && effectiveMs <= currentCue.endMs) {
-        targetIndex = this.cursorIndex;
-      } else if (effectiveMs > currentCue.endMs) {
-        const nextIndex = this.cursorIndex + 1;
-        if (nextIndex < len) {
-          const nextCue = cues[nextIndex];
-          if (effectiveMs >= nextCue.startMs && effectiveMs <= nextCue.endMs) {
-            targetIndex = nextIndex;
-            this.cursorIndex = nextIndex;
-          } else if (effectiveMs < nextCue.startMs) {
-            // 处于两段独立字幕之间的间隙，将 targetIndex 保留在上一字幕处，由下方逆向回溯检查是否有更早开始的长重叠字幕
-            targetIndex = this.cursorIndex;
-          }
-        } else {
-          targetIndex = this.cursorIndex;
-        }
+      let idx = this.cursorIndex;
+      while (idx + 1 < len && cues[idx + 1].startMs <= effectiveMs) {
+        idx++;
       }
+      this.cursorIndex = idx;
+      targetIndex = idx;
     }
 
-    if (targetIndex === -1) {
+    if (targetIndex === -1 && this.cursorIndex === -1 && this.lastQueryMs !== -1 && effectiveMs < cues[0].startMs) {
+      targetIndex = -1;
+    } else if (targetIndex === -1) {
       let low = 0;
       let high = len - 1;
       let candidateIndex = -1;
@@ -194,54 +193,122 @@ export class SubtitleTimeline {
         }
       }
 
-      if (candidateIndex === -1) {
-        this.cursorIndex = 0;
-        this.lastQueryMs = effectiveMs;
-        this.activeCuesBuffer.length = 0;
-        this.cachedTextResult = "";
-        return this.activeCuesBuffer;
-      }
-
       this.cursorIndex = candidateIndex;
       targetIndex = candidateIndex;
     }
 
     this.lastQueryMs = effectiveMs;
-    this.activeCuesBuffer.length = 0;
+
+    if (targetIndex === -1) {
+      this.lastHistoricalEndMs = SUBTITLE_CONSTANTS.INTERVAL_START_MIN_MS;
+      this.activeCuesBuffer.length = 0;
+      return this.activeCuesBuffer;
+    }
+
+    this.matchedBuffer.length = 0;
+    let maxHistoricalEndMs: number = SUBTITLE_CONSTANTS.INTERVAL_START_MIN_MS;
 
     for (let i = targetIndex; i >= 0; i--) {
       const cue = cues[i];
-      if (cue.endMs >= effectiveMs && cue.startMs <= effectiveMs) {
-        this.activeCuesBuffer.unshift(cue);
-      } else if (cue.startMs + SUBTITLE_CONSTANTS.MAX_CUE_WINDOW_LOOKBACK_MS < effectiveMs) {
+      if (cue.endMs > effectiveMs && cue.startMs <= effectiveMs) {
+        this.matchedBuffer.push(cue);
+      } else if (cue.endMs <= effectiveMs && cue.endMs > maxHistoricalEndMs) {
+        maxHistoricalEndMs = cue.endMs;
+      }
+      if (cue.startMs + SUBTITLE_CONSTANTS.MAX_CUE_WINDOW_LOOKBACK_MS < effectiveMs) {
         break;
       }
+    }
+
+    this.lastHistoricalEndMs = maxHistoricalEndMs;
+    this.activeCuesBuffer.length = 0;
+    for (let i = this.matchedBuffer.length - 1; i >= 0; i--) {
+      this.activeCuesBuffer.push(this.matchedBuffer[i]);
     }
 
     return this.activeCuesBuffer;
   }
 
   public getActiveCueText(effectiveMs: number): string {
-    const activeCues = this.findActiveCues(effectiveMs);
-    const count = activeCues.length;
-    if (count === 0) {
-      this.cachedTextResult = "";
-      return "";
-    }
-    if (count === 1) {
-      this.cachedTextResult = activeCues[0].text;
-      return this.cachedTextResult;
+    if (
+      this.intervalSnapshot !== null &&
+      effectiveMs >= this.intervalSnapshot.startMs &&
+      effectiveMs < this.intervalSnapshot.endMs
+    ) {
+      return this.intervalSnapshot.text;
     }
 
-    let combined = "";
-    for (let i = 0; i < count; i++) {
-      if (i > 0) {
-        combined += "\n";
+    const activeCues = this.findActiveCues(effectiveMs);
+    const count = activeCues.length;
+    let text = "";
+    if (count === 1) {
+      text = activeCues[0].text;
+    } else if (count > 1) {
+      let combined = "";
+      for (let i = 0; i < count; i++) {
+        if (i > 0) {
+          combined += "\n";
+        }
+        combined += activeCues[i].text;
       }
-      combined += activeCues[i].text;
+      text = combined;
     }
-    this.cachedTextResult = combined;
-    return this.cachedTextResult;
+
+    this.intervalSnapshot = this.computeIntervalSnapshot(effectiveMs, activeCues, text);
+    return text;
+  }
+
+  private computeIntervalSnapshot(
+    effectiveMs: number,
+    activeCues: readonly SubtitleCue[],
+    text: string
+  ): SubtitleIntervalSnapshot {
+    const cues = this.currentCues;
+    const len = cues.length;
+    if (len === 0) {
+      return {
+        startMs: SUBTITLE_CONSTANTS.INTERVAL_START_MIN_MS,
+        endMs: SUBTITLE_CONSTANTS.INTERVAL_END_MAX_MS,
+        text: ""
+      };
+    }
+
+    const targetIndex = this.cursorIndex;
+    const nextStartMs =
+      targetIndex === -1
+        ? cues[0].startMs
+        : targetIndex + 1 < len
+        ? cues[targetIndex + 1].startMs
+        : SUBTITLE_CONSTANTS.INTERVAL_END_MAX_MS;
+
+    let minActiveEndMs: number = SUBTITLE_CONSTANTS.INTERVAL_END_MAX_MS;
+    let maxActiveStartMs: number = SUBTITLE_CONSTANTS.INTERVAL_START_MIN_MS;
+
+    for (let i = 0; i < activeCues.length; i++) {
+      const cue = activeCues[i];
+      if (cue.endMs < minActiveEndMs && cue.endMs > effectiveMs) {
+        minActiveEndMs = cue.endMs;
+      }
+      if (cue.startMs > maxActiveStartMs && cue.startMs <= effectiveMs) {
+        maxActiveStartMs = cue.startMs;
+      }
+    }
+
+    const endCandidate = Math.min(minActiveEndMs, nextStartMs);
+
+    let startCandidate = Math.max(maxActiveStartMs, this.lastHistoricalEndMs);
+    if (activeCues.length === 0 && targetIndex >= 0 && targetIndex < len) {
+      const targetCue = cues[targetIndex];
+      if (targetCue.endMs <= effectiveMs && targetCue.endMs > startCandidate) {
+        startCandidate = targetCue.endMs;
+      }
+    }
+
+    return {
+      startMs: Math.min(startCandidate, effectiveMs),
+      endMs: endCandidate,
+      text
+    };
   }
 
   public clearCurrent(): void {
