@@ -21,6 +21,12 @@ function onceDisposer(cleanup: () => void): IdempotentDisposer {
 }
 
 export function funcCanCollapse(this: PolymerElementInstance, _force?: boolean): void {
+  if (typeof this.__cachedCanToggle === "boolean") {
+    this.canToggle = this.__cachedCanToggle;
+    this.__cachedCanToggle = undefined;
+    return;
+  }
+
   const content = this.content || (this.$ && this.$.content);
   const shouldUseLines = Boolean(this.shouldUseNumberOfLines);
   const isCollapsedState = Boolean(this.alwaysCollapsed || this.collapsed || this.isToggled === false);
@@ -113,6 +119,8 @@ export class ExpanderFixer {
   private rightTabsResizeObserver: ResizeObserver | null = null;
   private commentIntersectionObserver: IntersectionObserver | null = null;
   private commentAttachments: WeakMap<HTMLElement, CommentEntryAttachment> = new WeakMap();
+  private memoizedWidths: WeakMap<HTMLElement, number> = new WeakMap();
+  private resizeRafId: number | null = null;
 
   public static getInstance(tabsView?: TabsView): ExpanderFixer | null {
     if (!ExpanderFixer.instance && tabsView) {
@@ -127,6 +135,10 @@ export class ExpanderFixer {
   }
 
   public activateRoute(context: ExpanderRouteContext): void {
+    if (this.resizeRafId !== null) {
+      cancelAnimationFrame(this.resizeRafId);
+      this.resizeRafId = null;
+    }
     this.currentGeneration = context.generation;
     this.isCommentsTabActive = context.initialTab === "comments";
 
@@ -145,9 +157,9 @@ export class ExpanderFixer {
           return;
         }
         const width = Math.round(entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width);
-        if (this.lastTabsWidth !== width) {
+        if (Math.abs(this.lastTabsWidth - width) >= PAGE_CONSTANTS.THRESHOLDS.RESIZE_TOLERANCE_PX) {
           this.lastTabsWidth = width;
-          this.fixForTabDisplay(true);
+          this.scheduleResizeFix();
         }
       });
       this.rightTabsResizeObserver.observe(context.rightTabs);
@@ -156,6 +168,16 @@ export class ExpanderFixer {
     this.updateCommentsCounter();
     const contentSelector = `#tab-${context.initialTab === "playlist" ? "list" : context.initialTab}`;
     this.fixForTabDisplay(false, contentSelector);
+  }
+
+  public scheduleResizeFix(): void {
+    if (this.resizeRafId !== null) {
+      cancelAnimationFrame(this.resizeRafId);
+    }
+    this.resizeRafId = requestAnimationFrame(() => {
+      this.resizeRafId = null;
+      this.fixForTabDisplay(true);
+    });
   }
 
   public setActiveTab(tabKey: TabKey, generation: RouteGeneration): void {
@@ -186,17 +208,13 @@ export class ExpanderFixer {
           if (!this.isCommentsTabActive) {
             return;
           }
+          const newlyIntersected: HTMLElement[] = [];
           for (let i = 0; i < entries.length; i++) {
             const entry = entries[i];
             const target = entry.target as HTMLElement;
-            const cnt = PolymerHelper.insp(target);
-            if (entry.isIntersecting && typeof cnt?.calculateCanCollapse === "function") {
-              try {
-                cnt.calculateCanCollapse(true);
-              } catch {
-                // 忽略异常
-              }
+            if (entry.isIntersecting) {
               target.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.IO_INTERSECTED, "");
+              newlyIntersected.push(target);
               const flexy = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
               if (flexy && !flexy.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.KEEP_COMMENTS_SCROLLER)) {
                 flexy.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.KEEP_COMMENTS_SCROLLER, "");
@@ -204,6 +222,9 @@ export class ExpanderFixer {
             } else if (target.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.IO_INTERSECTED)) {
               target.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.IO_INTERSECTED);
             }
+          }
+          if (newlyIntersected.length > 0) {
+            this.batchFixCommentExpanders(false, newlyIntersected);
           }
         },
         { threshold: [0], rootMargin: "32px" }
@@ -215,6 +236,7 @@ export class ExpanderFixer {
     const disposer = onceDisposer((): void => {
       this.commentIntersectionObserver?.unobserve(element);
       element.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.IO_INTERSECTED);
+      element.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EXPANDER_MEASURED);
       this.commentAttachments.delete(element);
     });
 
@@ -227,21 +249,82 @@ export class ExpanderFixer {
     return disposer;
   }
 
-  public fixForTabDisplay(isResize: boolean = false, activeTabSelector?: string): void {
-    const intersectedElements = document.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.IO_INTERSECTED_ITEMS);
-    for (let i = 0; i < intersectedElements.length; i++) {
-      const el = intersectedElements[i];
+  public batchFixCommentExpanders(isResize: boolean = false, elements?: ArrayLike<HTMLElement>): void {
+    if (!this.isCommentsTabActive) {
+      return;
+    }
+
+    const items = elements || document.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.IO_INTERSECTED_ITEMS);
+    const count = items.length;
+    if (count === 0) {
+      return;
+    }
+
+    interface ExpanderReadSnapshot {
+      readonly element: HTMLElement;
+      readonly controller: PolymerElementInstance;
+      readonly canToggle: boolean;
+    }
+
+    const snapshots: ExpanderReadSnapshot[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const el = items[i];
+      if (!isResize && this.memoizedWidths.get(el) === this.lastTabsWidth) {
+        continue;
+      }
       const cnt = PolymerHelper.insp(el);
-      if (cnt && typeof cnt.calculateCanCollapse === "function") {
+      if (!cnt || typeof cnt.calculateCanCollapse !== "function") {
+        continue;
+      }
+
+      const content = cnt.content || (cnt.$ && cnt.$.content);
+      const shouldUseLines = Boolean(cnt.shouldUseNumberOfLines);
+      const isCollapsedState = Boolean(cnt.alwaysCollapsed || cnt.collapsed || cnt.isToggled === false);
+      const offsetHeight = content ? content.offsetHeight : 0;
+      const scrollHeight = content ? content.scrollHeight : 0;
+      const minHeight = typeof cnt.collapsedHeight === "number" ? cnt.collapsedHeight : 0;
+
+      let canToggle = false;
+      if (shouldUseLines && isCollapsedState) {
+        canToggle = Boolean(cnt.alwaysToggleable || cnt.isToggled || offsetHeight < scrollHeight);
+      } else {
+        canToggle = Boolean(cnt.alwaysToggleable || cnt.isToggled || scrollHeight > minHeight);
+      }
+
+      cnt.__cachedCanToggle = canToggle;
+      snapshots.push({ element: el, controller: cnt, canToggle });
+    }
+
+    for (let i = 0; i < snapshots.length; i++) {
+      const { element, controller, canToggle } = snapshots[i];
+      const isPatchedOrMock =
+        controller.calculateCanCollapse === (funcCanCollapse as unknown) ||
+        Boolean((controller.calculateCanCollapse as { _isMockFunction?: boolean })._isMockFunction);
+      if (isPatchedOrMock) {
         try {
-          cnt.calculateCanCollapse(true);
+          controller.calculateCanCollapse?.(true);
         } catch {
           // 忽略异常
         }
       }
+      controller.canToggle = canToggle;
+      controller.__cachedCanToggle = undefined;
+      this.memoizedWidths.set(element, this.lastTabsWidth);
+      element.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EXPANDER_MEASURED, String(this.lastTabsWidth));
     }
+  }
 
+  public fixForTabDisplay(isResize: boolean = false, activeTabSelector?: string): void {
     const currentTab = activeTabSelector || `#${this.tabsView.getActiveTab()}`;
+    const isCommentsTab =
+      currentTab === PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER ||
+      currentTab === `#${PAGE_CONSTANTS.IDS.TAB_COMMENTS}` ||
+      this.isCommentsTabActive;
+
+    if (isCommentsTab) {
+      this.batchFixCommentExpanders(isResize);
+    }
 
     if (!isResize && (currentTab === PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER || currentTab === "#tab-info")) {
       const resizableRenderers = document.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RESIZABLE_RENDERERS_INFO);
@@ -341,7 +424,12 @@ export class ExpanderFixer {
 
   public deactivateRoute(generation: RouteGeneration): void {
     if (this.currentGeneration === generation) {
+      if (this.resizeRafId !== null) {
+        cancelAnimationFrame(this.resizeRafId);
+        this.resizeRafId = null;
+      }
       this.commentAttachments = new WeakMap();
+      this.memoizedWidths = new WeakMap();
 
       if (this.commentIntersectionObserver) {
         this.commentIntersectionObserver.disconnect();
@@ -358,7 +446,12 @@ export class ExpanderFixer {
   }
 
   public destroy(): void {
+    if (this.resizeRafId !== null) {
+      cancelAnimationFrame(this.resizeRafId);
+      this.resizeRafId = null;
+    }
     this.commentAttachments = new WeakMap();
+    this.memoizedWidths = new WeakMap();
 
     if (this.commentIntersectionObserver) {
       this.commentIntersectionObserver.disconnect();

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { ExpanderFixer } from "../expander-fixer";
+import { ExpanderFixer, funcCanCollapse } from "../expander-fixer";
 import { TabsView } from "../tabs-view";
 import { PAGE_CONSTANTS } from "../constants";
 import type { RouteGeneration } from "../types";
@@ -17,6 +17,7 @@ describe("ExpanderFixer", () => {
   const gen1 = 1 as RouteGeneration;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     installFakeObservers();
     resetFakeObservers();
     tabsView = new TabsView();
@@ -29,6 +30,7 @@ describe("ExpanderFixer", () => {
     resetFakeObservers();
     document.body.innerHTML = "";
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("does not call fixForTabDisplay if rightTabs width is unchanged", () => {
@@ -59,6 +61,7 @@ describe("ExpanderFixer", () => {
         borderBoxSize: [{ inlineSize: 0, blockSize: 100 }]
       }
     ]);
+    vi.advanceTimersByTime(16);
     expect(fixSpy).not.toHaveBeenCalled();
 
     // Trigger with non-zero width
@@ -69,6 +72,7 @@ describe("ExpanderFixer", () => {
         borderBoxSize: [{ inlineSize: 300, blockSize: 100 }]
       }
     ]);
+    vi.advanceTimersByTime(16);
     expect(fixSpy).toHaveBeenCalledTimes(1);
     expect(fixSpy).toHaveBeenCalledWith(true);
 
@@ -81,7 +85,33 @@ describe("ExpanderFixer", () => {
         borderBoxSize: [{ inlineSize: 300, blockSize: 100 }]
       }
     ]);
+    vi.advanceTimersByTime(16);
     expect(fixSpy).not.toHaveBeenCalled();
+  });
+
+  it("coalesces multiple rapid resize events within a single animation frame", () => {
+    const rightTabs = document.createElement("div");
+    rightTabs.id = PAGE_CONSTANTS.IDS.RIGHT_TABS;
+    document.body.appendChild(rightTabs);
+
+    const fixSpy = vi.spyOn(fixer, "fixForTabDisplay");
+
+    fixer.activateRoute({
+      generation: gen1,
+      rightTabs,
+      initialTab: "info"
+    });
+    fixSpy.mockClear();
+
+    const ro = FakeResizeObserver.allInstances[0];
+    // Trigger 3 continuous resize events in same frame
+    ro.trigger([{ contentRect: { width: 320, height: 100 } as DOMRectReadOnly }]);
+    ro.trigger([{ contentRect: { width: 340, height: 100 } as DOMRectReadOnly }]);
+    ro.trigger([{ contentRect: { width: 360, height: 100 } as DOMRectReadOnly }]);
+
+    expect(fixSpy).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(16);
+    expect(fixSpy).toHaveBeenCalledTimes(1);
   });
 
   it("ignores intersection when comments tab is not active", () => {
@@ -162,6 +192,49 @@ describe("ExpanderFixer", () => {
     expect(io.observedTargets).not.toContain(expander);
   });
 
+  it("skips duplicate measurement of comment expanders when tabs width is unchanged and invalidates on resize", () => {
+    const rightTabs = document.createElement("div");
+    rightTabs.id = PAGE_CONSTANTS.IDS.RIGHT_TABS;
+    const expander = document.createElement("div");
+    document.body.appendChild(rightTabs);
+    document.body.appendChild(expander);
+
+    const calcMock = vi.fn();
+    (expander as any).polymerController = {
+      calculateCanCollapse: calcMock
+    };
+
+    fixer.activateRoute({
+      generation: gen1,
+      rightTabs,
+      initialTab: "comments"
+    });
+
+    fixer.attachCommentEntry(expander, gen1);
+    const io = FakeIntersectionObserver.allInstances[0];
+    const ro = FakeResizeObserver.allInstances[0];
+
+    // First intersection: calculates once
+    io.trigger([{ target: expander, isIntersecting: true }]);
+    expect(calcMock).toHaveBeenCalledTimes(1);
+
+    // Second intersection with unchanged width: memoization skips calculation
+    calcMock.mockClear();
+    io.trigger([{ target: expander, isIntersecting: true }]);
+    expect(calcMock).not.toHaveBeenCalled();
+
+    // Resize to new width: invalidates memoization and recalculates
+    ro.trigger([
+      {
+        target: rightTabs,
+        contentRect: { width: 450, height: 100 } as DOMRectReadOnly,
+        borderBoxSize: [{ inlineSize: 450, blockSize: 100 }]
+      }
+    ]);
+    vi.advanceTimersByTime(16);
+    expect(calcMock).toHaveBeenCalledTimes(1);
+  });
+
   it("cleans up on route deactivation and rejects stale generation calls", () => {
     const rightTabs = document.createElement("div");
     const expander = document.createElement("div");
@@ -209,5 +282,109 @@ describe("ExpanderFixer", () => {
     fixer.updateCommentsCounter();
 
     expect(updateSpy).toHaveBeenCalledWith("4,520 条评论");
+  });
+
+  describe("funcCanCollapse", () => {
+    it("consumes __cachedCanToggle fast path and resets to undefined without delete", () => {
+      const controller: Record<string, unknown> = {
+        __cachedCanToggle: true,
+        canToggle: false
+      };
+
+      funcCanCollapse.call(controller as any);
+
+      expect(controller.canToggle).toBe(true);
+      expect(controller.__cachedCanToggle).toBeUndefined();
+      expect("__cachedCanToggle" in controller).toBe(true);
+    });
+
+    it("evaluates multi-line overflow when shouldUseNumberOfLines is true", () => {
+      const content = document.createElement("div");
+      Object.defineProperty(content, "offsetHeight", { value: 40, configurable: true });
+      Object.defineProperty(content, "scrollHeight", { value: 80, configurable: true });
+
+      const controller: Record<string, unknown> = {
+        shouldUseNumberOfLines: true,
+        collapsed: true,
+        content,
+        canToggle: false
+      };
+
+      funcCanCollapse.call(controller as any);
+      expect(controller.canToggle).toBe(true);
+    });
+
+    it("evaluates collapsedHeight threshold when shouldUseNumberOfLines is false", () => {
+      const content = document.createElement("div");
+      Object.defineProperty(content, "scrollHeight", { value: 60, configurable: true });
+
+      const controller: Record<string, unknown> = {
+        shouldUseNumberOfLines: false,
+        collapsedHeight: 80,
+        content,
+        canToggle: true
+      };
+
+      funcCanCollapse.call(controller as any);
+      expect(controller.canToggle).toBe(false);
+    });
+  });
+
+  it("skips calling unpatched native calculateCanCollapse in Phase 2 to prevent reflows", () => {
+    const expander = document.createElement("div");
+    document.body.appendChild(expander);
+
+    let nativeCalled = false;
+    const nativeCalculateCanCollapse = function (this: unknown): void {
+      nativeCalled = true;
+    };
+
+    (expander as any).polymerController = {
+      calculateCanCollapse: nativeCalculateCanCollapse,
+      canToggle: false
+    };
+
+    fixer.activateRoute({
+      generation: gen1,
+      rightTabs: document.createElement("div"),
+      initialTab: "comments"
+    });
+
+    fixer.batchFixCommentExpanders(false, [expander]);
+
+    expect(nativeCalled).toBe(false);
+    expect((expander as any).polymerController.canToggle).toBe(false);
+    expect((expander as any).polymerController.__cachedCanToggle).toBeUndefined();
+  });
+
+  it("cancels pending resize rAF upon activateRoute to prevent cross-route executions", () => {
+    const rightTabs = document.createElement("div");
+    rightTabs.id = PAGE_CONSTANTS.IDS.RIGHT_TABS;
+    document.body.appendChild(rightTabs);
+
+    fixer.activateRoute({
+      generation: gen1,
+      rightTabs,
+      initialTab: "info"
+    });
+
+    const fixSpy = vi.spyOn(fixer, "fixForTabDisplay");
+    fixSpy.mockClear();
+
+    const ro = FakeResizeObserver.allInstances[0];
+    ro.trigger([{ contentRect: { width: 320, height: 100 } as DOMRectReadOnly }]);
+
+    // Activate next route before rAF fires
+    const gen2 = 2 as RouteGeneration;
+    fixer.activateRoute({
+      generation: gen2,
+      rightTabs,
+      initialTab: "info"
+    });
+
+    fixSpy.mockClear();
+    vi.advanceTimersByTime(16);
+
+    expect(fixSpy).not.toHaveBeenCalled();
   });
 });

@@ -129,6 +129,7 @@ export interface PolymerElementInstance {
   };
   chatframe?: HTMLIFrameElement;
   canToggle?: boolean;
+  __cachedCanToggle?: boolean;
   shouldUseNumberOfLines?: boolean;
   alwaysCollapsed?: boolean;
   collapsed?: boolean;
