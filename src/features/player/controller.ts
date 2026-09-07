@@ -51,15 +51,26 @@ export class PlayerController {
   private readonly readyCallbacks: Set<(state: PlayerState) => void> = new Set();
   private readonly stateCallbacks: Set<(state: PlayerState) => void> = new Set();
   private boundVideo: HTMLVideoElement | null = null;
-  private observer: MutationObserver | null = null;
-  private observedContainer: HTMLElement | null = null;
   private isInitialized: boolean = false;
   private navigationToken: number = 0;
   private navigateHandler: (() => void) | null = null;
+  private globalPlayHandler: ((event: Event) => void) | null = null;
+
+  private ensureActiveVideo(): HTMLVideoElement | null {
+    if (!this.boundVideo || !this.boundVideo.isConnected) {
+      const direct = ReactiveDOMRegistry.getInstance().getVideoElement();
+      if (direct && direct !== this.boundVideo) {
+        this.bindVideoListeners(direct);
+      } else if (!direct && this.boundVideo) {
+        this.bindVideoListeners(null);
+      }
+    }
+    return this.boundVideo;
+  }
 
   private readonly handleRateChange = (): void => {
-    const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
-    if (!video) return;
+    const video = this.boundVideo;
+    if (!video || !video.isConnected) return;
     if (Math.abs(video.playbackRate - this.targetSpeed) > PLAYBACK_RATE_EPSILON) {
       video.playbackRate = this.targetSpeed;
     }
@@ -68,8 +79,8 @@ export class PlayerController {
 
   private readonly handleEnded = (): void => {
     if (this.targetLoop) {
-      const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
-      if (video) {
+      const video = this.boundVideo;
+      if (video && video.isConnected) {
         video.currentTime = 0;
         video.play().catch(() => {});
       }
@@ -77,8 +88,8 @@ export class PlayerController {
   };
 
   private readonly handleLoadedMetadata = (): void => {
-    const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
-    if (!video) return;
+    const video = this.boundVideo;
+    if (!video || !video.isConnected) return;
     this.applyPlaybackSettings(video);
     this.notifyStateChange();
     this.notifyReady();
@@ -94,7 +105,7 @@ export class PlayerController {
   }
 
   public getState(): PlayerState {
-    const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
+    const video = this.ensureActiveVideo();
     return {
       speed: this.targetSpeed,
       isLoop: this.targetLoop,
@@ -130,6 +141,7 @@ export class PlayerController {
     if (Math.abs(video.playbackRate - this.targetSpeed) > PLAYBACK_RATE_EPSILON) {
       video.playbackRate = this.targetSpeed;
     }
+    video.loop = this.targetLoop;
     if (this.targetLoop) {
       video.setAttribute("loop", "true");
     } else {
@@ -160,35 +172,12 @@ export class PlayerController {
     }
   }
 
-  private setupObserver(): void {
-    const container =
-      ReactiveDOMRegistry.getInstance().getPlayerContainer() ||
-      document.querySelector<HTMLElement>("ytd-player, #player, #player-container, #player-container-outer");
-    if (!container) return;
-    if (this.observedContainer === container && this.observer) return;
-
-    if (this.observer) {
-      this.observer.disconnect();
-    }
-    this.observedContainer = container;
-    this.observer = new MutationObserver(() => {
-      const video = ReactiveDOMRegistry.getInstance().getVideoElement();
-      if (video && video !== this.boundVideo) {
-        this.bindVideoListeners(video);
-      }
-    });
-    this.observer.observe(container, {
-      childList: true,
-      subtree: true
-    });
-  }
-
   private async syncVideoOnNavigate(): Promise<void> {
     const currentToken = ++this.navigationToken;
+    ReactiveDOMRegistry.getInstance().invalidateCache();
     const directVideo = ReactiveDOMRegistry.getInstance().getVideoElement();
     if (directVideo) {
       this.bindVideoListeners(directVideo);
-      this.setupObserver();
       return;
     }
 
@@ -200,7 +189,6 @@ export class PlayerController {
 
     if (video) {
       this.bindVideoListeners(video);
-      this.setupObserver();
     }
   }
 
@@ -234,11 +222,21 @@ export class PlayerController {
       };
       window.addEventListener("yt-navigate-finish", this.navigateHandler);
     }
+
+    if (!this.globalPlayHandler) {
+      this.globalPlayHandler = (event: Event): void => {
+        const target = event.target;
+        if (target instanceof HTMLVideoElement && target !== this.boundVideo && target.isConnected) {
+          this.bindVideoListeners(target);
+        }
+      };
+      document.addEventListener("play", this.globalPlayHandler, true);
+    }
   }
 
   public onReady(callback: (state: PlayerState) => void): () => void {
     this.readyCallbacks.add(callback);
-    if (ReactiveDOMRegistry.getInstance().getVideoElement()) {
+    if (this.ensureActiveVideo()) {
       try {
         callback(this.getState());
       } catch (e: unknown) {
@@ -258,7 +256,7 @@ export class PlayerController {
     const normalized = Math.round(clamped * 100) / 100;
     this.targetSpeed = normalized;
     StorageUtil.setValue(StorageUtil.keys.youtube.videoPlaySpeed, normalized);
-    const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
+    const video = this.ensureActiveVideo();
     if (video) {
       video.playbackRate = normalized;
     }
@@ -298,7 +296,7 @@ export class PlayerController {
     }
     this.targetLoop = nextState;
     StorageUtil.setValue(StorageUtil.keys.youtube.videoLoop, this.targetLoop);
-    const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
+    const video = this.ensureActiveVideo();
     if (video) {
       if (this.targetLoop) {
         video.setAttribute("loop", "true");
@@ -330,7 +328,7 @@ export class PlayerController {
         this.notifyStateChange();
         return false;
       } else {
-        const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
+        const video = this.ensureActiveVideo();
         if (video) {
           await video.requestPictureInPicture();
           PlaybackHUD.show(Locale.t("hud_pip_enabled"));
@@ -347,7 +345,7 @@ export class PlayerController {
 
   public captureScreenshot(options: ScreenshotOptions = {}): Promise<ScreenshotResult | null> {
     return new Promise<ScreenshotResult | null>((resolve, reject) => {
-      const video = this.boundVideo || ReactiveDOMRegistry.getInstance().getVideoElement();
+      const video = this.ensureActiveVideo();
       if (!video) {
         return resolve(null);
       }
@@ -430,14 +428,13 @@ export class PlayerController {
 
   public destroy(): void {
     this.navigationToken++;
-    if (this.observer) {
-      this.observer.disconnect();
-      this.observer = null;
-    }
-    this.observedContainer = null;
     if (this.navigateHandler) {
       window.removeEventListener("yt-navigate-finish", this.navigateHandler);
       this.navigateHandler = null;
+    }
+    if (this.globalPlayHandler) {
+      document.removeEventListener("play", this.globalPlayHandler, true);
+      this.globalPlayHandler = null;
     }
     if (this.boundVideo) {
       this.boundVideo.removeEventListener("ratechange", this.handleRateChange);

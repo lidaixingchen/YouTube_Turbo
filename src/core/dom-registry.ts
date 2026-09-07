@@ -13,7 +13,7 @@ export class ReactiveDOMRegistry {
   private isNavigationBound: boolean = false;
 
   private static readonly SELECTORS = {
-    VIDEO: "#movie_player video, video.video-stream, video",
+    VIDEO: "ytd-reel-video-renderer[is-active] video, #movie_player video, video.video-stream, video",
     PLAYER_CONTAINER: "#movie_player, #player-container-outer .html5-video-player, ytd-player, #player",
     VIDEO_TITLE: "h1.title.ytd-video-primary-info-renderer, h1.ytd-watch-metadata, #title h1, h1.watch-title-container"
   } as const;
@@ -186,56 +186,4 @@ export class ReactiveDOMRegistry {
     });
   }
 
-  /**
-   * 纯事件驱动元素等待（基于 MutationObserver，0 轮询）
-   */
-  public waitForElement<T extends Element = HTMLElement>(
-    selector: string,
-    root: Element | Document = document.body || document.documentElement,
-    timeoutMs: number = ReactiveDOMRegistry.DEFAULT_TIMEOUT_MS
-  ): Promise<T | null> {
-    const targetElement = root instanceof Document ? root.documentElement : root;
-    const immediate = targetElement?.querySelector<T>(selector);
-    if (immediate) {
-      return Promise.resolve(immediate);
-    }
-
-    if (!targetElement) {
-      return Promise.resolve(null);
-    }
-
-    return new Promise((resolve) => {
-      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-      let observer: MutationObserver | null = null;
-
-      const cleanup = (): void => {
-        if (timeoutTimer !== null) {
-          clearTimeout(timeoutTimer);
-          timeoutTimer = null;
-        }
-        if (observer) {
-          observer.disconnect();
-          observer = null;
-        }
-      };
-
-      observer = new MutationObserver(() => {
-        const found = targetElement.querySelector<T>(selector);
-        if (found) {
-          cleanup();
-          resolve(found);
-        }
-      });
-
-      timeoutTimer = setTimeout(() => {
-        cleanup();
-        resolve(targetElement.querySelector<T>(selector));
-      }, timeoutMs);
-
-      observer.observe(targetElement, {
-        childList: true,
-        subtree: true
-      });
-    });
-  }
 }
