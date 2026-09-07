@@ -92,14 +92,12 @@ export const userscriptMetadata: MonkeyUserScript = {
     "GM_registerMenuCommand",
     "GM_openInTab",
     "GM.openInTab",
-    "GM_addStyle",
     "GM_setValue",
     "GM_getValue",
     "GM_deleteValue",
-    "GM_xmlhttpRequest",
+    "GM_addValueChangeListener",
+    "GM_removeValueChangeListener",
     "unsafeWindow",
-    "GM_download",
-    "GM_setClipboard",
     "GM_addElement"
   ]
 };
