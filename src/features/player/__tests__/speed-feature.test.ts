@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PlayerSpeedFeature } from "../speed-feature";
 import { PlayerSpeedButtonView } from "../speed-button-view";
 import { ShortcutDispatcher } from "../../../core/shortcuts";
+import { SlotMountBus } from "../../../ui/toolbar/slot-mount-bus";
+import { PLAYER_CONSTANTS } from "../constants";
+import { StyleEngine } from "../../../core/style-engine";
 
 describe("PlayerSpeedFeature", () => {
   beforeEach(() => {
@@ -96,6 +99,50 @@ describe("PlayerSpeedFeature", () => {
     expect(() => PlayerSpeedFeature.enable()).toThrow(viewError);
     expect(rollbackCalls).toEqual([3, 2, 1]);
     expect(PlayerSpeedFeature.isActive()).toBe(false);
+  });
+
+  it("should rollback the whole feature when the bus initial synchronous mount throws", (): void => {
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=rollback_test"),
+      writable: true,
+      configurable: true
+    });
+
+    const watchPage = document.createElement("ytd-watch-flexy");
+    const playerContainer = document.createElement("div");
+    playerContainer.id = "movie_player";
+    const controls = document.createElement("div");
+    controls.className = "ytp-right-controls";
+    playerContainer.appendChild(controls);
+    watchPage.appendChild(playerContainer);
+    document.body.appendChild(watchPage);
+
+    const mountError = new Error("Slot renderer failed");
+    const registerSpy = vi.spyOn(ShortcutDispatcher, "register");
+    const injectSpy = vi
+      .spyOn(StyleEngine, "inject")
+      .mockImplementation((): HTMLStyleElement => document.createElement("style"));
+
+    const rendererSpy = vi
+      .spyOn(PlayerSpeedButtonView.prototype, "createSlotElement")
+      .mockImplementation(() => {
+        throw mountError;
+      });
+
+    expect(() => PlayerSpeedFeature.enable()).toThrow(mountError);
+
+    expect(PlayerSpeedFeature.isActive()).toBe(false);
+    expect(SlotMountBus.getInstance().hasSlot(PLAYER_CONSTANTS.SELECTORS.SPEED_SLOT_KEY)).toBe(false);
+    expect(SlotMountBus.getInstance().isSlotPending(PLAYER_CONSTANTS.SELECTORS.SPEED_SLOT_KEY)).toBe(false);
+    expect(registerSpy).toHaveBeenCalledTimes(3);
+    expect(rendererSpy).toHaveBeenCalledTimes(1);
+
+    expect(() => PlayerSpeedFeature.disable()).not.toThrow();
+    expect(StyleEngine.has(PLAYER_CONSTANTS.STYLES.SPEED_CONTROL_STYLE_ID)).toBe(false);
+
+    rendererSpy.mockRestore();
+    injectSpy.mockRestore();
+    watchPage.remove();
   });
 
   it("should isolate teardown exceptions and continue releasing other resources", () => {

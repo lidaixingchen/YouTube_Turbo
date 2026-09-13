@@ -215,9 +215,20 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
 
     const refreshSpy = vi.spyOn(ToolbarRenderers, "refreshToolboxGrid");
 
+    // 搭建宿主 DOM，使工具箱插槽可以完成物理挂载
+    const watchPage = document.createElement("ytd-watch-flexy");
+    const playerContainer = document.createElement("div");
+    playerContainer.id = "movie_player";
+    const controls = document.createElement("div");
+    controls.className = "ytp-right-controls";
+    playerContainer.appendChild(controls);
+    watchPage.appendChild(playerContainer);
+    document.body.appendChild(watchPage);
+
     // 初始化 Toolbar
     Toolbar.init();
     expect(bindSpy).toHaveBeenCalledTimes(1);
+    expect(document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID)).not.toBeNull();
 
     // 清除初始化引发的刷新计数
     refreshSpy.mockClear();
@@ -265,12 +276,14 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
     const disposer = Toolbar.registerAction(actionConfig);
 
     // 搭建宿主 DOM
+    const watchPage = document.createElement("ytd-watch-flexy");
     const playerContainer = document.createElement("div");
     playerContainer.id = "movie_player";
     const controls = document.createElement("div");
     controls.className = "ytp-right-controls";
     playerContainer.appendChild(controls);
-    document.body.appendChild(playerContainer);
+    watchPage.appendChild(playerContainer);
+    document.body.appendChild(watchPage);
 
     Toolbar.init();
 
@@ -328,12 +341,14 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
 
     const disposer = Toolbar.registerAction(actionConfig);
 
+    const watchPage = document.createElement("ytd-watch-flexy");
     const playerContainer = document.createElement("div");
     playerContainer.id = "movie_player";
     const controls = document.createElement("div");
     controls.className = "ytp-right-controls";
     playerContainer.appendChild(controls);
-    document.body.appendChild(playerContainer);
+    watchPage.appendChild(playerContainer);
+    document.body.appendChild(watchPage);
 
     Toolbar.init();
 
@@ -420,12 +435,14 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
 
     const disposer = Toolbar.registerAction(actionConfig);
 
+    const watchPage = document.createElement("ytd-watch-flexy");
     const playerContainer = document.createElement("div");
     playerContainer.id = "movie_player";
     const controls = document.createElement("div");
     controls.className = "ytp-right-controls";
     playerContainer.appendChild(controls);
-    document.body.appendChild(playerContainer);
+    watchPage.appendChild(playerContainer);
+    document.body.appendChild(watchPage);
 
     Toolbar.init();
 

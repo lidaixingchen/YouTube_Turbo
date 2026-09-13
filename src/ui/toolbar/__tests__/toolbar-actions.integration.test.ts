@@ -22,7 +22,8 @@ describe("Toolbar Actions Integration Tests", (): void => {
   });
 
   it("should mount and unmount across player-controls, shorts, and watch-metadata slots", async (): Promise<void> => {
-    // 搭建 DOM 环境
+    // 搭建 DOM 环境：播放器与元数据容器均位于当前路由页面容器内
+    const watchPage = document.createElement("ytd-watch-flexy");
     const playerContainer = document.createElement("div");
     playerContainer.id = "movie_player";
     const controls = document.createElement("div");
@@ -34,8 +35,9 @@ describe("Toolbar Actions Integration Tests", (): void => {
     actionsInner.id = "top-level-buttons-computed";
     metadataContainer.appendChild(actionsInner);
 
-    document.body.appendChild(playerContainer);
-    document.body.appendChild(metadataContainer);
+    watchPage.appendChild(playerContainer);
+    watchPage.appendChild(metadataContainer);
+    document.body.appendChild(watchPage);
 
     // 注册 2 个动作：播放器控制栏与元数据栏
     const disposer = Toolbar.registerActions([
@@ -123,11 +125,13 @@ describe("Toolbar Actions Integration Tests", (): void => {
       }
     });
 
+    const watchPage = document.createElement("ytd-watch-flexy");
     const metadataContainer = document.createElement("ytd-watch-metadata");
     const actionsInner = document.createElement("div");
     actionsInner.id = "top-level-buttons-computed";
     metadataContainer.appendChild(actionsInner);
-    document.body.appendChild(metadataContainer);
+    watchPage.appendChild(metadataContainer);
+    document.body.appendChild(watchPage);
 
     Toolbar.init();
     expect(document.getElementById(TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_ID)).not.toBeNull();
@@ -152,6 +156,133 @@ describe("Toolbar Actions Integration Tests", (): void => {
 
     disposer();
     metadataContainer.remove();
+    watchPage.remove();
+  });
+
+  it("should restore a slot registered on an inapplicable route after navigating to its route", async (): Promise<void> => {
+    // 回归场景：Shorts 动作在 Watch 路由注册时不得被注销，导航至 Shorts 后由总线恢复
+    const shortsContainer = document.createElement("ytd-shorts");
+    const navDown = document.createElement("div");
+    navDown.id = "navigation-button-down";
+    shortsContainer.appendChild(navDown);
+    document.body.appendChild(shortsContainer);
+
+    const disposer = Toolbar.registerAction({
+      id: "cross-route-shorts-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS,
+      titleKey: "shorts",
+      defaultTitle: "Shorts Action",
+      icon: "shorts",
+      onClick: (): void => {}
+    });
+
+    Toolbar.init();
+
+    expect(document.getElementById(TOOLBAR_CONSTANTS.SHORTS_CONTAINER_ID)).toBeNull();
+    expect(SlotMountBus.getInstance().hasSlot(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS)).toBe(true);
+
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/shorts/cross_route"),
+      writable: true,
+      configurable: true
+    });
+    document.dispatchEvent(new Event("yt-navigate-finish"));
+
+    const shortsRoot = document.getElementById(TOOLBAR_CONSTANTS.SHORTS_CONTAINER_ID);
+    expect(shortsRoot).not.toBeNull();
+    expect(shortsRoot?.previousElementSibling).toBe(navDown);
+
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=back_to_watch"),
+      writable: true,
+      configurable: true
+    });
+    document.dispatchEvent(new Event("yt-navigate-finish"));
+
+    expect(document.getElementById(TOOLBAR_CONSTANTS.SHORTS_CONTAINER_ID)).toBeNull();
+    expect(SlotMountBus.getInstance().hasSlot(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS)).toBe(true);
+
+    disposer();
+    shortsContainer.remove();
+  });
+
+  it("unmounts and restores the slot when action visibility toggles", async (): Promise<void> => {
+    const watchPage = document.createElement("ytd-watch-flexy");
+    const playerContainer = document.createElement("div");
+    playerContainer.id = "movie_player";
+    const controls = document.createElement("div");
+    controls.className = "ytp-right-controls";
+    playerContainer.appendChild(controls);
+    watchPage.appendChild(playerContainer);
+    document.body.appendChild(watchPage);
+
+    let visible: boolean = true;
+    let notifyChanged: (() => void) | null = null;
+    const disposer = Toolbar.registerAction({
+      id: "toggle-visibility-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "toggle",
+      defaultTitle: "Toggle",
+      icon: "toggle",
+      onClick: (): void => {},
+      isVisible: (): boolean => visible,
+      onStateBind: (notify: () => void): void => {
+        notifyChanged = notify;
+      }
+    });
+
+    Toolbar.init();
+    expect(document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID)).not.toBeNull();
+
+    visible = false;
+    if (notifyChanged) {
+      (notifyChanged as () => void)();
+    }
+    await Promise.resolve();
+    expect(document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID)).toBeNull();
+    expect(SlotMountBus.getInstance().hasSlot(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS)).toBe(false);
+
+    visible = true;
+    if (notifyChanged) {
+      (notifyChanged as () => void)();
+    }
+    await Promise.resolve();
+    expect(document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID)).not.toBeNull();
+
+    disposer();
+    watchPage.remove();
+  });
+
+  it("places the toolbox root after an existing speed button inside the right controls", (): void => {
+    const watchPage = document.createElement("ytd-watch-flexy");
+    const playerContainer = document.createElement("div");
+    playerContainer.id = "movie_player";
+    const controls = document.createElement("div");
+    controls.className = "ytp-right-controls";
+    const speedButton = document.createElement("div");
+    speedButton.className = "ytp-button yt-turbo-speed-btn";
+    controls.appendChild(speedButton);
+    playerContainer.appendChild(controls);
+    watchPage.appendChild(playerContainer);
+    document.body.appendChild(watchPage);
+
+    const disposer = Toolbar.registerAction({
+      id: "order-toolbox-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "order",
+      defaultTitle: "Order",
+      icon: "order",
+      onClick: (): void => {}
+    });
+
+    Toolbar.init();
+
+    const toolboxRoot = document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID);
+    expect(toolboxRoot).not.toBeNull();
+    expect(toolboxRoot?.previousElementSibling).toBe(speedButton);
+
+    disposer();
+    watchPage.remove();
   });
 
   it("should preserve speed slot on SlotMountBus when Toolbar is destroyed", (): void => {
