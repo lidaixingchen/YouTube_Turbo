@@ -34,3 +34,15 @@
 
 ### 负面代价与约束 (Negative & Trade-offs)
 - 需要集中管理多个插槽的生命周期状态集合（`Pending` / `Mounted` / `Disabled`），调度状态机稍微复杂于各个插槽各自独立的单点监听。
+
+---
+
+## 4. 观察目标策略深化 (Observation Target Policy)
+
+在单一实例总线的前提下，观察目标的选取规则于 2026-09-13 深化如下：
+
+1. **单 observer 多目标作用域观察**：同一个 `MutationObserver` 实例同时观察多个局部节点（播放器、元数据容器、Shorts 容器等），实例上限仍为 1；相同节点去重，相同节点所需观察选项取并集。祖先 subtree 根与后代目标并存时允许重复投递，由批次内"每个 dirty slot 最多协调一次"消化。
+2. **有限发现根表**：物理容器缺失时按固定优先级选取发现根——当前路由页面容器（`ytd-watch-flexy` / `ytd-shorts`，排除 `[hidden]` 保留页）、活跃迷你播放器宿主、`#page-manager` 直接子节点（`subtree: false`）。`document`、`document.body`、`document.documentElement` 与通用 `#content` 均不属于观察目标。
+3. **固定截止时间**：一次等待窗口至多一个 timer（`MOUNT_SAFETY_TIMEOUT_MS`），普通突变、观察根收缩与新插槽加入均不重置截止时间；到期断开观察并保留 pending 注册，由导航事件、`yt-page-data-updated` 或显式刷新建立新一轮恢复。
+4. **容器归属判定**：播放器容器经 `ReactiveDOMRegistry.getPlayerContainer(scope)` 限定查询获得（限定查询不覆盖无作用域缓存），目标仅在选中容器内求值；挂载身份以总线记录的节点引用确认，不依赖全局同 ID 节点。
+5. **就绪即停机不变**：全部插槽挂载、不适用或注销后 observer 与 timer 归零；已挂载宿主不再被监测，宿主替换依靠下一次恢复事件惰性修复。
