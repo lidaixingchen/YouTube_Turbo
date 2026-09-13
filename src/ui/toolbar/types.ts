@@ -28,14 +28,21 @@ export interface ActionConfig {
   ) => (() => void) | void;
 }
 
+export interface SlotMountContext {
+  readonly container: HTMLElement;
+  readonly target: HTMLElement;
+}
+
+export type SlotRenderer = (context: SlotMountContext) => HTMLElement | null;
+
 export interface SlotDefinition {
-  slotKey: string;
-  containerSelector: string;
-  targetSelector: string;
-  elementId: string;
-  isApplicable?: (url: URL) => boolean;
-  mount: (target: HTMLElement, element: HTMLElement) => void;
-  unmount?: () => void;
+  readonly slotKey: string;
+  readonly containerSelector: string;
+  readonly targetSelector: string;
+  readonly elementId: string;
+  readonly isApplicable?: (url: URL) => boolean;
+  readonly mount: (target: HTMLElement, element: HTMLElement) => void;
+  readonly unmount?: () => void;
 }
 
 export type PopoverState = "closed" | "hover" | "pinned";

@@ -64,23 +64,36 @@ export class ReactiveDOMRegistry {
     return null;
   }
 
-  public getPlayerContainer(): HTMLElement | null {
+  public getPlayerContainer(scope?: HTMLElement): HTMLElement | null {
+    if (!scope) {
+      const cached = this.playerRef?.deref();
+      if (cached && cached.isConnected) {
+        return cached;
+      }
+
+      const queried =
+        document.getElementById("movie_player") ||
+        document.querySelector<HTMLElement>(ReactiveDOMRegistry.SELECTORS.PLAYER_CONTAINER);
+
+      if (queried) {
+        this.playerRef = new WeakRef(queried);
+        return queried;
+      }
+
+      this.playerRef = null;
+      return null;
+    }
+
     const cached = this.playerRef?.deref();
-    if (cached && cached.isConnected) {
+    if (cached && cached.isConnected && (cached === scope || scope.contains(cached))) {
       return cached;
     }
 
-    const queried =
-      document.getElementById("movie_player") ||
-      document.querySelector<HTMLElement>(ReactiveDOMRegistry.SELECTORS.PLAYER_CONTAINER);
+    const queried = scope.matches(ReactiveDOMRegistry.SELECTORS.PLAYER_CONTAINER)
+      ? scope
+      : scope.querySelector<HTMLElement>(ReactiveDOMRegistry.SELECTORS.PLAYER_CONTAINER);
 
-    if (queried) {
-      this.playerRef = new WeakRef(queried);
-      return queried;
-    }
-
-    this.playerRef = null;
-    return null;
+    return queried && queried.isConnected ? queried : null;
   }
 
   public getVideoTitleElement(): HTMLElement | null {
