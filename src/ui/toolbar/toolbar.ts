@@ -3,7 +3,7 @@ import { StyleEngine } from "../../core/style-engine";
 import { PLAYER_CONSTANTS } from "../../features/player/constants";
 import { SlotMountBus } from "./slot-mount-bus";
 import { ToolbarRenderers, type ActionExecutor } from "./renderers";
-import type { ActionConfig, ActionContext, PopoverController, SlotDefinition } from "./types";
+import type { ActionConfig, ActionContext, PopoverController, SlotDefinition, SlotMountContext, SlotRenderer } from "./types";
 
 interface ToolbarActionRecord {
   readonly owner: symbol;
@@ -27,6 +27,7 @@ export class ToolbarController {
   private static instance: ToolbarController | null = null;
   private isInitialized: boolean = false;
   private popoverController: PopoverController | null = null;
+  private toolboxPanelHost: HTMLElement | null = null;
 
   private readonly actionsById: Map<string, ToolbarActionRecord> = new Map<string, ToolbarActionRecord>();
   private readonly registrationsByOwner: Map<symbol, ToolbarActionRegistration> = new Map<symbol, ToolbarActionRegistration>();
@@ -35,6 +36,15 @@ export class ToolbarController {
   private readonly pendingSlotInvalidations: Set<string> = new Set<string>();
   private invalidationScheduled: boolean = false;
   private lifecycleGeneration: number = 0;
+
+  private readonly slotRenderers: Record<string, SlotRenderer> = {
+    [TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS]: (context: SlotMountContext): HTMLElement | null =>
+      this.createPlayerControlsSlotElement(context),
+    [TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS]: (context: SlotMountContext): HTMLElement | null =>
+      this.createShortsSlotElement(context),
+    [TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA]: (context: SlotMountContext): HTMLElement | null =>
+      this.createWatchMetadataSlotElement(context)
+  };
 
   private static readonly SUPPORTED_SLOTS: ReadonlySet<string> = new Set<string>([
     TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
@@ -45,10 +55,10 @@ export class ToolbarController {
   private static readonly SLOT_DEFINITIONS: Record<string, SlotDefinition> = {
     [TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS]: {
       slotKey: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-      containerSelector: "#player-container-outer .html5-video-player, #movie_player",
-      targetSelector: ".ytp-right-controls",
+      containerSelector: PLAYER_CONSTANTS.SELECTORS.PLAYER_CONTAINER,
+      targetSelector: PLAYER_CONSTANTS.SELECTORS.RIGHT_CONTROLS,
       elementId: TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID,
-      isApplicable: (url: URL): boolean => !url.pathname.startsWith("/shorts"),
+      isApplicable: (url: URL): boolean => !url.pathname.startsWith(TOOLBAR_CONSTANTS.SHORTS_ROUTE_PREFIX),
       mount: (target: HTMLElement, element: HTMLElement): void => {
         const speedBtn: HTMLElement | null = target.querySelector<HTMLElement>(PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON);
         if (speedBtn) {
@@ -67,18 +77,19 @@ export class ToolbarController {
           }
           instance.popoverController = null;
         }
-        const container: HTMLElement | null = document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID);
-        if (container && container.parentNode) {
-          container.parentNode.removeChild(container);
+        const host: HTMLElement | null = instance.toolboxPanelHost;
+        if (host && host.isConnected) {
+          host.querySelector<HTMLElement>(`#${TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID}`)?.remove();
         }
+        instance.toolboxPanelHost = null;
       }
     },
     [TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS]: {
       slotKey: TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS,
-      containerSelector: "ytd-shorts",
-      targetSelector: "#navigation-button-down",
+      containerSelector: TOOLBAR_CONSTANTS.SHORTS_PAGE_CONTAINER_SELECTOR,
+      targetSelector: TOOLBAR_CONSTANTS.SHORTS_TARGET_SELECTOR,
       elementId: TOOLBAR_CONSTANTS.SHORTS_CONTAINER_ID,
-      isApplicable: (url: URL): boolean => url.pathname.startsWith("/shorts"),
+      isApplicable: (url: URL): boolean => url.pathname.startsWith(TOOLBAR_CONSTANTS.SHORTS_ROUTE_PREFIX),
       mount: (target: HTMLElement, element: HTMLElement): void => {
         if (!target.parentElement?.contains(element)) {
           target.after(element);
@@ -87,12 +98,12 @@ export class ToolbarController {
     },
     [TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA]: {
       slotKey: TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA,
-      containerSelector: "ytd-watch-metadata",
-      targetSelector: "#top-level-buttons-computed, #actions-inner, #actions, #owner",
+      containerSelector: TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_SELECTOR,
+      targetSelector: TOOLBAR_CONSTANTS.WATCH_METADATA_TARGET_SELECTOR,
       elementId: TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_ID,
-      isApplicable: (url: URL): boolean => url.pathname.startsWith("/watch"),
+      isApplicable: (url: URL): boolean => url.pathname.startsWith(TOOLBAR_CONSTANTS.WATCH_ROUTE_PREFIX),
       mount: (target: HTMLElement, element: HTMLElement): void => {
-        if (target.id === "top-level-buttons-computed" || target.id === "actions-inner" || target.id === "owner") {
+        if (TOOLBAR_CONSTANTS.WATCH_METADATA_ACTION_HOST_IDS.has(target.id)) {
           if (!target.contains(element)) {
             target.appendChild(element);
           }
@@ -381,31 +392,24 @@ export class ToolbarController {
       return;
     }
 
-    // 1. 路由适用性前置判定，杜绝跨路由竞态与孤儿 DOM
-    const currentUrl: URL = new URL(window.location.href);
-    const isApplicable: boolean = def.isApplicable ? def.isApplicable(currentUrl) : true;
-    if (!isApplicable) {
-      SlotMountBus.getInstance().unmountSlot(slotKey);
-      return;
-    }
+    try {
+      const actions: ActionConfig[] = this.getVisibleActionsBySlot(slotKey);
 
-    // 2. 读取并求值可见动作
-    const actions: ActionConfig[] = this.getVisibleActionsBySlot(slotKey);
+      if (actions.length === 0) {
+        SlotMountBus.getInstance().unmountSlot(slotKey);
+        return;
+      }
 
-    // 3. 无可见动作时卸载该 slot
-    if (actions.length === 0) {
-      SlotMountBus.getInstance().unmountSlot(slotKey);
-      return;
-    }
+      const element: HTMLElement | null = SlotMountBus.getInstance().mountSlot(
+        def,
+        this.slotRenderers[slotKey]
+      );
 
-    // 4. 有可见动作时挂载或刷新
-    if (slotKey === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS) {
-      SlotMountBus.getInstance().mountSlot(def, this.createPlayerControlsSlotElement);
-      ToolbarRenderers.refreshToolboxGrid(actions, this.executeActionWrapper);
-    } else if (slotKey === TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS) {
-      SlotMountBus.getInstance().mountSlot(def, this.createShortsSlotElement);
-    } else if (slotKey === TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA) {
-      SlotMountBus.getInstance().mountSlot(def, this.createWatchMetadataSlotElement);
+      if (element && slotKey === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS) {
+        ToolbarRenderers.refreshToolboxGrid(actions, this.executeActionWrapper, this.toolboxPanelHost);
+      }
+    } catch (error: unknown) {
+      console.error(`[ToolbarController] Error reconciling slot "${slotKey}":`, error);
     }
   }
 
@@ -507,9 +511,11 @@ export class ToolbarController {
     }
   };
 
-  private readonly createPlayerControlsSlotElement = (): HTMLElement | null => {
+  private createPlayerControlsSlotElement(context: SlotMountContext): HTMLElement | null {
+    this.toolboxPanelHost = context.container;
     const actions: ActionConfig[] = this.getVisibleActionsBySlot(TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS);
     return ToolbarRenderers.createPlayerControlsElement(
+      context,
       actions,
       this.executeActionWrapper,
       (popover: PopoverController): void => {
@@ -523,17 +529,17 @@ export class ToolbarController {
         this.popoverController = popover;
       }
     );
-  };
+  }
 
-  private readonly createShortsSlotElement = (): HTMLElement | null => {
+  private createShortsSlotElement(context: SlotMountContext): HTMLElement | null {
     const actions: ActionConfig[] = this.getVisibleActionsBySlot(TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS);
-    return ToolbarRenderers.createShortsElement(actions, this.executeActionWrapper);
-  };
+    return ToolbarRenderers.createShortsElement(context, actions, this.executeActionWrapper);
+  }
 
-  private readonly createWatchMetadataSlotElement = (): HTMLElement | null => {
+  private createWatchMetadataSlotElement(context: SlotMountContext): HTMLElement | null {
     const actions: ActionConfig[] = this.getVisibleActionsBySlot(TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA);
-    return ToolbarRenderers.createWatchMetadataElement(actions, this.executeActionWrapper);
-  };
+    return ToolbarRenderers.createWatchMetadataElement(context, actions, this.executeActionWrapper);
+  }
 
   private injectStyles(): void {
     const css: string = `

@@ -6,7 +6,7 @@ import { SlotMountBus } from "../../ui/toolbar/slot-mount-bus";
 import { TOOLBAR_CONSTANTS } from "../../ui/toolbar/constants";
 import { PLAYBACK_RATE_EPSILON } from "../../core/constants";
 import { ReactiveDOMRegistry } from "../../core/dom-registry";
-import type { PopoverController, SlotDefinition } from "../../ui/toolbar/types";
+import type { PopoverController, SlotDefinition, SlotMountContext } from "../../ui/toolbar/types";
 
 export class PlayerSpeedButtonView {
   private static instance: PlayerSpeedButtonView | null = null;
@@ -69,7 +69,10 @@ export class PlayerSpeedButtonView {
       }
     };
 
-    SlotMountBus.getInstance().mountSlot(slotDef, (): HTMLElement | null => this.createSlotElement());
+    SlotMountBus.getInstance().mountSlot(
+      slotDef,
+      (context: SlotMountContext): HTMLElement | null => this.createSlotElement(context)
+    );
   }
 
   private injectStyles(): void {
@@ -77,21 +80,23 @@ export class PlayerSpeedButtonView {
     StyleEngine.inject(PLAYER_CONSTANTS.STYLES.SPEED_CONTROL_STYLE_ID, combinedStyle);
   }
 
-  private resolvePlayerContainer(): HTMLElement | null {
+  private resolvePlayerContainer(host?: HTMLElement): HTMLElement | null {
+    if (host) {
+      return host;
+    }
     if (this.buttonEl && this.buttonEl.isConnected) {
-      const closestPlayer: HTMLElement | null = this.buttonEl.closest<HTMLElement>("#movie_player, .html5-video-player");
+      const closestPlayer: HTMLElement | null = this.buttonEl.closest<HTMLElement>(
+        PLAYER_CONSTANTS.SELECTORS.PLAYER_CONTAINER
+      );
       if (closestPlayer) {
         return closestPlayer;
       }
     }
-    return (
-      document.querySelector<HTMLElement>("#movie_player, #player-container-outer .html5-video-player") ||
-      ReactiveDOMRegistry.getInstance().getPlayerContainer()
-    );
+    return ReactiveDOMRegistry.getInstance().getPlayerContainer();
   }
 
-  public ensureMenuAndPopover(currentSpeed?: number): boolean {
-    const player: HTMLElement | null = this.resolvePlayerContainer();
+  public ensureMenuAndPopover(currentSpeed?: number, host?: HTMLElement): boolean {
+    const player: HTMLElement | null = this.resolvePlayerContainer(host);
     if (!player || !this.buttonEl) {
       return false;
     }
@@ -143,9 +148,9 @@ export class PlayerSpeedButtonView {
     return true;
   }
 
-  public createSlotElement(): HTMLElement | null {
+  public createSlotElement(context?: SlotMountContext): HTMLElement | null {
     if (this.buttonEl && this.buttonEl.isConnected) {
-      this.ensureMenuAndPopover();
+      this.ensureMenuAndPopover(undefined, context?.container);
       return this.buttonEl;
     }
 
@@ -171,7 +176,7 @@ export class PlayerSpeedButtonView {
       }
     });
 
-    this.ensureMenuAndPopover(currentSpeed);
+    this.ensureMenuAndPopover(currentSpeed, context?.container);
     this.bindPlayerState();
 
     return this.buttonEl;

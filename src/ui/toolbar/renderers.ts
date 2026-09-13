@@ -2,7 +2,7 @@ import { TOOLBAR_CONSTANTS } from "./constants";
 import { IconRegistry } from "../icons";
 import { PopoverEngine } from "./popover";
 import { Locale } from "../../i18n";
-import type { ActionConfig, PopoverController } from "./types";
+import type { ActionConfig, PopoverController, SlotMountContext } from "./types";
 
 export type ActionExecutor = (action: ActionConfig, event: MouseEvent, buttonElement: HTMLElement) => void;
 
@@ -76,11 +76,18 @@ export class ToolbarRenderers {
     });
   }
 
-  public static refreshToolboxGrid(actions: readonly ActionConfig[], executeAction: ActionExecutor): void {
-    const toolsGrid: HTMLElement | null = document.querySelector<HTMLElement>(
+  public static refreshToolboxGrid(
+    actions: readonly ActionConfig[],
+    executeAction: ActionExecutor,
+    scope?: ParentNode | null
+  ): void {
+    if (!scope) {
+      return;
+    }
+    const toolsGrid: HTMLElement | null = scope.querySelector<HTMLElement>(
       `#${TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID} .toolbox_extension_tools`
     );
-    const tooltipEl: HTMLElement | null = document.querySelector<HTMLElement>(
+    const tooltipEl: HTMLElement | null = scope.querySelector<HTMLElement>(
       `#${TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID} .toolbox_extension_tooltip`
     );
     if (toolsGrid && tooltipEl) {
@@ -89,6 +96,7 @@ export class ToolbarRenderers {
   }
 
   public static createPlayerControlsElement(
+    context: SlotMountContext,
     actions: readonly ActionConfig[],
     executeAction: ActionExecutor,
     onPopoverBound: (controller: PopoverController) => void
@@ -97,9 +105,11 @@ export class ToolbarRenderers {
       return null;
     }
 
-    const existingBox: HTMLElement | null = document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID);
+    const existingBox: HTMLElement | null = context.container.querySelector<HTMLElement>(
+      `#${TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID}`
+    );
     if (existingBox && existingBox.isConnected) {
-      ToolbarRenderers.refreshToolboxGrid(actions, executeAction);
+      ToolbarRenderers.refreshToolboxGrid(actions, executeAction, context.container);
       return existingBox;
     }
 
@@ -111,7 +121,9 @@ export class ToolbarRenderers {
     const iconSvg: Element = IconRegistry.createSvg("toolbox", { size: TOOLBAR_CONSTANTS.ICON_SIZE_PX });
     boxContainer.appendChild(iconSvg);
 
-    const existingContainer: HTMLElement | null = document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID);
+    const existingContainer: HTMLElement | null = context.container.querySelector<HTMLElement>(
+      `#${TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID}`
+    );
     if (existingContainer) {
       existingContainer.remove();
     }
@@ -130,19 +142,15 @@ export class ToolbarRenderers {
     ToolbarRenderers.renderToolboxGrid(toolsGrid, tooltipEl, actions, executeAction);
     toolBoxContainer.appendChild(toolsGrid);
 
-    const player: HTMLElement | null = document.querySelector<HTMLElement>(
-      "#player-container-outer .html5-video-player, #movie_player"
-    );
-    if (player) {
-      player.appendChild(toolBoxContainer);
-      const controller: PopoverController = PopoverEngine.bind(boxContainer, toolBoxContainer, player);
-      onPopoverBound(controller);
-    }
+    context.container.appendChild(toolBoxContainer);
+    const controller: PopoverController = PopoverEngine.bind(boxContainer, toolBoxContainer, context.container);
+    onPopoverBound(controller);
 
     return boxContainer;
   }
 
   public static createShortsElement(
+    context: SlotMountContext,
     actions: readonly ActionConfig[],
     executeAction: ActionExecutor
   ): HTMLElement | null {
@@ -151,7 +159,7 @@ export class ToolbarRenderers {
     }
 
     const elementId: string = TOOLBAR_CONSTANTS.SHORTS_CONTAINER_ID;
-    const existing: HTMLElement | null = document.getElementById(elementId);
+    const existing: HTMLElement | null = context.container.querySelector<HTMLElement>(`#${elementId}`);
     if (existing && existing.isConnected) {
       existing.innerHTML = "";
     }
@@ -183,6 +191,7 @@ export class ToolbarRenderers {
   }
 
   public static createWatchMetadataElement(
+    context: SlotMountContext,
     actions: readonly ActionConfig[],
     executeAction: ActionExecutor
   ): HTMLElement | null {
@@ -191,7 +200,7 @@ export class ToolbarRenderers {
     }
 
     const elementId: string = TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_ID;
-    const existing: HTMLElement | null = document.getElementById(elementId);
+    const existing: HTMLElement | null = context.container.querySelector<HTMLElement>(`#${elementId}`);
     if (existing && existing.isConnected) {
       existing.innerHTML = "";
     }
