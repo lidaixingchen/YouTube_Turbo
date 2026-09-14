@@ -141,6 +141,12 @@ html[dark] .yt-settings-form .switch-input:focus-visible + .switch-track,
   padding-top: 12px;
   border-top: 1px dashed var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1));
   transition: opacity 0.2s ease;
+  opacity: 1;
+}
+
+.yt-settings-form .setting-extra-config.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 html[dark] .yt-settings-form .setting-extra-config,
@@ -314,3 +320,79 @@ html[dark] .yt-subtitle-offset-desc,
 [dark="true"] .yt-subtitle-offset-desc {
   color: var(--yt-spec-text-secondary, #aaaaaa);
 }
+
+.yt-settings-notice {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.yt-settings-notice-session {
+  background-color: rgba(234, 179, 8, 0.12);
+  color: #b45309;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+html[dark] .yt-settings-notice-session,
+[dark="true"] .yt-settings-notice-session {
+  background-color: rgba(234, 179, 8, 0.15);
+  color: #fde047;
+  border-color: rgba(234, 179, 8, 0.4);
+}
+
+.setting-status {
+  font-size: 11px;
+  font-weight: 500;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.setting-status-starting,
+.setting-status-stopping {
+  color: var(--yt-spec-call-to-action, #065fd4);
+}
+
+html[dark] .setting-status-starting,
+html[dark] .setting-status-stopping,
+[dark="true"] .setting-status-starting,
+[dark="true"] .setting-status-stopping {
+  color: #3ea6ff;
+}
+
+.setting-status-error {
+  color: #dc2626;
+}
+
+html[dark] .setting-status-error,
+[dark="true"] .setting-status-error {
+  color: #f87171;
+}
+
+.setting-status-reload-required {
+  color: #d97706;
+}
+
+html[dark] .setting-status-reload-required,
+[dark="true"] .setting-status-reload-required {
+  color: #fbbf24;
+}
+
+.yt-settings-btn-action {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid currentColor;
+  background: transparent;
+  line-height: 1.2;
+}
+
+.yt-settings-btn-action:hover {
+  opacity: 0.8;
+}
+

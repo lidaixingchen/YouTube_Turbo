@@ -37,5 +37,9 @@ setupConfigHacks();
 
   Toolbar.init();
   FeatureRegistry.registerAll(defaultFeatureDescriptors);
-  await FeatureRegistry.initAll();
+  try {
+    await FeatureRegistry.initAll();
+  } catch (err: unknown) {
+    console.error("[main] FeatureRegistry initialization error:", err);
+  }
 })();

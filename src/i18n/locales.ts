@@ -60,7 +60,20 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       subtitle_global_offset_title: "Global Baseline Offset",
       subtitle_global_offset_desc: "All new videos will start with this baseline. Shortcuts Alt+[ / Alt+] adjust the current video temporarily and reset on video change.",
       subtitle_offset_reset_btn: "Reset 0s",
-      subtitle_offset_unit: "s"
+      subtitle_offset_unit: "s",
+      status_starting: "Applying...",
+      status_stopping: "Stopping...",
+      status_enabled: "Enabled",
+      status_disabled: "Disabled",
+      status_error: "Error",
+      status_reload_required: "Reload required",
+      error_stage_storage: "Storage error",
+      error_stage_setup: "Setup failed",
+      error_stage_teardown: "Teardown failed",
+      error_stage_cleanup: "Cleanup failed",
+      action_retry: "Retry",
+      action_reload: "Reload",
+      notice_session_only: "Session only (storage unavailable)"
     }
   },
   "zh-CN": {
@@ -119,7 +132,20 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       subtitle_global_offset_title: "全局默认基准偏移",
       subtitle_global_offset_desc: "新打开的视频将以此基准开始。播放中按 Alt+[ / Alt+] 仅对当前视频临时生效，切视频自动复位。",
       subtitle_offset_reset_btn: "重置为 0s",
-      subtitle_offset_unit: "秒"
+      subtitle_offset_unit: "秒",
+      status_starting: "正在应用...",
+      status_stopping: "正在停用...",
+      status_enabled: "已生效",
+      status_disabled: "已停用",
+      status_error: "应用失败",
+      status_reload_required: "需要刷新",
+      error_stage_storage: "存储写入失败",
+      error_stage_setup: "装配失败",
+      error_stage_teardown: "停用失败",
+      error_stage_cleanup: "清理失败",
+      action_retry: "重试",
+      action_reload: "刷新页面",
+      notice_session_only: "仅当前会话有效（存储不可用）"
     }
   },
   "zh-TW": {
@@ -178,7 +204,20 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       subtitle_global_offset_title: "全域預設基準偏移",
       subtitle_global_offset_desc: "新開啟的影片將以此基準開始。播放中按 Alt+[ / Alt+] 僅對當前影片臨時生效，切換影片自動重設。",
       subtitle_offset_reset_btn: "重設為 0s",
-      subtitle_offset_unit: "秒"
+      subtitle_offset_unit: "秒",
+      status_starting: "正在套用...",
+      status_stopping: "正在停用...",
+      status_enabled: "已生效",
+      status_disabled: "已停用",
+      status_error: "套用失敗",
+      status_reload_required: "需要重新整理",
+      error_stage_storage: "儲存寫入失敗",
+      error_stage_setup: "裝配失敗",
+      error_stage_teardown: "停用失敗",
+      error_stage_cleanup: "清理失敗",
+      action_retry: "重試",
+      action_reload: "重新整理頁面",
+      notice_session_only: "僅當前工作階段有效（儲存不可用）"
     }
   },
   "ja": {

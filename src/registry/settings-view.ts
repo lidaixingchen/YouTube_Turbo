@@ -2,18 +2,27 @@ import { StyleEngine } from "../core/style-engine";
 import { LangueUtil } from "../i18n";
 import { Modal } from "../ui/modal/modal";
 import { FeatureRegistry } from "./feature-registry";
-import type { StepperConfigField } from "../types";
+import { FEATURE_REGISTRY_CONSTANTS } from "./constants";
+import type { FeatureStateSnapshot } from "./types";
+import type { FeatureDescriptor, StepperConfigField } from "../types";
 import settingsCss from "./settings.css?raw";
 
-const SETTINGS_STYLE_ID = "yt-improvements-settings-style";
-const DEFAULT_SCALE = 1;
-const DEFAULT_PRECISION = 0;
-const STYLE_OPACITY_ENABLED = "1";
-const STYLE_OPACITY_DISABLED = "0.5";
+interface FeatureControls {
+  input: HTMLInputElement;
+  statusEl: HTMLElement;
+  extraContainer: HTMLElement | null;
+}
 
 export class SettingsModalView {
+  private static isOpen: boolean = false;
+
   public static show(): void {
-    StyleEngine.inject(SETTINGS_STYLE_ID, settingsCss);
+    if (this.isOpen) {
+      return;
+    }
+    this.isOpen = true;
+
+    StyleEngine.inject(FEATURE_REGISTRY_CONSTANTS.STYLES.SETTINGS_STYLE_ID, settingsCss);
 
     const language = LangueUtil.getLanguage();
     const registry = FeatureRegistry.getInstance();
@@ -23,7 +32,20 @@ export class SettingsModalView {
     const container = document.createElement("div");
     container.className = "yt-settings-form";
 
-    descriptors.forEach((feature) => {
+    const isSessionMode = descriptors.some(
+      (desc: FeatureDescriptor): boolean => registry.getState(desc.id).persistence === "session"
+    );
+    if (isSessionMode) {
+      const notice = document.createElement("div");
+      notice.className = "yt-settings-notice yt-settings-notice-session";
+      notice.textContent = language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.NOTICE_SESSION_ONLY] || "";
+      container.appendChild(notice);
+    }
+
+    const featureControlsMap = new Map<string, FeatureControls>();
+    let isDisposed: boolean = false;
+
+    descriptors.forEach((feature: FeatureDescriptor): void => {
       const row = document.createElement("div");
       row.className = "row-item";
 
@@ -51,6 +73,12 @@ export class SettingsModalView {
         infoEl.appendChild(descEl);
       }
 
+      const statusEl = document.createElement("div");
+      statusEl.className = "setting-status";
+      statusEl.setAttribute("role", "status");
+      statusEl.setAttribute("aria-live", "polite");
+      infoEl.appendChild(statusEl);
+
       const switchEl = document.createElement("div");
       switchEl.className = "setting-switch";
 
@@ -58,9 +86,9 @@ export class SettingsModalView {
       input.type = "checkbox";
       input.id = `yt_feat_${feature.id}`;
       input.className = "switch-input";
+      input.setAttribute("role", "switch");
       input.setAttribute("aria-label", titleText);
-      const isFeatureEnabled = registry.isEnabled(feature.id);
-      input.checked = isFeatureEnabled;
+      input.checked = registry.isEnabled(feature.id);
 
       const track = document.createElement("span");
       track.className = "switch-track";
@@ -75,47 +103,171 @@ export class SettingsModalView {
       if (feature.extraFields && feature.extraFields.length > 0) {
         extraContainer = document.createElement("div");
         extraContainer.className = "setting-extra-config";
-        this.updateFieldAvailability(extraContainer, isFeatureEnabled);
 
-        feature.extraFields.forEach((field) => {
+        feature.extraFields.forEach((field: StepperConfigField): void => {
           if (field.type === "stepper") {
-            extraContainer?.appendChild(this.renderStepperField(field, language));
+            extraContainer?.appendChild(SettingsModalView.renderStepperField(field, language));
           }
         });
+        SettingsModalView.updateFieldAvailability(extraContainer, false);
         row.appendChild(extraContainer);
       }
 
-      input.addEventListener("change", async (e: Event) => {
+      featureControlsMap.set(feature.id, {
+        input,
+        statusEl,
+        extraContainer
+      });
+
+      input.addEventListener("change", async (e: Event): Promise<void> => {
         const isChecked = (e.target as HTMLInputElement).checked;
-        await registry.setEnabled(feature.id, isChecked);
-        if (extraContainer) {
-          this.updateFieldAvailability(extraContainer, isChecked);
+        try {
+          await registry.setEnabled(feature.id, isChecked);
+        } catch {
+          if (isDisposed) return;
+          const currentSnapshot = registry.getState(feature.id);
+          input.checked = currentSnapshot.enabled;
         }
       });
 
       container.appendChild(row);
     });
 
+    const updateFeatureRow = (snapshot: FeatureStateSnapshot): void => {
+      const controls = featureControlsMap.get(snapshot.id);
+      if (!controls) return;
+      const { input, statusEl, extraContainer } = controls;
+
+      input.checked = snapshot.enabled;
+
+      if (snapshot.runtime === "starting" || snapshot.runtime === "stopping") {
+        input.setAttribute("aria-busy", "true");
+        input.disabled = true;
+      } else {
+        input.removeAttribute("aria-busy");
+        input.disabled = false;
+      }
+
+      statusEl.textContent = "";
+      statusEl.className = "setting-status";
+
+      if (snapshot.runtime === "starting") {
+        statusEl.classList.add("setting-status-starting");
+        statusEl.textContent =
+          language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.STATUS_STARTING] || "";
+      } else if (snapshot.runtime === "stopping") {
+        statusEl.classList.add("setting-status-stopping");
+        statusEl.textContent =
+          language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.STATUS_STOPPING] || "";
+      } else if (snapshot.runtime === "reload-required") {
+        statusEl.classList.add("setting-status-reload-required");
+        const textNode = document.createElement("span");
+        textNode.textContent =
+          language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.STATUS_RELOAD_REQUIRED] || "";
+        statusEl.appendChild(textNode);
+
+        const reloadBtn = document.createElement("button");
+        reloadBtn.type = "button";
+        reloadBtn.className = "yt-settings-btn-action";
+        reloadBtn.textContent =
+          language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.ACTION_RELOAD] || "";
+        reloadBtn.addEventListener("click", (): void => {
+          if (typeof location !== "undefined") {
+            location.reload();
+          }
+        });
+        statusEl.appendChild(reloadBtn);
+      } else if (snapshot.runtime === "error") {
+        statusEl.classList.add("setting-status-error");
+        const textNode = document.createElement("span");
+        const errorLabel =
+          language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.STATUS_ERROR] || "";
+        let stageDetail = "";
+        if (snapshot.error) {
+          const stageKeyMap: Record<string, string> = {
+            storage: FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.ERROR_STAGE_STORAGE,
+            setup: FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.ERROR_STAGE_SETUP,
+            teardown: FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.ERROR_STAGE_TEARDOWN,
+            cleanup: FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.ERROR_STAGE_CLEANUP
+          };
+          const stageKey = stageKeyMap[snapshot.error.stage];
+          stageDetail = (stageKey && language.content[stageKey]) || snapshot.error.stage;
+        }
+        textNode.textContent = stageDetail ? `${errorLabel} (${stageDetail})` : errorLabel;
+        statusEl.appendChild(textNode);
+
+        if (snapshot.error?.retryable) {
+          const retryBtn = document.createElement("button");
+          retryBtn.type = "button";
+          retryBtn.className = "yt-settings-btn-action";
+          retryBtn.textContent =
+            language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.ACTION_RETRY] || "";
+          retryBtn.addEventListener("click", (): void => {
+            registry.setEnabled(snapshot.id, snapshot.enabled).catch((): void => {
+              // Handled by snapshot listener
+            });
+          });
+          statusEl.appendChild(retryBtn);
+        } else {
+          const reloadBtn = document.createElement("button");
+          reloadBtn.type = "button";
+          reloadBtn.className = "yt-settings-btn-action";
+          reloadBtn.textContent =
+            language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.ACTION_RELOAD] || "";
+          reloadBtn.addEventListener("click", (): void => {
+            if (typeof location !== "undefined") {
+              location.reload();
+            }
+          });
+          statusEl.appendChild(reloadBtn);
+        }
+      }
+
+      if (extraContainer) {
+        SettingsModalView.updateFieldAvailability(
+          extraContainer,
+          snapshot.enabled && snapshot.runtime === "enabled"
+        );
+      }
+    };
+
+    const unsubscribe = registry.subscribe((snapshot: FeatureStateSnapshot): void => {
+      if (isDisposed) return;
+      updateFeatureRow(snapshot);
+    });
+
     Modal.open({
       size: "medium",
-      title: language.content.function_setting_title || "Setting",
+      title: language.content.function_setting_title || "",
       content: container,
       direction: language.direction,
-      onClose: () => {
-        const currentStates = registry.getAllStates();
-        const shouldReload = descriptors.some(
-          (desc) => desc.requiresReload && initialStates[desc.id] !== currentStates[desc.id]
+      onClose: (): void => {
+        SettingsModalView.isOpen = false;
+        isDisposed = true;
+        unsubscribe();
+
+        const isSession = descriptors.some(
+          (desc: FeatureDescriptor): boolean => registry.getState(desc.id).persistence === "session"
         );
-        if (shouldReload && typeof location !== "undefined") {
-          location.reload();
+        if (!isSession) {
+          const currentStates = registry.getAllStates();
+          const shouldReload = descriptors.some(
+            (desc: FeatureDescriptor): boolean => desc.requiresReload === true && initialStates[desc.id] !== currentStates[desc.id]
+          );
+          if (shouldReload && typeof location !== "undefined") {
+            location.reload();
+          }
         }
       }
     });
   }
 
-  private static updateFieldAvailability(container: HTMLElement, enabled: boolean): void {
-    container.style.opacity = enabled ? STYLE_OPACITY_ENABLED : STYLE_OPACITY_DISABLED;
-    container.style.pointerEvents = enabled ? "auto" : "none";
+  private static updateFieldAvailability(container: HTMLElement, available: boolean): void {
+    container.classList.toggle("is-disabled", !available);
+    const formControls = container.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button");
+    formControls.forEach((el: HTMLInputElement | HTMLButtonElement): void => {
+      el.disabled = !available;
+    });
   }
 
   private static renderStepperField(
@@ -144,8 +296,8 @@ export class SettingsModalView {
     const controlsRow = document.createElement("div");
     controlsRow.className = "yt-subtitle-offset-controls yt-stepper-controls";
 
-    const scale = field.scale ?? DEFAULT_SCALE;
-    const precision = field.precision ?? DEFAULT_PRECISION;
+    const scale = field.scale ?? FEATURE_REGISTRY_CONSTANTS.STEPPER.DEFAULT_SCALE;
+    const precision = field.precision ?? FEATURE_REGISTRY_CONSTANTS.STEPPER.DEFAULT_PRECISION;
     const stepStr = (field.step / scale).toFixed(precision);
     const unitStr = (field.unitI18nKey && language.content[field.unitI18nKey]) || field.fallbackUnit || "";
 
@@ -160,6 +312,7 @@ export class SettingsModalView {
     const numberInput = document.createElement("input");
     numberInput.type = "number";
     numberInput.className = "yt-offset-input yt-stepper-input";
+    numberInput.setAttribute("aria-label", language.content[field.titleI18nKey] || field.titleI18nKey);
     numberInput.step = String(field.step / scale);
     numberInput.min = String(field.min / scale);
     numberInput.max = String(field.max / scale);
@@ -183,7 +336,7 @@ export class SettingsModalView {
     btnReset.textContent =
       (field.resetI18nKey && language.content[field.resetI18nKey]) ||
       language.content.action_reset ||
-      "Reset";
+      "";
 
     const clamp = (val: number): number => Math.max(field.min, Math.min(field.max, val));
 
