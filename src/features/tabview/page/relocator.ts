@@ -176,7 +176,7 @@ export class DOMRelocator {
         if (el.closest(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)) {
           continue;
         }
-        if (el.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)) {
+        if (slot.tabKey === "videos" && el.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)) {
           continue;
         }
         const parentCandidate = el.parentElement?.closest<HTMLElement>(slot.sourceSelector);
@@ -317,6 +317,19 @@ export class DOMRelocator {
   public isContainerMounted(): boolean {
     const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
     return Boolean(rightTabs && rightTabs.isConnected);
+  }
+
+  public isSlotRelocated(tabKey: TabKey): boolean {
+    const slotState = this.slots.get(tabKey);
+    if (!slotState || !slotState.element || !slotState.element.isConnected) {
+      return false;
+    }
+    const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+    if (!rightTabs) {
+      return false;
+    }
+    const targetContainer = rightTabs.querySelector<HTMLElement>(slotState.slot.targetContainerSelector);
+    return Boolean(targetContainer && slotState.element.parentElement === targetContainer);
   }
 
   public destroy(): void {

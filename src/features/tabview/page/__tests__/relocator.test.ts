@@ -258,4 +258,27 @@ describe("DOMRelocator", () => {
     expect(tabVideos?.contains(realRelated)).toBe(true);
     expect(tabVideos?.contains(extraRelated)).toBe(false);
   });
+
+  it("successfully relocates native comments even when element or parent has hidden attribute", () => {
+    const secondaryInner = document.createElement("div");
+    secondaryInner.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
+    document.body.appendChild(secondaryInner);
+
+    const commentsSection = document.createElement("ytd-comments");
+    commentsSection.id = "comments";
+    commentsSection.setAttribute("hidden", "");
+    document.body.appendChild(commentsSection);
+
+    relocator.mountRoute({
+      generation: gen1,
+      secondaryInner,
+      tabsOptions: mockTabsOptions
+    });
+
+    const tabComments = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER);
+    expect(tabComments).not.toBeNull();
+    expect(tabComments?.contains(commentsSection)).toBe(true);
+    expect(relocator.isSlotRelocated("comments")).toBe(true);
+  });
 });
+

@@ -1015,36 +1015,85 @@ export class PolymerPatcher {
     const patcher = this;
     const kinds = PAGE_CONSTANTS.ATTACHMENT_KINDS;
 
+    const isCommentsTarget = (hostElement: unknown): hostElement is HTMLElement => {
+      if (cycle.closed || !(hostElement instanceof HTMLElement)) {
+        return false;
+      }
+      if (hostElement.closest(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)) {
+        return false;
+      }
+      return (
+        hostElement.id === "comments" ||
+        hostElement.tagName.toLowerCase() === PAGE_CONSTANTS.TAGS.YTD_COMMENTS
+      );
+    };
+
+    const attach = (hostElement: HTMLElement): void => {
+      patcher.attachSemanticElement(
+        cycle,
+        hostElement,
+        kinds.COMMENTS,
+        (element: HTMLElement): void => {
+          element.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA, "");
+        },
+        (): IdempotentDisposer | null => (cycle.hooks !== null ? cycle.hooks.onCommentsAttached(hostElement) : null)
+      );
+    };
+
+    const detach = (hostElement: HTMLElement): void => {
+      if (!cycle.closed && hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA)) {
+        hostElement.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA);
+        patcher.releaseDisposer(cycle, hostElement, kinds.COMMENTS);
+      }
+    };
+
     this.installMethod(cycle, tag, proto, PAGE_CONSTANTS.METHODS.ATTACHED, (raw: AnyFunction): AnyFunction => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement ?? (this as unknown as HTMLElement);
         const proceed = (): unknown => raw.apply(this, args);
-        if (cycle.closed || !(hostElement instanceof HTMLElement) || hostElement.id !== "comments") {
+        if (!isCommentsTarget(hostElement)) {
           return proceed();
         }
-        patcher.attachSemanticElement(
-          cycle,
-          hostElement,
-          kinds.COMMENTS,
-          (element: HTMLElement): void => {
-            element.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA, "");
-          },
-          (): IdempotentDisposer | null => (cycle.hooks !== null ? cycle.hooks.onCommentsAttached(hostElement) : null)
-        );
+        attach(hostElement);
         return proceed();
       };
     });
 
+    if (PAGE_CONSTANTS.METHODS.CONNECTED_CALLBACK in proto || typeof proto[PAGE_CONSTANTS.METHODS.CONNECTED_CALLBACK] === "function") {
+      this.installMethod(cycle, tag, proto, PAGE_CONSTANTS.METHODS.CONNECTED_CALLBACK, (raw: AnyFunction): AnyFunction => {
+        return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
+          const hostElement = this.hostElement ?? (this as unknown as HTMLElement);
+          const proceed = (): unknown => raw.apply(this, args);
+          if (!isCommentsTarget(hostElement)) {
+            return proceed();
+          }
+          attach(hostElement);
+          return proceed();
+        };
+      });
+    }
+
     this.installMethod(cycle, tag, proto, PAGE_CONSTANTS.METHODS.DETACHED, (raw: AnyFunction): AnyFunction => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
         const hostElement = this.hostElement ?? (this as unknown as HTMLElement);
-        if (!cycle.closed && hostElement instanceof HTMLElement && hostElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA)) {
-          hostElement.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA);
-          patcher.releaseDisposer(cycle, hostElement, kinds.COMMENTS);
+        if (hostElement instanceof HTMLElement && isCommentsTarget(hostElement)) {
+          detach(hostElement);
         }
         return raw.apply(this, args);
       };
     });
+
+    if (PAGE_CONSTANTS.METHODS.DISCONNECTED_CALLBACK in proto || typeof proto[PAGE_CONSTANTS.METHODS.DISCONNECTED_CALLBACK] === "function") {
+      this.installMethod(cycle, tag, proto, PAGE_CONSTANTS.METHODS.DISCONNECTED_CALLBACK, (raw: AnyFunction): AnyFunction => {
+        return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
+          const hostElement = this.hostElement ?? (this as unknown as HTMLElement);
+          if (hostElement instanceof HTMLElement && isCommentsTarget(hostElement)) {
+            detach(hostElement);
+          }
+          return raw.apply(this, args);
+        };
+      });
+    }
 
     if (this.ensureCommentsDataAdapter(cycle, tag, proto)) {
       const record = (proto as unknown as Record<string | symbol, unknown>)[COMMENTS_ADAPTER_KEY] as CommentsDataAdapterRecord;

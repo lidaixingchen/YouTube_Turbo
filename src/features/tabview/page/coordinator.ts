@@ -165,8 +165,13 @@ export class TabviewLifecycleCoordinator {
   }
 
   public setActiveTab(tabKey: TabKey): void {
+    this.relocator.tryRelocateSlot(tabKey);
     this.relocator.getTabsView().setActiveTab(tabKey);
     this.expanderFixer?.setActiveTab(tabKey, this.routeGeneration);
+    if (tabKey === "comments") {
+      this.expanderFixer?.updateCommentsCounter();
+      this.linkedCommentAdapter.syncLinkedComment();
+    }
   }
 
   public setFontSize(tabKey: TabKey, fontSize: number): void {
@@ -261,8 +266,16 @@ export class TabviewLifecycleCoordinator {
     });
 
     addListener(document, PAGE_CONSTANTS.DOM_EVENTS.YT_ACTION, (): void => {
-      if (this.currentState.pageType === "watch" && !this.relocator.isContainerMounted()) {
-        this.tryMount();
+      if (this.currentState.pageType === "watch") {
+        if (!this.relocator.isContainerMounted()) {
+          this.tryMount();
+        } else if (!this.relocator.isSlotRelocated("comments")) {
+          const relocated = this.relocator.tryRelocateSlot("comments");
+          if (relocated) {
+            this.expanderFixer?.updateCommentsCounter();
+            this.linkedCommentAdapter.syncLinkedComment();
+          }
+        }
       }
     });
 
@@ -407,7 +420,12 @@ export class TabviewLifecycleCoordinator {
           localeSnapshot: this.localeSnapshot,
           onTabSelected: (tabKey: TabKey): void => {
             this.onTabChangedCallback?.(tabKey);
+            this.relocator.tryRelocateSlot(tabKey);
             this.expanderFixer?.setActiveTab(tabKey, generation);
+            if (tabKey === "comments") {
+              this.expanderFixer?.updateCommentsCounter();
+              this.linkedCommentAdapter.syncLinkedComment();
+            }
           },
           onFontSizeChanged: (tabKey: TabKey, delta: number): void => {
             this.onFontSizeChangedCallback?.(tabKey, delta);

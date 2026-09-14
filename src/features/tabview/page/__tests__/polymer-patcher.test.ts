@@ -164,6 +164,33 @@ describe("PolymerPatcher", () => {
     expect(commentsElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA)).toBe(true);
   });
 
+  it("intercepts comments lifecycle via standard connectedCallback and disconnectedCallback", async () => {
+    const hooks = createHooks();
+    const disposerMock = vi.fn();
+    hooks.onCommentsAttached.mockReturnValue(disposerMock);
+
+    const commentsProto: Record<string, unknown> = {
+      connectedCallback: vi.fn(),
+      disconnectedCallback: vi.fn()
+    };
+    mockRetrieveCEByTag(new Map([[PAGE_CONSTANTS.TAGS.YTD_COMMENTS, Promise.resolve(commentsProto)]]));
+
+    patcher.applyPatches(asHooks(hooks));
+    patcher.replayConnected(createRouteContext(1));
+    await flushMicrotasks();
+
+    const commentsElement = document.createElement("ytd-comments");
+    document.body.appendChild(commentsElement);
+
+    (commentsProto.connectedCallback as (this: PolymerElementInstance) => void).call({ hostElement: commentsElement });
+    expect(hooks.onCommentsAttached).toHaveBeenCalledWith(commentsElement);
+    expect(commentsElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA)).toBe(true);
+
+    (commentsProto.disconnectedCallback as (this: PolymerElementInstance) => void).call({ hostElement: commentsElement });
+    expect(disposerMock).toHaveBeenCalledTimes(1);
+    expect(commentsElement.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_AREA)).toBe(false);
+  });
+
   it("restores all original prototype methods and runs disposers in reverse order on restorePatches()", async () => {
     const hooks = createHooks();
     const order: string[] = [];

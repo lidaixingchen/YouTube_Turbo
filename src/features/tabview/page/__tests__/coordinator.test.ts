@@ -285,4 +285,58 @@ describe("TabviewLifecycleCoordinator", () => {
 
     expect(callOrder).toEqual(["suspendRoute", "unmountRoute"]);
   });
+
+  it("triggers on-demand relocation and syncs status when setActiveTab is called", () => {
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=video1"),
+      configurable: true,
+      writable: true
+    });
+
+    const flexy = document.createElement(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+    const secondaryInner = document.createElement("div");
+    secondaryInner.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
+    secondaryInner.className = "style-scope ytd-watch-flexy";
+    document.body.appendChild(flexy);
+    document.body.appendChild(secondaryInner);
+
+    coordinator.init(mockLocale);
+
+    const relocator = (coordinator as unknown as { relocator: { tryRelocateSlot: (tab: string) => boolean } }).relocator;
+    const tryRelocateSpy = vi.spyOn(relocator, "tryRelocateSlot");
+
+    coordinator.setActiveTab("comments");
+
+    expect(tryRelocateSpy).toHaveBeenCalledWith("comments");
+  });
+
+  it("reactively relocates pending comments slot upon yt-action DOM events", () => {
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=video1"),
+      configurable: true,
+      writable: true
+    });
+
+    const flexy = document.createElement(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+    const secondaryInner = document.createElement("div");
+    secondaryInner.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
+    secondaryInner.className = "style-scope ytd-watch-flexy";
+    document.body.appendChild(flexy);
+    document.body.appendChild(secondaryInner);
+
+    coordinator.init(mockLocale);
+
+    // Now late comments element arrives in body
+    const comments = document.createElement("ytd-comments");
+    comments.id = "comments";
+    document.body.appendChild(comments);
+
+    const tabComments = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER);
+    expect(tabComments?.contains(comments)).toBe(false);
+
+    // Fire yt-action event
+    document.dispatchEvent(new Event(PAGE_CONSTANTS.DOM_EVENTS.YT_ACTION));
+
+    expect(tabComments?.contains(comments)).toBe(true);
+  });
 });
