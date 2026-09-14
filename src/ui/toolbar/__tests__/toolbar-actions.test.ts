@@ -395,12 +395,10 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
 
     Toolbar.init();
 
-    // 调用 disposer，不应抛出异常
+    // 调用 disposer，应向调用方传递失败聚合结果并记录诊断
     expect((): void => {
       disposer();
-    }).not.toThrow();
-
-    expect(errorSpy).toHaveBeenCalled();
+    }).toThrow(AggregateError);
 
     // 调用 destroy()，不应抛出任何未捕获异常
     expect((): void => {

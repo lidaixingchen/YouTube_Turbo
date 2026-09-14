@@ -19,31 +19,37 @@ export function createToolbarActionFeature(def: ActionFeatureDefinition): Featur
   let shortcutCleanup: (() => void) | null = null;
   let toolbarCleanup: (() => void) | null = null;
 
-  function teardownSafely(): void {
+  function teardownResources(): void {
+    const errors: unknown[] = [];
+
     if (typeof def.onDisable === "function") {
       try {
         def.onDisable();
       } catch (err: unknown) {
-        console.error(`[${def.name}] onDisable hook error:`, err);
+        errors.push(err);
       }
     }
 
     if (toolbarCleanup) {
       try {
         toolbarCleanup();
+        toolbarCleanup = null;
       } catch (err: unknown) {
-        console.error(`[${def.name}] Toolbar cleanup error:`, err);
+        errors.push(err);
       }
-      toolbarCleanup = null;
     }
 
     if (shortcutCleanup) {
       try {
         shortcutCleanup();
+        shortcutCleanup = null;
       } catch (err: unknown) {
-        console.error(`[${def.name}] Shortcut cleanup error:`, err);
+        errors.push(err);
       }
-      shortcutCleanup = null;
+    }
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, `[${def.name}] Teardown failed`);
     }
   }
 
@@ -59,18 +65,27 @@ export function createToolbarActionFeature(def: ActionFeatureDefinition): Featur
         isEnabled = true;
       } catch (error: unknown) {
         isEnabled = false;
-        teardownSafely();
+        try {
+          teardownResources();
+        } catch (teardownErr: unknown) {
+          throw new AggregateError([error, teardownErr], `[${def.name}] Setup failed and cleanup also failed`);
+        }
         throw error;
       }
     },
 
     disable(): void {
-      if (!isEnabled) {
+      if (!isEnabled && !shortcutCleanup && !toolbarCleanup) {
         return;
       }
 
-      isEnabled = false;
-      teardownSafely();
+      try {
+        teardownResources();
+        isEnabled = false;
+      } catch (err: unknown) {
+        isEnabled = false;
+        throw err;
+      }
     },
 
     isActive(): boolean {

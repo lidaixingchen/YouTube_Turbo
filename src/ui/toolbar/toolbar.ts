@@ -19,7 +19,7 @@ interface ToolbarActionRecord {
 
 interface ToolbarActionRegistration {
   readonly owner: symbol;
-  readonly actionIds: readonly string[];
+  actionIds: readonly string[];
   readonly affectedSlots: ReadonlySet<string>;
   disposed: boolean;
 }
@@ -232,8 +232,8 @@ export class ToolbarController {
     this.lifecycleGeneration++;
     this.pendingSlotInvalidations.clear();
 
-    // 1. 释放所有状态订阅（Best-effort 隔离保护）
-    this.actionsById.forEach((record: ToolbarActionRecord): void => {
+    // 1. 释放所有状态订阅
+    this.actionsById.forEach((record: ToolbarActionRecord, id: string): void => {
       if (record.executionTimer !== null) {
         clearTimeout(record.executionTimer);
         record.executionTimer = null;
@@ -249,6 +249,7 @@ export class ToolbarController {
         record.stateDisposer = null;
       }
       record.stateBindingStatus = "unbound";
+      this.actionsById.delete(id);
     });
 
     // 2. 销毁 Popover
@@ -261,7 +262,7 @@ export class ToolbarController {
       this.popoverController = null;
     }
 
-    // 3. 仅卸载 Toolbar 拥有的 3 个插槽，绝不干预共享 SlotMountBus
+    // 3. 卸载 Toolbar 拥有的 3 个插槽
     ToolbarController.SUPPORTED_SLOTS.forEach((slotKey: string): void => {
       try {
         SlotMountBus.getInstance().unmountSlot(slotKey);
@@ -288,7 +289,8 @@ export class ToolbarController {
       return;
     }
 
-    registration.disposed = true;
+    const errors: unknown[] = [];
+    const remainingActionIds: string[] = [];
 
     // 逆序释放本批动作
     for (let i = registration.actionIds.length - 1; i >= 0; i--) {
@@ -304,22 +306,32 @@ export class ToolbarController {
         if (record.stateDisposer) {
           try {
             record.stateDisposer();
+            record.stateDisposer = null;
+            record.stateBindingStatus = "unbound";
+            this.actionsById.delete(id);
           } catch (err: unknown) {
-            console.error(`[ToolbarController] Error disposing state for action "${id}":`, err);
+            errors.push(err);
+            remainingActionIds.unshift(id);
           }
-          record.stateDisposer = null;
+        } else {
+          this.actionsById.delete(id);
         }
-        this.actionsById.delete(id);
       }
     }
-
-    this.registrationsByOwner.delete(ownerToken);
 
     if (this.isInitialized) {
       registration.affectedSlots.forEach((slotKey: string): void => {
         this.invalidateSlot(slotKey);
       });
     }
+
+    if (errors.length > 0) {
+      registration.actionIds = remainingActionIds;
+      throw new AggregateError(errors, "[ToolbarController] Failed to cleanly unregister action batch");
+    }
+
+    registration.disposed = true;
+    this.registrationsByOwner.delete(ownerToken);
   }
 
   private bindActionState(record: ToolbarActionRecord): void {

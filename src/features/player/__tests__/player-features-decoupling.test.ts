@@ -264,7 +264,7 @@ describe("Player Features Decoupling and Lifecycle", () => {
     });
 
     testFeature.enable();
-    expect(() => testFeature.disable()).not.toThrow();
+    expect(() => testFeature.disable()).toThrow(AggregateError);
     expect(mockShortcutCleanup).toHaveBeenCalledTimes(1);
     expect(testFeature.isActive()).toBe(false);
   });

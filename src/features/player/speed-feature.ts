@@ -5,23 +5,35 @@ import { type FeatureFacade } from "./feature-factory";
 import { PlayerSpeedButtonView } from "./speed-button-view";
 
 let isEnabled: boolean = false;
+let isViewMounted: boolean = false;
 let shortcutCleanups: Array<() => void> = [];
 
-function teardownSafely(): void {
-  try {
-    PlayerSpeedButtonView.unmount();
-  } catch (error: unknown) {
-    console.error("[PlayerSpeedFeature] Failed to unmount speed view:", error);
+function teardownResources(): void {
+  const errors: unknown[] = [];
+
+  if (isViewMounted) {
+    try {
+      PlayerSpeedButtonView.unmount();
+      isViewMounted = false;
+    } catch (error: unknown) {
+      errors.push(error);
+    }
   }
 
-  for (let i = shortcutCleanups.length - 1; i >= 0; i--) {
+  const remainingCleanups: Array<() => void> = [];
+  for (let i: number = shortcutCleanups.length - 1; i >= 0; i--) {
     try {
       shortcutCleanups[i]();
     } catch (err: unknown) {
-      console.error("[PlayerSpeedFeature] Shortcut cleanup error:", err);
+      errors.push(err);
+      remainingCleanups.unshift(shortcutCleanups[i]);
     }
   }
-  shortcutCleanups = [];
+  shortcutCleanups = remainingCleanups;
+
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "[PlayerSpeedFeature] Teardown failed");
+  }
 }
 
 export const PlayerSpeedFeature: FeatureFacade = Object.freeze({
@@ -65,33 +77,33 @@ export const PlayerSpeedFeature: FeatureFacade = Object.freeze({
       );
 
       PlayerSpeedButtonView.mount();
+      isViewMounted = true;
       shortcutCleanups = acquiredCleanups;
       isEnabled = true;
     } catch (error: unknown) {
-      try {
-        PlayerSpeedButtonView.unmount();
-      } catch (e: unknown) {
-        console.error("[PlayerSpeedFeature] Rollback view unmount error:", e);
-      }
-      for (let i = acquiredCleanups.length - 1; i >= 0; i--) {
-        try {
-          acquiredCleanups[i]();
-        } catch (e: unknown) {
-          console.error("[PlayerSpeedFeature] Rollback shortcut cleanup error:", e);
-        }
-      }
       isEnabled = false;
+      shortcutCleanups = acquiredCleanups;
+      try {
+        teardownResources();
+      } catch (teardownErr: unknown) {
+        throw new AggregateError([error, teardownErr], "[PlayerSpeedFeature] Setup failed and rollback also failed");
+      }
       throw error;
     }
   },
 
   disable(): void {
-    if (!isEnabled) {
+    if (!isEnabled && !isViewMounted && shortcutCleanups.length === 0) {
       return;
     }
 
-    isEnabled = false;
-    teardownSafely();
+    try {
+      teardownResources();
+      isEnabled = false;
+    } catch (err: unknown) {
+      isEnabled = false;
+      throw err;
+    }
   },
 
   isActive(): boolean {

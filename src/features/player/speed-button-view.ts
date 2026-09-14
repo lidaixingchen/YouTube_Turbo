@@ -36,9 +36,21 @@ export class PlayerSpeedButtonView {
 
   public static unmount(): void {
     if (this.instance) {
-      SlotMountBus.getInstance().unmountSlot(PLAYER_CONSTANTS.SELECTORS.SPEED_SLOT_KEY);
-      this.instance.destroy();
-      this.instance = null;
+      const errors: unknown[] = [];
+      try {
+        SlotMountBus.getInstance().unmountSlot(PLAYER_CONSTANTS.SELECTORS.SPEED_SLOT_KEY);
+      } catch (err: unknown) {
+        errors.push(err);
+      }
+      try {
+        this.instance.destroy();
+        this.instance = null;
+      } catch (err: unknown) {
+        errors.push(err);
+      }
+      if (errors.length > 0) {
+        throw new AggregateError(errors, "[PlayerSpeedButtonView] Failed to unmount cleanly");
+      }
     }
   }
 
@@ -210,13 +222,22 @@ export class PlayerSpeedButtonView {
   }
 
   private cleanupViewDOM(): void {
+    const errors: unknown[] = [];
     if (this.stateUnbind) {
-      this.stateUnbind();
-      this.stateUnbind = null;
+      try {
+        this.stateUnbind();
+        this.stateUnbind = null;
+      } catch (err: unknown) {
+        errors.push(err);
+      }
     }
     if (this.popoverController) {
-      this.popoverController.destroy();
-      this.popoverController = null;
+      try {
+        this.popoverController.destroy();
+        this.popoverController = null;
+      } catch (err: unknown) {
+        errors.push(err);
+      }
     }
     if (this.menuEl) {
       this.menuEl.remove();
@@ -226,12 +247,27 @@ export class PlayerSpeedButtonView {
       this.buttonEl.remove();
       this.buttonEl = null;
     }
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "[PlayerSpeedButtonView] DOM cleanup failed");
+    }
   }
 
   public destroy(): void {
+    const errors: unknown[] = [];
+    try {
+      this.cleanupViewDOM();
+    } catch (err: unknown) {
+      errors.push(err);
+    }
+    try {
+      StyleEngine.remove(PLAYER_CONSTANTS.STYLES.SPEED_CONTROL_STYLE_ID);
+    } catch (err: unknown) {
+      errors.push(err);
+    }
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "[PlayerSpeedButtonView] Destroy failed");
+    }
     this.isRegistered = false;
-    this.cleanupViewDOM();
-    StyleEngine.remove(PLAYER_CONSTANTS.STYLES.SPEED_CONTROL_STYLE_ID);
   }
 }
 

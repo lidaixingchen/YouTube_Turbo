@@ -158,14 +158,15 @@ describe("PlayerSpeedFeature", () => {
     vi.spyOn(PlayerSpeedButtonView, "mount").mockImplementation(() => {});
     PlayerSpeedFeature.enable();
 
-    vi.spyOn(PlayerSpeedButtonView, "unmount").mockImplementation(() => {
+    const unmountSpy = vi.spyOn(PlayerSpeedButtonView, "unmount").mockImplementation(() => {
       throw new Error("View unmount error");
     });
 
-    expect(() => PlayerSpeedFeature.disable()).not.toThrow();
+    expect(() => PlayerSpeedFeature.disable()).toThrow(AggregateError);
     expect(cleanup1).toHaveBeenCalledTimes(1);
     expect(cleanup2).toHaveBeenCalledTimes(1);
     expect(cleanup3).toHaveBeenCalledTimes(1);
     expect(PlayerSpeedFeature.isActive()).toBe(false);
+    unmountSpy.mockRestore();
   });
 });
