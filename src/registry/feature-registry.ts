@@ -1,14 +1,52 @@
 import { StorageUtil, type StorageListenerId } from "../core/storage";
 import type { FeatureDescriptor } from "../types";
+import { DEFAULT_FEATURE_ORDER } from "./constants";
+import type {
+  FeatureFailure,
+  FeatureRuntimeStatus,
+  FeatureStateListener,
+  FeatureStateSnapshot
+} from "./types";
 
-const DEFAULT_FEATURE_ORDER = 100;
+interface PendingRequest {
+  readonly targetVersion: number;
+  readonly attemptId: number;
+  readonly resolve: () => void;
+  readonly reject: (error: unknown) => void;
+}
+
+interface FeatureRecord {
+  readonly descriptor: FeatureDescriptor;
+  targetVersion: number;
+  targetEnabled: boolean;
+  applied: boolean | null;
+  runtime: FeatureRuntimeStatus;
+  error: FeatureFailure | null;
+  currentAttemptId: number;
+  activeHook: "setup" | "teardown" | null;
+  hasInitEligibility: boolean;
+  pendingRequests: PendingRequest[];
+}
 
 export class FeatureRegistry {
   private static instance: FeatureRegistry | null = null;
+  private readonly storage: typeof StorageUtil;
   private readonly descriptors = new Map<string, FeatureDescriptor>();
+  private readonly records = new Map<string, FeatureRecord>();
+  private readonly subscribers = new Set<FeatureStateListener>();
+
   private isInitialized = false;
-  private cachedStates: Record<string, boolean> | null = null;
+  private initPromise: Promise<void> | null = null;
   private storageListenerId: StorageListenerId | null = null;
+  private cachedStates: Record<string, boolean> | null = null;
+
+  private isReconcileScheduled = false;
+  private isAdmitting = false;
+  private readonly admissionQueue: Array<() => void> = [];
+
+  public constructor(storage: typeof StorageUtil = StorageUtil) {
+    this.storage = storage;
+  }
 
   public static getInstance(): FeatureRegistry {
     if (!this.instance) {
@@ -37,6 +75,14 @@ export class FeatureRegistry {
     return this.getInstance().isEnabled(id);
   }
 
+  public static getState(id: string): FeatureStateSnapshot {
+    return this.getInstance().getState(id);
+  }
+
+  public static subscribe(listener: FeatureStateListener): () => void {
+    return this.getInstance().subscribe(listener);
+  }
+
   public static setEnabled(id: string, enabled: boolean): Promise<void> {
     return this.getInstance().setEnabled(id, enabled);
   }
@@ -59,162 +105,656 @@ export class FeatureRegistry {
     });
   }
 
-  public invalidateCache(): void {
-    this.cachedStates = null;
+  public get persistenceMode(): "persistent" | "session" {
+    return this.storage.isPersistenceAvailable() ? "persistent" : "session";
   }
 
   public register(descriptor: FeatureDescriptor): void {
+    this.assertRegistrationPhase();
+    const existing = this.descriptors.get(descriptor.id);
+    if (existing) {
+      if (existing === descriptor) {
+        return;
+      }
+      throw new Error(`[FeatureRegistry] Feature "${descriptor.id}" is already registered.`);
+    }
+
     this.descriptors.set(descriptor.id, descriptor);
+    const initialTarget = descriptor.defaultValue;
+
+    const record: FeatureRecord = {
+      descriptor,
+      targetVersion: 1,
+      targetEnabled: initialTarget,
+      applied: false,
+      runtime: "idle",
+      error: null,
+      currentAttemptId: 1,
+      activeHook: null,
+      hasInitEligibility: false,
+      pendingRequests: []
+    };
+    this.records.set(descriptor.id, record);
+
     if (this.cachedStates !== null && typeof this.cachedStates[descriptor.id] !== "boolean") {
-      this.cachedStates[descriptor.id] = descriptor.defaultValue;
+      this.cachedStates[descriptor.id] = initialTarget;
     }
   }
 
   public registerAll(descList: FeatureDescriptor[]): void {
-    descList.forEach((d) => this.register(d));
+    this.assertRegistrationPhase();
+    const seenIds = new Set<string>();
+    for (const desc of descList) {
+      if (!desc || !desc.id) {
+        throw new Error("[FeatureRegistry] Invalid descriptor in registerAll.");
+      }
+      if (seenIds.has(desc.id)) {
+        throw new Error(`[FeatureRegistry] Duplicate feature ID "${desc.id}" in registerAll.`);
+      }
+      seenIds.add(desc.id);
+
+      const existing = this.descriptors.get(desc.id);
+      if (existing && existing !== desc) {
+        throw new Error(`[FeatureRegistry] Feature "${desc.id}" is already registered.`);
+      }
+    }
+
+    for (const desc of descList) {
+      this.register(desc);
+    }
   }
 
   public getDefaultStates(): Record<string, boolean> {
     const defaults: Record<string, boolean> = {};
-    this.descriptors.forEach((desc, id) => {
+    this.descriptors.forEach((desc: FeatureDescriptor, id: string): void => {
       defaults[id] = desc.defaultValue;
     });
     return defaults;
   }
 
   public getAllStates(): Record<string, boolean> {
-    return { ...this.getStoredStates() };
+    const result: Record<string, boolean> = {};
+    this.records.forEach((record: FeatureRecord, id: string): void => {
+      result[id] = record.targetEnabled;
+    });
+    return result;
   }
 
   public getAllDescriptors(): readonly FeatureDescriptor[] {
     return Array.from(this.descriptors.values()).sort(
-      (a, b) => (a.order ?? DEFAULT_FEATURE_ORDER) - (b.order ?? DEFAULT_FEATURE_ORDER)
+      (a: FeatureDescriptor, b: FeatureDescriptor): number => (a.order ?? DEFAULT_FEATURE_ORDER) - (b.order ?? DEFAULT_FEATURE_ORDER)
     );
   }
 
   public isEnabled(id: string): boolean {
-    const states = this.getStoredStates();
-    return typeof states[id] === "boolean" ? states[id] : (this.descriptors.get(id)?.defaultValue ?? true);
+    const record = this.records.get(id);
+    if (record) {
+      return record.targetEnabled;
+    }
+    return this.descriptors.get(id)?.defaultValue ?? true;
   }
 
-  public async setEnabled(id: string, enabled: boolean): Promise<void> {
-    const prevStates = { ...this.getStoredStates() };
-    const prev = prevStates[id];
-    if (prev === enabled) {
+  public getState(id: string): FeatureStateSnapshot {
+    const record = this.records.get(id);
+    if (!record) {
+      throw new Error(`[FeatureRegistry] Unknown feature ID: ${id}`);
+    }
+    return this.createSnapshot(record);
+  }
+
+  public subscribe(listener: FeatureStateListener): () => void {
+    this.subscribers.add(listener);
+
+    // 订阅时立即同步交付全部已注册功能的初始快照
+    for (const desc of this.getAllDescriptors()) {
+      const record = this.records.get(desc.id);
+      if (record) {
+        try {
+          listener(this.createSnapshot(record));
+        } catch (err: unknown) {
+          console.error(`[FeatureRegistry] Subscriber error for "${desc.id}":`, err);
+        }
+      }
+    }
+
+    return (): void => {
+      this.subscribers.delete(listener);
+    };
+  }
+
+  public invalidateCache(): void {
+    if (this.persistenceMode !== "persistent") {
       return;
     }
 
-    const latestStored = StorageUtil.getValue<Record<string, boolean>>(
-      StorageUtil.keys.youtube.functionState,
-      {}
-    );
-    const nextStates: Record<string, boolean> = {
-      ...this.getStoredStates(),
-      ...(latestStored || {}),
-      [id]: enabled
-    };
-    this.saveStoredStates(nextStates);
-
-    const desc = this.descriptors.get(id);
-    if (desc && this.isInitialized) {
+    this.enterAdmission(() => {
+      let raw: unknown;
       try {
-        if (enabled) {
-          await desc.setup();
-        } else if (desc.teardown) {
-          await desc.teardown();
-        }
+        raw = this.storage.getValue<unknown>(this.storage.keys.youtube.functionState, {});
       } catch (err: unknown) {
-        console.error(`[FeatureRegistry] Error toggling ${id}:`, err);
-        prevStates[id] = prev;
-        this.saveStoredStates(prevStates);
-        throw err;
+        console.error("[FeatureRegistry] Failed to re-read storage in invalidateCache:", err);
+        return;
       }
+
+      this.applyStorageSnapshot(raw);
+    });
+  }
+
+  public setEnabled(id: string, enabled: boolean): Promise<void> {
+    const record = this.records.get(id);
+    if (!record) {
+      return Promise.reject(new Error(`[FeatureRegistry] Unknown feature ID: ${id}`));
     }
+
+    if (record.applied === null) {
+      return Promise.reject(new Error(`[FeatureRegistry] Cannot toggle "${id}": reload required`));
+    }
+
+    // 已经应用的目标且无错误、无活动 hook，并且已初始化时短路返回
+    if (
+      this.isInitialized &&
+      record.targetEnabled === enabled &&
+      record.applied === enabled &&
+      !record.error &&
+      record.activeHook === null
+    ) {
+      return Promise.resolve();
+    }
+
+    // 检查是否为显式同值重试
+    if (record.targetEnabled === enabled && record.error?.retryable) {
+      record.error = null;
+      record.currentAttemptId++;
+      this.notifySubscribers(id);
+      const reqPromise = this.createPendingRequest(record, record.targetVersion, record.currentAttemptId);
+      this.scheduleReconcile();
+      return reqPromise;
+    }
+
+    if (record.targetEnabled === enabled && record.activeHook !== null) {
+      return this.createPendingRequest(record, record.targetVersion, record.currentAttemptId);
+    }
+
+    let requestPromise!: Promise<void>;
+
+    this.enterAdmission((): void => {
+      let baseRaw: unknown;
+      try {
+        baseRaw = this.readStorageRaw();
+      } catch (err: unknown) {
+        record.error = { stage: "storage", retryable: true, error: err };
+        this.notifySubscribers(id);
+        requestPromise = Promise.reject(err);
+        return;
+      }
+
+      const baseDict = this.normalizeDictionary(baseRaw);
+      const needStorageWrite = this.persistenceMode === "persistent" && baseDict[id] !== enabled;
+
+      if (needStorageWrite) {
+        const nextDict: Record<string, boolean> = {
+          ...baseDict,
+          [id]: enabled
+        };
+
+        try {
+          this.storage.setValue(this.storage.keys.youtube.functionState, nextDict);
+        } catch (err: unknown) {
+          // 写入失败：不接纳本次目标，但接纳本次实际读到的基础配置事实
+          this.applyStorageSnapshot(baseDict);
+          record.error = { stage: "storage", retryable: true, error: err };
+          this.notifySubscribers(id);
+          requestPromise = Promise.reject(err);
+          return;
+        }
+      }
+
+      // 成功提交目标
+      this.updateTarget(record, enabled);
+      this.cachedStates = { ...baseDict, [id]: enabled };
+
+      // 缺少 teardown 且功能已启用的关闭操作：直接进入 reload-required
+      if (!enabled && record.applied === true && !record.descriptor.teardown) {
+        record.applied = null;
+        record.runtime = "reload-required";
+        this.notifySubscribers(id);
+        requestPromise = Promise.resolve();
+        return;
+      }
+
+      // 未开始初始化直接 resolve
+      if (!record.hasInitEligibility) {
+        this.notifySubscribers(id);
+        requestPromise = Promise.resolve();
+        return;
+      }
+
+      // 已应用相同目标且无活动 hook 和错误
+      if (record.applied === enabled && !record.error && record.activeHook === null) {
+        this.notifySubscribers(id);
+        requestPromise = Promise.resolve();
+        return;
+      }
+
+      requestPromise = this.createPendingRequest(record, record.targetVersion, record.currentAttemptId);
+      this.notifySubscribers(id);
+      this.scheduleReconcile();
+    });
+
+    return requestPromise;
   }
 
   public async initAll(): Promise<void> {
     if (typeof window !== "undefined" && !/youtube\.com/.test(window.location?.host ?? "")) {
       return;
     }
-    this.setupStorageListener();
-    const states = this.getStoredStates();
-    for (const feature of this.getAllDescriptors()) {
-      const enabled = typeof states[feature.id] === "boolean" ? states[feature.id] : feature.defaultValue;
-      if (enabled) {
-        try {
-          await feature.setup();
-        } catch (err) {
-          console.error(`[FeatureRegistry] Failed to initialize ${feature.id}:`, err);
+
+    if (this.isInitialized) {
+      return;
+    }
+
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    const runInit = async (): Promise<void> => {
+      this.setupStorageListener();
+
+      let raw: unknown;
+      try {
+        raw = this.readStorageRaw();
+      } catch (err: unknown) {
+        if (this.storageListenerId !== null) {
+          this.storage.removeChangeListener(this.storageListenerId);
+          this.storageListenerId = null;
+        }
+        throw err;
+      }
+
+      this.enterAdmission(() => {
+        this.applyStorageSnapshot(raw);
+      });
+
+      for (const feature of this.getAllDescriptors()) {
+        const record = this.records.get(feature.id);
+        if (!record) {
+          continue;
+        }
+
+        record.hasInitEligibility = true;
+
+        if (record.targetEnabled) {
+          await this.executeFeatureInitialAttempt(record);
+        } else {
+          record.applied = false;
+          record.runtime = "disabled";
+          this.notifySubscribers(record.descriptor.id);
         }
       }
-    }
-    this.isInitialized = true;
+
+      this.isInitialized = true;
+    };
+
+    const promise = runInit().catch((err: unknown) => {
+      this.initPromise = null;
+      throw err;
+    });
+
+    this.initPromise = promise;
+    return promise;
   }
 
   private setupStorageListener(): void {
-    if (this.storageListenerId !== null) {
+    if (this.storageListenerId !== null || this.persistenceMode !== "persistent") {
       return;
     }
-    this.storageListenerId = StorageUtil.addChangeListener<Record<string, boolean>>(
-      StorageUtil.keys.youtube.functionState,
-      (_key: string, _oldVal: Record<string, boolean>, newVal: Record<string, boolean>, remote: boolean) => {
+
+    this.storageListenerId = this.storage.addChangeListener<unknown>(
+      this.storage.keys.youtube.functionState,
+      (_key: string, _oldVal: unknown, _newVal: unknown, remote: boolean): void => {
         if (remote) {
-          const next = newVal && typeof newVal === "object" ? newVal : {};
-          this.handleRemoteStateChange(next).catch((err: unknown) => {
-            console.error("[FeatureRegistry] Remote sync error:", err);
-          });
+          this.handleRemoteChange();
         }
       }
     );
   }
 
-  private async handleRemoteStateChange(nextStates: Record<string, boolean>): Promise<void> {
-    const prevStates = this.cachedStates || this.getStoredStates();
-    this.cachedStates = { ...prevStates, ...nextStates };
+  private handleRemoteChange(): void {
+    this.enterAdmission((): void => {
+      let raw: unknown;
+      try {
+        raw = this.readStorageRaw();
+      } catch (err: unknown) {
+        console.error("[FeatureRegistry] Remote read failed, retaining current snapshot:", err);
+        return;
+      }
 
-    if (!this.isInitialized) {
+      this.applyStorageSnapshot(raw);
+    });
+  }
+
+  private readStorageRaw(): unknown {
+    return this.storage.getValue<unknown>(this.storage.keys.youtube.functionState, {});
+  }
+
+  private normalizeDictionary(raw: unknown): Record<string, boolean> {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return this.getDefaultStates();
+    }
+
+    const dict = raw as Record<string, unknown>;
+    const normalized: Record<string, boolean> = {};
+
+    // 保留已知功能的布尔值，非法或缺失使用 defaultValue
+    for (const [id, desc] of this.descriptors.entries()) {
+      const val = dict[id];
+      normalized[id] = typeof val === "boolean" ? val : desc.defaultValue;
+    }
+
+    // 保留未知的有效布尔字段以维持跨版本兼容
+    for (const [key, val] of Object.entries(dict)) {
+      if (!this.descriptors.has(key) && typeof val === "boolean") {
+        normalized[key] = val;
+      }
+    }
+
+    return normalized;
+  }
+
+  private applyStorageSnapshot(raw: unknown): void {
+    const dict = this.normalizeDictionary(raw);
+    this.cachedStates = { ...dict };
+
+    for (const [id, record] of this.records.entries()) {
+      if (id in dict) {
+        this.updateTarget(record, dict[id]);
+      }
+    }
+
+    this.scheduleReconcile();
+  }
+
+  private updateTarget(record: FeatureRecord, enabled: boolean): void {
+    if (record.targetEnabled !== enabled) {
+      record.targetEnabled = enabled;
+      record.targetVersion++;
+      record.currentAttemptId++;
+    }
+  }
+
+  private enterAdmission(action: () => void): void {
+    if (this.isAdmitting) {
+      this.admissionQueue.push(action);
       return;
     }
 
-    for (const [id, desc] of this.descriptors.entries()) {
-      const prev = prevStates[id];
-      const next = this.cachedStates[id];
-      if (prev !== next && typeof next === "boolean") {
+    this.isAdmitting = true;
+    try {
+      action();
+    } finally {
+      while (this.admissionQueue.length > 0) {
+        const next = this.admissionQueue.shift();
         if (next) {
           try {
-            await desc.setup();
-          } catch (err) {
-            console.error(`[FeatureRegistry] Remote sync setup failed for ${id}:`, err);
-          }
-        } else if (desc.teardown) {
-          try {
-            await desc.teardown();
-          } catch (err) {
-            console.error(`[FeatureRegistry] Remote sync teardown failed for ${id}:`, err);
+            next();
+          } catch (err: unknown) {
+            console.error("[FeatureRegistry] Admission queue error:", err);
           }
         }
+      }
+      this.isAdmitting = false;
+    }
+  }
+
+  private scheduleReconcile(): void {
+    if (this.isReconcileScheduled) {
+      return;
+    }
+    this.isReconcileScheduled = true;
+
+    queueMicrotask((): void => {
+      this.isReconcileScheduled = false;
+      this.reconcileAll();
+    });
+  }
+
+  private reconcileAll(): void {
+    for (const record of this.records.values()) {
+      if (!record.hasInitEligibility || record.activeHook !== null) {
+        continue;
+      }
+      this.reconcileFeature(record);
+    }
+  }
+
+  private reconcileFeature(record: FeatureRecord): void {
+    if (record.applied === null) {
+      record.runtime = "reload-required";
+      this.notifySubscribers(record.descriptor.id);
+      this.settleRequests(record);
+      return;
+    }
+
+    if (record.targetEnabled && record.applied !== true) {
+      void this.executeSetupWithCleanup(record);
+    } else if (!record.targetEnabled && record.applied !== false) {
+      void this.runTeardown(record);
+    } else {
+      if (record.targetEnabled === false && record.applied === false && record.runtime === "error") {
+        record.runtime = "disabled";
+        record.error = null;
+        this.notifySubscribers(record.descriptor.id);
+      }
+      this.settleRequests(record);
+    }
+  }
+
+  private async executeFeatureInitialAttempt(record: FeatureRecord): Promise<void> {
+    record.activeHook = "setup";
+    record.runtime = "starting";
+    const currentTargetVersion = record.targetVersion;
+    this.notifySubscribers(record.descriptor.id);
+
+    try {
+      await record.descriptor.setup();
+      record.activeHook = null;
+      record.applied = true;
+      record.runtime = "enabled";
+      record.error = null;
+      this.notifySubscribers(record.descriptor.id);
+      this.settleRequests(record);
+    } catch (err: unknown) {
+      console.error(`[FeatureRegistry] Initial setup failed for "${record.descriptor.id}":`, err);
+      record.activeHook = null;
+
+      if (record.descriptor.teardown) {
+        record.runtime = "stopping";
+        this.notifySubscribers(record.descriptor.id);
+
+        try {
+          await record.descriptor.teardown();
+          record.applied = false;
+          record.runtime = "error";
+          record.error = { stage: "setup", retryable: true, error: err };
+        } catch (cleanupErr: unknown) {
+          console.error(`[FeatureRegistry] Initial cleanup failed for "${record.descriptor.id}":`, cleanupErr);
+          record.applied = null;
+          record.runtime = "reload-required";
+          const combined = new AggregateError([err, cleanupErr], `Setup and cleanup failed for "${record.descriptor.id}"`);
+          record.error = { stage: "cleanup", retryable: false, error: combined };
+        }
+      } else {
+        record.applied = null;
+        record.runtime = "reload-required";
+        record.error = { stage: "setup", retryable: false, error: err };
+      }
+
+      this.notifySubscribers(record.descriptor.id);
+      this.rejectAttemptRequests(record, record.currentAttemptId, err);
+    } finally {
+      if (record.targetVersion !== currentTargetVersion) {
+        this.scheduleReconcile();
       }
     }
   }
 
-  private getStoredStates(): Record<string, boolean> {
-    if (this.cachedStates !== null) {
-      return this.cachedStates;
+  private async executeSetupWithCleanup(record: FeatureRecord): Promise<void> {
+    record.activeHook = "setup";
+    record.runtime = "starting";
+    const currentTargetVersion = record.targetVersion;
+    const currentAttemptId = record.currentAttemptId;
+    this.notifySubscribers(record.descriptor.id);
+
+    try {
+      await record.descriptor.setup();
+      record.activeHook = null;
+      record.applied = true;
+      record.runtime = "enabled";
+      record.error = null;
+      this.notifySubscribers(record.descriptor.id);
+      this.settleRequests(record);
+    } catch (setupError: unknown) {
+      console.error(`[FeatureRegistry] Setup error for "${record.descriptor.id}":`, setupError);
+      record.activeHook = null;
+
+      // setup 失败后在同一执行器中尝试一次必要的清理 teardown
+      if (record.descriptor.teardown) {
+        record.runtime = "stopping";
+        record.error = { stage: "setup", retryable: false, error: setupError };
+        this.notifySubscribers(record.descriptor.id);
+
+        try {
+          await record.descriptor.teardown();
+          record.applied = false;
+          record.runtime = "error";
+          record.error = { stage: "setup", retryable: true, error: setupError };
+          this.rejectAttemptRequests(record, currentAttemptId, setupError);
+        } catch (cleanupError: unknown) {
+          console.error(`[FeatureRegistry] Cleanup teardown error for "${record.descriptor.id}":`, cleanupError);
+          record.applied = null;
+          record.runtime = "reload-required";
+          const combined = new AggregateError([setupError, cleanupError], `Setup and cleanup failed for "${record.descriptor.id}"`);
+          record.error = { stage: "cleanup", retryable: false, error: combined };
+          this.rejectAttemptRequests(record, currentAttemptId, combined);
+        }
+      } else {
+        record.applied = null;
+        record.runtime = "reload-required";
+        record.error = { stage: "setup", retryable: false, error: setupError };
+        this.rejectAttemptRequests(record, currentAttemptId, setupError);
+      }
+
+      this.notifySubscribers(record.descriptor.id);
     }
-    const defaultState: Record<string, boolean> = {};
-    this.descriptors.forEach((desc, id) => {
-      defaultState[id] = desc.defaultValue;
-    });
-    const stored = StorageUtil.getValue<Record<string, boolean>>(
-      StorageUtil.keys.youtube.functionState,
-      defaultState
-    );
-    this.cachedStates = { ...defaultState, ...(stored || {}) };
-    return this.cachedStates;
+
+    if (record.targetVersion !== currentTargetVersion) {
+      this.scheduleReconcile();
+    }
   }
 
-  private saveStoredStates(states: Record<string, boolean>): void {
-    this.cachedStates = states;
-    StorageUtil.setValue(StorageUtil.keys.youtube.functionState, states);
+  private async runTeardown(record: FeatureRecord): Promise<void> {
+    if (!record.descriptor.teardown) {
+      record.applied = null;
+      record.runtime = "reload-required";
+      this.notifySubscribers(record.descriptor.id);
+      this.settleRequests(record);
+      return;
+    }
+
+    record.activeHook = "teardown";
+    record.runtime = "stopping";
+    const currentTargetVersion = record.targetVersion;
+    const currentAttemptId = record.currentAttemptId;
+    this.notifySubscribers(record.descriptor.id);
+
+    try {
+      await record.descriptor.teardown();
+      record.activeHook = null;
+      record.applied = false;
+      record.runtime = "disabled";
+      record.error = null;
+      this.notifySubscribers(record.descriptor.id);
+      this.settleRequests(record);
+    } catch (err: unknown) {
+      console.error(`[FeatureRegistry] Teardown error for "${record.descriptor.id}":`, err);
+      record.activeHook = null;
+      record.applied = null;
+      record.runtime = "reload-required";
+      record.error = { stage: "teardown", retryable: false, error: err };
+      this.notifySubscribers(record.descriptor.id);
+      this.rejectAttemptRequests(record, currentAttemptId, err);
+    } finally {
+      if (record.targetVersion !== currentTargetVersion) {
+        this.scheduleReconcile();
+      }
+    }
+  }
+
+  private createPendingRequest(record: FeatureRecord, targetVersion: number, attemptId: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      record.pendingRequests.push({ targetVersion, attemptId, resolve, reject });
+    });
+  }
+
+  private settleRequests(record: FeatureRecord): void {
+    const remaining: PendingRequest[] = [];
+    const isSatisfied = record.applied === record.targetEnabled || record.runtime === "reload-required";
+
+    for (const req of record.pendingRequests) {
+      if (req.targetVersion < record.targetVersion) {
+        req.reject(new Error("superseded"));
+      } else if (req.targetVersion === record.targetVersion && isSatisfied) {
+        req.resolve();
+      } else {
+        remaining.push(req);
+      }
+    }
+
+    record.pendingRequests = remaining;
+  }
+
+  private rejectAttemptRequests(record: FeatureRecord, attemptId: number, error: unknown): void {
+    const remaining: PendingRequest[] = [];
+    for (const req of record.pendingRequests) {
+      if (req.attemptId === attemptId) {
+        req.reject(error);
+      } else {
+        remaining.push(req);
+      }
+    }
+    record.pendingRequests = remaining;
+  }
+
+  private notifySubscribers(id: string): void {
+    const record = this.records.get(id);
+    if (!record || this.subscribers.size === 0) {
+      return;
+    }
+
+    const snapshot = this.createSnapshot(record);
+    for (const sub of this.subscribers) {
+      try {
+        sub(snapshot);
+      } catch (err: unknown) {
+        console.error(`[FeatureRegistry] Subscriber callback error for "${id}":`, err);
+      }
+    }
+  }
+
+  private createSnapshot(record: FeatureRecord): FeatureStateSnapshot {
+    return Object.freeze({
+      id: record.descriptor.id,
+      enabled: record.targetEnabled,
+      applied: record.applied,
+      runtime: record.runtime,
+      error: record.error ? Object.freeze({ ...record.error }) : null,
+      persistence: this.persistenceMode
+    });
+  }
+
+  private assertRegistrationPhase(): void {
+    if (this.isInitialized || this.initPromise !== null) {
+      throw new Error("[FeatureRegistry] Cannot register descriptors after initialization has started.");
+    }
   }
 }

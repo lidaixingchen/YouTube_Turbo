@@ -1,3 +1,5 @@
 export * from "./feature-registry";
 export * from "./descriptors";
 export * from "./settings-view";
+export * from "./types";
+export * from "./constants";
