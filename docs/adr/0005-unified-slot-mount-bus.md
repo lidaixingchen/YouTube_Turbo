@@ -46,3 +46,4 @@
 3. **固定截止时间**：一次等待窗口至多一个 timer（`MOUNT_SAFETY_TIMEOUT_MS`），普通突变、观察根收缩与新插槽加入均不重置截止时间；到期断开观察并保留 pending 注册，由导航事件、`yt-page-data-updated` 或显式刷新建立新一轮恢复。
 4. **容器归属判定**：播放器容器经 `ReactiveDOMRegistry.getPlayerContainer(scope)` 限定查询获得（限定查询不覆盖无作用域缓存），目标仅在选中容器内求值；挂载身份以总线记录的节点引用确认，不依赖全局同 ID 节点。
 5. **就绪即停机不变**：全部插槽挂载、不适用或注销后 observer 与 timer 归零；已挂载宿主不再被监测，宿主替换依靠下一次恢复事件惰性修复。
+6. **注册表等待观察同源（2026-09-14 收敛）**：`ReactiveDOMRegistry.waitForVideoElement` 删除 `document.body` / `document.documentElement` / `#content` 回退，纳入同一有限发现根表，发现路由页面容器后在同一等待窗口内收缩观察根；`#page-manager` 兜底根附带 `hidden` 属性观察以感知保留页容器揭示。命中以作用域化逐项优先选择器写入 WeakRef 缓存，`getVideoElement()` 静态命中与超时收敛共用同一求值路径；无合法发现根时零 observer，超时后按 `getVideoElement()` 收敛。路由页面容器、迷你播放器宿主与保留页排除约定的选取策略收敛于 `src/core/scoped-discovery.ts`，总线与注册表共用，不再各自实现。
