@@ -4,6 +4,10 @@
 
 ## Language
 
+**FeatureRegistry**:
+特性配置与本页运行状态的统管模块，将用户的功能开关选择协调为各特性的启用、停用及可观察的执行结果。
+_Avoid_: FeatureManager, SettingsStore, ToggleService
+
 **SubtitleOffset**:
 字幕时间轴偏移量（单位毫秒），用于调整字幕渲染时间相对于视频播放时间的差值；负值表示提前（Advance），正值表示延后（Delay）。
 _Avoid_: SubtitleDelay, CaptionShift, TimeSkew
