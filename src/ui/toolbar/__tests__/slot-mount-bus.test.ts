@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SlotMountBus } from "../slot-mount-bus";
 import { TOOLBAR_CONSTANTS } from "../constants";
+import { HIDDEN_ATTRIBUTE, PAGE_MANAGER_ID, SHORTS_ROUTE_PREFIX, WATCH_ROUTE_PREFIX } from "../../../core/constants";
+import { resetMissingPageRootWarning } from "../../../core/scoped-discovery";
 import { ReactiveDOMRegistry } from "../../../core/dom-registry";
 import { FakeMutationObserver } from "../../../test/fake-observers";
 import type { SlotDefinition, SlotMountContext, SlotRenderer } from "../types";
@@ -146,7 +148,7 @@ function makePlayerSlotDefinition(overrides?: Partial<SlotDefinition>): SlotDefi
     containerSelector: "#movie_player",
     targetSelector: ".ytp-right-controls",
     elementId: "test_player_slot",
-    isApplicable: (url: URL): boolean => !url.pathname.startsWith(TOOLBAR_CONSTANTS.SHORTS_ROUTE_PREFIX),
+    isApplicable: (url: URL): boolean => !url.pathname.startsWith(SHORTS_ROUTE_PREFIX),
     mount: (target: HTMLElement, element: HTMLElement): void => {
       if (!target.contains(element)) {
         target.appendChild(element);
@@ -162,7 +164,7 @@ function makeMetadataSlotDefinition(overrides?: Partial<SlotDefinition>): SlotDe
     containerSelector: "ytd-watch-metadata",
     targetSelector: "#top-level-buttons-computed",
     elementId: "test_metadata_slot",
-    isApplicable: (url: URL): boolean => url.pathname.startsWith(TOOLBAR_CONSTANTS.WATCH_ROUTE_PREFIX),
+    isApplicable: (url: URL): boolean => url.pathname.startsWith(WATCH_ROUTE_PREFIX),
     mount: (target: HTMLElement, element: HTMLElement): void => {
       if (!target.contains(element)) {
         target.appendChild(element);
@@ -188,10 +190,12 @@ describe("SlotMountBus deep contract", (): void => {
     setLocation("/watch?v=bus_test");
     document.body.innerHTML = "";
     BUS.destroy();
+    resetMissingPageRootWarning();
   });
 
   afterEach((): void => {
     BUS.destroy();
+    resetMissingPageRootWarning();
   });
 
   it("mounts synchronously when container and target already exist with zero observer and timer", (): void => {
@@ -379,7 +383,7 @@ describe("SlotMountBus deep contract", (): void => {
   it("observes only direct children of page-manager while the route page container is missing", async (): Promise<void> => {
     vi.useFakeTimers();
     const pageManager: HTMLElement = document.createElement("div");
-    pageManager.id = TOOLBAR_CONSTANTS.PAGE_MANAGER_ID;
+    pageManager.id = PAGE_MANAGER_ID;
     document.body.appendChild(pageManager);
 
     const element: HTMLElement = document.createElement("div");
@@ -638,7 +642,7 @@ describe("SlotMountBus deep contract", (): void => {
         containerSelector: "ytd-shorts",
         targetSelector: "#navigation-button-down",
         elementId: "test_shorts_slot",
-        isApplicable: (url: URL): boolean => url.pathname.startsWith(TOOLBAR_CONSTANTS.SHORTS_ROUTE_PREFIX),
+        isApplicable: (url: URL): boolean => url.pathname.startsWith(SHORTS_ROUTE_PREFIX),
         mount: (target: HTMLElement, mounted: HTMLElement): void => {
           if (!target.parentElement?.contains(mounted)) {
             target.after(mounted);
@@ -697,7 +701,7 @@ describe("SlotMountBus deep contract", (): void => {
         containerSelector: "ytd-shorts",
         targetSelector: "#navigation-button-down",
         elementId: "test_shorts_slot",
-        isApplicable: (url: URL): boolean => url.pathname.startsWith(TOOLBAR_CONSTANTS.SHORTS_ROUTE_PREFIX)
+        isApplicable: (url: URL): boolean => url.pathname.startsWith(SHORTS_ROUTE_PREFIX)
       }),
       renderer
     );
@@ -1091,5 +1095,231 @@ describe("SlotMountBus deep contract", (): void => {
     } finally {
       tracker.restore();
     }
+  });
+
+  it("wakes attribute-driven waits when a retained page container reveals itself under page-manager", async (): Promise<void> => {
+    vi.useFakeTimers();
+    const pageManager: HTMLElement = document.createElement("div");
+    pageManager.id = PAGE_MANAGER_ID;
+    document.body.appendChild(pageManager);
+
+    const page: HTMLElement = document.createElement("ytd-watch-flexy");
+    page.setAttribute("hidden", "");
+    const player: HTMLElement = document.createElement("div");
+    player.id = "movie_player";
+    const controls: HTMLElement = document.createElement("div");
+    controls.className = "ytp-right-controls";
+    player.appendChild(controls);
+    page.appendChild(player);
+    pageManager.appendChild(page);
+
+    const element: HTMLElement = document.createElement("div");
+    BUS.mountSlot(makePlayerSlotDefinition(), captureRenderer(element));
+
+    expect(BUS.isSlotPending("slot:test_player")).toBe(true);
+    const observer: FakeMutationObserver = getActiveObserver();
+    expect(observer.observedTargets).toHaveLength(1);
+    expect(observer.observedTargets[0].target).toBe(pageManager);
+    expect(observer.observedTargets[0].options).toEqual({
+      childList: true,
+      subtree: false,
+      attributes: true,
+      attributeFilter: [HIDDEN_ATTRIBUTE]
+    });
+
+    page.removeAttribute("hidden");
+    triggerMutations([{ type: "attributes", target: page, attributeName: HIDDEN_ATTRIBUTE }]);
+    await flushCoordination();
+
+    expect(controls.contains(element)).toBe(true);
+    expect(BUS.isSlotPending("slot:test_player")).toBe(false);
+    expect(activeObserverCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it("merges concurrent page-manager waiters onto one observer with the attribute spec", (): void => {
+    vi.useFakeTimers();
+    const pageManager: HTMLElement = document.createElement("div");
+    pageManager.id = PAGE_MANAGER_ID;
+    document.body.appendChild(pageManager);
+
+    BUS.mountSlot(makePlayerSlotDefinition({ slotKey: "slot:pm_a" }), captureRenderer(null));
+    BUS.mountSlot(makePlayerSlotDefinition({ slotKey: "slot:pm_b" }), captureRenderer(null));
+
+    expect(activeObserverCount()).toBe(1);
+    const observer: FakeMutationObserver = getActiveObserver();
+    expect(observer.observedTargets).toHaveLength(1);
+    expect(observer.observedTargets[0].target).toBe(pageManager);
+    expect(observer.observedTargets[0].options).toEqual({
+      childList: true,
+      subtree: false,
+      attributes: true,
+      attributeFilter: [HIDDEN_ATTRIBUTE]
+    });
+    expect(BUS.isSlotPending("slot:pm_a")).toBe(true);
+    expect(BUS.isSlotPending("slot:pm_b")).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("wakes pending waiters when a mounted own element is migrated out of the owning scope", async (): Promise<void> => {
+    const fixture: WatchFixture = createWatchFixture();
+    const mounted: HTMLElement = document.createElement("div");
+    mounted.id = "own_migrated";
+    BUS.mountSlot(makePlayerSlotDefinition({ slotKey: "slot:own" }), captureRenderer(mounted));
+    expect(fixture.rightControls.contains(mounted)).toBe(true);
+
+    const pendingElement: HTMLElement = document.createElement("div");
+    const pendingRenderer: SlotRenderer = vi.fn(captureRenderer(pendingElement));
+    BUS.mountSlot(
+      makeMetadataSlotDefinition({ slotKey: "slot:waiter", targetSelector: ".late-actions" }),
+      pendingRenderer
+    );
+    expect(pendingRenderer).toHaveBeenCalledTimes(0);
+    expect(BUS.isSlotPending("slot:waiter")).toBe(true);
+
+    const lateActions: HTMLElement = document.createElement("div");
+    lateActions.className = "late-actions";
+    fixture.metadata.appendChild(lateActions);
+    fixture.rightControls.removeChild(mounted);
+    fixture.metadata.appendChild(mounted);
+    triggerMutations([
+      childListRecord(fixture.rightControls, [], [mounted]),
+      childListRecord(fixture.metadata, [mounted])
+    ]);
+    await flushCoordination();
+
+    expect(pendingRenderer).toHaveBeenCalledTimes(1);
+    expect(lateActions.contains(pendingElement)).toBe(true);
+    expect(BUS.isSlotPending("slot:waiter")).toBe(false);
+    expect(mounted.isConnected).toBe(true);
+  });
+
+  it("does not wake waiters when a mounted own element is merely moved within the owning scope", async (): Promise<void> => {
+    const fixture: WatchFixture = createWatchFixture();
+    const mounted: HTMLElement = document.createElement("div");
+    BUS.mountSlot(makePlayerSlotDefinition({ slotKey: "slot:own" }), captureRenderer(mounted));
+
+    const pendingRenderer: SlotRenderer = vi.fn(captureRenderer(document.createElement("div")));
+    BUS.mountSlot(
+      makePlayerSlotDefinition({ slotKey: "slot:waiter", targetSelector: ".late-target" }),
+      pendingRenderer
+    );
+    expect(pendingRenderer).toHaveBeenCalledTimes(0);
+    expect(BUS.isSlotPending("slot:waiter")).toBe(true);
+
+    const anchor: HTMLElement = document.createElement("div");
+    fixture.player.appendChild(anchor);
+    const lateTarget: HTMLElement = document.createElement("div");
+    lateTarget.className = "late-target";
+    anchor.appendChild(lateTarget);
+    fixture.rightControls.removeChild(mounted);
+    anchor.appendChild(mounted);
+    triggerMutations([
+      childListRecord(fixture.rightControls, [], [mounted]),
+      childListRecord(anchor, [mounted])
+    ]);
+    await flushCoordination();
+
+    expect(pendingRenderer).toHaveBeenCalledTimes(0);
+    expect(BUS.isSlotPending("slot:waiter")).toBe(true);
+  });
+
+  it("filters a single batch whose records belong to different owning containers", async (): Promise<void> => {
+    const fixture: WatchFixture = createWatchFixture();
+    const elementA: HTMLElement = document.createElement("div");
+    const elementB: HTMLElement = document.createElement("div");
+    BUS.mountSlot(makePlayerSlotDefinition({ slotKey: "slot:writer_a" }), captureRenderer(elementA));
+    BUS.mountSlot(makeMetadataSlotDefinition({ slotKey: "slot:writer_b" }), captureRenderer(elementB));
+
+    const pendingRenderer: SlotRenderer = vi.fn(captureRenderer(document.createElement("div")));
+    BUS.mountSlot(
+      makePlayerSlotDefinition({ slotKey: "slot:waiter", targetSelector: ".late-target" }),
+      pendingRenderer
+    );
+
+    triggerMutations([
+      childListRecord(fixture.rightControls, [elementA]),
+      childListRecord(fixture.actionsInner, [elementB])
+    ]);
+    await flushCoordination();
+
+    expect(pendingRenderer).toHaveBeenCalledTimes(0);
+    expect(BUS.isSlotPending("slot:waiter")).toBe(true);
+  });
+
+  it("resolves metadata targets by selector priority instead of document order", (): void => {
+    const fixture: WatchFixture = createWatchFixture();
+    const owner: HTMLElement = document.createElement("div");
+    owner.id = "owner";
+    fixture.metadata.insertBefore(owner, fixture.actionsInner);
+
+    const element: HTMLElement = document.createElement("div");
+    const contexts: SlotMountContext[] = [];
+    const mounted: HTMLElement | null = BUS.mountSlot(
+      makeMetadataSlotDefinition({ targetSelector: "#top-level-buttons-computed, #owner" }),
+      captureRenderer(element, contexts)
+    );
+
+    expect(mounted).toBe(element);
+    expect(contexts[0].target).toBe(fixture.actionsInner);
+    expect(fixture.actionsInner.contains(element)).toBe(true);
+  });
+
+  it("never exposes a detached element through refreshSlot when coordination cannot remount", (): void => {
+    const fixture: WatchFixture = createWatchFixture();
+    const element: HTMLElement = document.createElement("div");
+    BUS.mountSlot(makePlayerSlotDefinition(), captureRenderer(element));
+    expect(fixture.rightControls.contains(element)).toBe(true);
+
+    fixture.page.remove();
+    const exposed: HTMLElement | null = BUS.refreshSlot("slot:test_player");
+
+    expect(exposed).toBeNull();
+    expect(BUS.isSlotPending("slot:test_player")).toBe(true);
+    expect(element.isConnected).toBe(false);
+  });
+
+  it("leaves hidden reveal unobserved when miniplayer host takes precedence, deferring recovery to navigation events", async (): Promise<void> => {
+    vi.useFakeTimers();
+    const pageManager: HTMLElement = document.createElement("div");
+    pageManager.id = PAGE_MANAGER_ID;
+    document.body.appendChild(pageManager);
+
+    const miniplayer: HTMLElement = document.createElement("ytd-miniplayer");
+    document.body.appendChild(miniplayer);
+
+    const retainedPage: HTMLElement = document.createElement("ytd-watch-flexy");
+    retainedPage.setAttribute("hidden", "");
+    const player: HTMLElement = document.createElement("div");
+    player.id = "movie_player";
+    const controls: HTMLElement = document.createElement("div");
+    controls.className = "ytp-right-controls";
+    player.appendChild(controls);
+    retainedPage.appendChild(player);
+    pageManager.appendChild(retainedPage);
+
+    const element: HTMLElement = document.createElement("div");
+    BUS.mountSlot(makePlayerSlotDefinition(), captureRenderer(element));
+
+    expect(BUS.isSlotPending("slot:test_player")).toBe(true);
+    const observer: FakeMutationObserver = getActiveObserver();
+    expect(observer.observedTargets).toHaveLength(1);
+    expect(observer.observedTargets[0].target).toBe(miniplayer);
+    expect(observer.observedTargets[0].options).toEqual({ childList: true, subtree: true });
+
+    retainedPage.removeAttribute("hidden");
+    triggerMutations([{ type: "attributes", target: retainedPage, attributeName: HIDDEN_ATTRIBUTE }]);
+    await flushCoordination();
+
+    expect(BUS.isSlotPending("slot:test_player")).toBe(true);
+    expect(controls.contains(element)).toBe(false);
+
+    document.dispatchEvent(new Event(TOOLBAR_CONSTANTS.PAGE_DATA_UPDATED_EVENT));
+    await flushCoordination();
+
+    expect(controls.contains(element)).toBe(true);
+    expect(BUS.isSlotPending("slot:test_player")).toBe(false);
+    expect(activeObserverCount()).toBe(0);
+    vi.useRealTimers();
   });
 });

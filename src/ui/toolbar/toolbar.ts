@@ -1,4 +1,5 @@
 import { TOOLBAR_CONSTANTS } from "./constants";
+import { SHORTS_PAGE_CONTAINER_SELECTOR, SHORTS_ROUTE_PREFIX, WATCH_ROUTE_PREFIX } from "../../core/constants";
 import { StyleEngine } from "../../core/style-engine";
 import { PLAYER_CONSTANTS } from "../../features/player/constants";
 import { SlotMountBus } from "./slot-mount-bus";
@@ -58,7 +59,7 @@ export class ToolbarController {
       containerSelector: PLAYER_CONSTANTS.SELECTORS.PLAYER_CONTAINER,
       targetSelector: PLAYER_CONSTANTS.SELECTORS.RIGHT_CONTROLS,
       elementId: TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID,
-      isApplicable: (url: URL): boolean => !url.pathname.startsWith(TOOLBAR_CONSTANTS.SHORTS_ROUTE_PREFIX),
+      isApplicable: (url: URL): boolean => !url.pathname.startsWith(SHORTS_ROUTE_PREFIX),
       mount: (target: HTMLElement, element: HTMLElement): void => {
         const speedBtn: HTMLElement | null = target.querySelector<HTMLElement>(PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON);
         if (speedBtn) {
@@ -86,10 +87,10 @@ export class ToolbarController {
     },
     [TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS]: {
       slotKey: TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS,
-      containerSelector: TOOLBAR_CONSTANTS.SHORTS_PAGE_CONTAINER_SELECTOR,
+      containerSelector: SHORTS_PAGE_CONTAINER_SELECTOR,
       targetSelector: TOOLBAR_CONSTANTS.SHORTS_TARGET_SELECTOR,
       elementId: TOOLBAR_CONSTANTS.SHORTS_CONTAINER_ID,
-      isApplicable: (url: URL): boolean => url.pathname.startsWith(TOOLBAR_CONSTANTS.SHORTS_ROUTE_PREFIX),
+      isApplicable: (url: URL): boolean => url.pathname.startsWith(SHORTS_ROUTE_PREFIX),
       mount: (target: HTMLElement, element: HTMLElement): void => {
         if (!target.parentElement?.contains(element)) {
           target.after(element);
@@ -101,7 +102,7 @@ export class ToolbarController {
       containerSelector: TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_SELECTOR,
       targetSelector: TOOLBAR_CONSTANTS.WATCH_METADATA_TARGET_SELECTOR,
       elementId: TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_ID,
-      isApplicable: (url: URL): boolean => url.pathname.startsWith(TOOLBAR_CONSTANTS.WATCH_ROUTE_PREFIX),
+      isApplicable: (url: URL): boolean => url.pathname.startsWith(WATCH_ROUTE_PREFIX),
       mount: (target: HTMLElement, element: HTMLElement): void => {
         if (TOOLBAR_CONSTANTS.WATCH_METADATA_ACTION_HOST_IDS.has(target.id)) {
           if (!target.contains(element)) {

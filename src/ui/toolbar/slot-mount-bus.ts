@@ -1,8 +1,17 @@
 import type { SlotDefinition, SlotMountContext, SlotRenderer } from "./types";
 import { TOOLBAR_CONSTANTS } from "./constants";
+import { HIDDEN_ATTRIBUTE, PAGE_MANAGER_ID } from "../../core/constants";
+import {
+  resolveActiveMiniplayerHost,
+  resolveRoutePageRoot,
+  resetMissingPageRootWarning
+} from "../../core/scoped-discovery";
 import { ReactiveDOMRegistry } from "../../core/dom-registry";
 
 type SlotDisplayState = "inactive" | "pending" | "mounted";
+
+const NO_ATTRIBUTE_FILTER: ReadonlySet<string> = new Set<string>();
+const PAGE_MANAGER_ATTRIBUTE_FILTER: ReadonlySet<string> = new Set<string>([HIDDEN_ATTRIBUTE]);
 
 interface SlotRecord {
   readonly identity: object;
@@ -17,10 +26,14 @@ interface SlotRecord {
 interface ObservationRootSpec {
   readonly node: Node;
   readonly subtree: boolean;
+  readonly attributes: boolean;
+  readonly attributeFilter: ReadonlySet<string>;
 }
 
 interface ObservationRootInfo {
   subtree: boolean;
+  attributes: boolean;
+  attributeFilter: Set<string>;
   slotKeys: Set<string>;
 }
 
@@ -30,7 +43,7 @@ export class SlotMountBus {
   private readonly records = new Map<string, SlotRecord>();
   private readonly dirtySlots = new Set<string>();
   private readonly windowPausedSlots = new Set<string>();
-  private readonly ownedElements = new WeakSet<HTMLElement>();
+  private readonly ownedElements = new WeakMap<HTMLElement, SlotRecord>();
   private readonly observedRoots = new Map<Node, ObservationRootInfo>();
   private readonly nodeSequences = new WeakMap<Node, number>();
   private observationSignature: string = "";
@@ -46,7 +59,6 @@ export class SlotMountBus {
   private lifecycleEpoch: number = 0;
   private routeSnapshotHref: string | null = null;
   private isCoordinationScheduled: boolean = false;
-  private hasWarnedMissingPageRoot: boolean = false;
 
   public static getInstance(): SlotMountBus {
     if (!this.instance) {
@@ -162,12 +174,15 @@ export class SlotMountBus {
     this.windowPausedSlots.clear();
     this.unbindNavigation();
     this.routeSnapshotHref = null;
-    this.hasWarnedMissingPageRoot = false;
+    resetMissingPageRootWarning();
   }
 
   private resolveExposedElement(slotKey: string): HTMLElement | null {
     const record: SlotRecord | undefined = this.records.get(slotKey);
-    return record && record.state === "mounted" ? record.element : null;
+    if (!record || record.state !== "mounted" || !record.element) {
+      return null;
+    }
+    return record.element.isConnected ? record.element : null;
   }
 
   private coordinateSlots(keys: ReadonlyArray<string>, initialKey: string | null): void {
@@ -295,7 +310,7 @@ export class SlotMountBus {
     }
 
     record.element = rendered;
-    this.ownedElements.add(rendered);
+    this.ownedElements.set(rendered, record);
     record.state = "mounted";
     this.windowPausedSlots.delete(slotKey);
     this.dirtySlots.delete(slotKey);
@@ -352,45 +367,25 @@ export class SlotMountBus {
   }
 
   private resolvePageRoot(): HTMLElement | null {
-    const pathname: string = window.location.pathname;
-    let pageSelector: string | null = null;
-    if (pathname.startsWith(TOOLBAR_CONSTANTS.SHORTS_ROUTE_PREFIX)) {
-      pageSelector = TOOLBAR_CONSTANTS.SHORTS_PAGE_CONTAINER_SELECTOR;
-    } else if (pathname.startsWith(TOOLBAR_CONSTANTS.WATCH_ROUTE_PREFIX)) {
-      pageSelector = TOOLBAR_CONSTANTS.WATCH_PAGE_CONTAINER_SELECTOR;
-    }
-    if (!pageSelector) {
-      return null;
-    }
-    const pageRoot: HTMLElement | null = document.querySelector<HTMLElement>(
-      `${pageSelector}${TOOLBAR_CONSTANTS.RETAINED_PAGE_EXCLUSION}`
-    );
-    if (!pageRoot) {
-      this.warnMissingPageRoot(pageSelector, pathname);
-      return null;
-    }
-    this.hasWarnedMissingPageRoot = false;
-    return pageRoot;
-  }
-
-  private warnMissingPageRoot(pageSelector: string, pathname: string): void {
-    if (this.hasWarnedMissingPageRoot) {
-      return;
-    }
-    this.hasWarnedMissingPageRoot = true;
-    console.warn(
-      `[SlotMountBus] route "${pathname}" has no connected page container matching "${pageSelector}${TOOLBAR_CONSTANTS.RETAINED_PAGE_EXCLUSION}"; slot mounting is deferred until the container appears or a route event fires`
-    );
+    return resolveRoutePageRoot();
   }
 
   private resolveMiniplayerHost(): HTMLElement | null {
-    return document.querySelector<HTMLElement>(
-      `${TOOLBAR_CONSTANTS.MINIPLAYER_HOST_SELECTOR}${TOOLBAR_CONSTANTS.RETAINED_PAGE_EXCLUSION}`
-    );
+    return resolveActiveMiniplayerHost();
   }
 
   private resolveTarget(container: HTMLElement, definition: SlotDefinition): HTMLElement | null {
-    return container.querySelector<HTMLElement>(definition.targetSelector);
+    const selectors: string[] = definition.targetSelector
+      .split(",")
+      .map((part: string): string => part.trim())
+      .filter((part: string): boolean => part.length > 0);
+    for (const selector of selectors) {
+      const found: HTMLElement | null = container.querySelector<HTMLElement>(selector);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
   }
 
   private releaseDisplay(record: SlotRecord): void {
@@ -422,25 +417,30 @@ export class SlotMountBus {
 
   private resolveWaitSpec(record: SlotRecord): ObservationRootSpec | null {
     if (record.container) {
-      return { node: record.container, subtree: true };
+      return { node: record.container, subtree: true, attributes: false, attributeFilter: NO_ATTRIBUTE_FILTER };
     }
     const pageRoot: HTMLElement | null = this.resolvePageRoot();
     if (pageRoot) {
-      return { node: pageRoot, subtree: true };
+      return { node: pageRoot, subtree: true, attributes: false, attributeFilter: NO_ATTRIBUTE_FILTER };
     }
     const miniplayerHost: HTMLElement | null = this.resolveMiniplayerHost();
     if (miniplayerHost) {
-      return { node: miniplayerHost, subtree: true };
+      return { node: miniplayerHost, subtree: true, attributes: false, attributeFilter: NO_ATTRIBUTE_FILTER };
     }
-    const pageManager: HTMLElement | null = document.getElementById(TOOLBAR_CONSTANTS.PAGE_MANAGER_ID);
+    const pageManager: HTMLElement | null = document.getElementById(PAGE_MANAGER_ID);
     if (pageManager) {
-      return { node: pageManager, subtree: false };
+      return {
+        node: pageManager,
+        subtree: false,
+        attributes: true,
+        attributeFilter: PAGE_MANAGER_ATTRIBUTE_FILTER
+      };
     }
     return null;
   }
 
   private rebuildObservation(): void {
-    const roots = new Map<Node, ObservationRootInfo>();
+    const roots: Map<Node, ObservationRootInfo> = new Map<Node, ObservationRootInfo>();
     this.records.forEach((record: SlotRecord, slotKey: string): void => {
       if (record.state !== "pending" || this.windowPausedSlots.has(slotKey)) {
         return;
@@ -452,9 +452,18 @@ export class SlotMountBus {
       const existing: ObservationRootInfo | undefined = roots.get(spec.node);
       if (existing) {
         existing.subtree = existing.subtree || spec.subtree;
+        existing.attributes = existing.attributes || spec.attributes;
+        spec.attributeFilter.forEach((name: string): void => {
+          existing.attributeFilter.add(name);
+        });
         existing.slotKeys.add(slotKey);
       } else {
-        roots.set(spec.node, { subtree: spec.subtree, slotKeys: new Set<string>([slotKey]) });
+        roots.set(spec.node, {
+          subtree: spec.subtree,
+          attributes: spec.attributes,
+          attributeFilter: new Set<string>(spec.attributeFilter),
+          slotKeys: new Set<string>([slotKey])
+        });
       }
     });
 
@@ -481,9 +490,20 @@ export class SlotMountBus {
         if (!this.activeObserver) {
           this.activeObserver = new MutationObserver(this.handleMutations);
         }
+        const observer: MutationObserver = this.activeObserver;
         roots.forEach((info: ObservationRootInfo, node: Node): void => {
-          this.activeObserver?.observe(node, { childList: true, subtree: info.subtree });
-          this.observedRoots.set(node, { subtree: info.subtree, slotKeys: new Set<string>(info.slotKeys) });
+          const init: MutationObserverInit = { childList: true, subtree: info.subtree };
+          if (info.attributes) {
+            init.attributes = true;
+            init.attributeFilter = Array.from(info.attributeFilter);
+          }
+          observer.observe(node, init);
+          this.observedRoots.set(node, {
+            subtree: info.subtree,
+            attributes: info.attributes,
+            attributeFilter: new Set<string>(info.attributeFilter),
+            slotKeys: new Set<string>(info.slotKeys)
+          });
         });
         if (hadObserver) {
           this.scheduleCoordination();
@@ -493,7 +513,12 @@ export class SlotMountBus {
     } else {
       this.observedRoots.clear();
       roots.forEach((info: ObservationRootInfo, node: Node): void => {
-        this.observedRoots.set(node, { subtree: info.subtree, slotKeys: new Set<string>(info.slotKeys) });
+        this.observedRoots.set(node, {
+          subtree: info.subtree,
+          attributes: info.attributes,
+          attributeFilter: new Set<string>(info.attributeFilter),
+          slotKeys: new Set<string>(info.slotKeys)
+        });
       });
     }
 
@@ -510,7 +535,12 @@ export class SlotMountBus {
     }
     const entries: string[] = [];
     roots.forEach((info: ObservationRootInfo, node: Node): void => {
-      entries.push(`${this.nodeSequence(node)}:${info.subtree ? "subtree" : "direct"}`);
+      const filterFingerprint: string = info.attributes
+        ? Array.from(info.attributeFilter).sort().join("+")
+        : "";
+      entries.push(
+        `${this.nodeSequence(node)}:${info.subtree ? "subtree" : "direct"}:${info.attributes ? `attributes[${filterFingerprint}]` : "childlist"}`
+      );
     });
     return entries.sort().join("|");
   }
@@ -553,9 +583,23 @@ export class SlotMountBus {
     if (movedNodes.length === 0) {
       return false;
     }
-    return movedNodes.every(
-      (node: Node): boolean => node instanceof HTMLElement && this.ownedElements.has(node)
-    );
+    const owningScopes: Set<HTMLElement> = new Set<HTMLElement>();
+    for (const node of movedNodes) {
+      if (!(node instanceof HTMLElement)) {
+        return false;
+      }
+      const record: SlotRecord | undefined = this.ownedElements.get(node);
+      if (!record || !record.container) {
+        return false;
+      }
+      owningScopes.add(record.container);
+    }
+    for (const scope of owningScopes) {
+      if (scope.contains(mutation.target)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private scheduleCoordination(): void {
