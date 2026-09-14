@@ -152,7 +152,7 @@ export const Tabview = {
       rollback("injection-failed");
     }
 
-    return inFlightSetupPromise;
+    return readyPromise;
   },
 
   destroy(): void {

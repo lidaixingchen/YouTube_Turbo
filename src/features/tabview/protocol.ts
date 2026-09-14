@@ -130,7 +130,8 @@ export function validateCloseReason(input: unknown): input is TabviewCloseReason
       input === "setup-timeout" ||
       input === "injection-failed" ||
       input === "protocol-error" ||
-      input === "page-closed")
+      input === "page-closed" ||
+      input === "page-init-failed")
   );
 }
 

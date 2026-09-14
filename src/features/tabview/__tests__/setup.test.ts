@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { TABVIEW_CONSTANTS } from "../constants";
 import { Tabview } from "../index";
+import { TabviewLifecycleCoordinator } from "../page/coordinator";
+import { main as pageMain } from "../page/index";
 
 vi.mock("virtual:tabview-page-bundle", () => {
   return {
@@ -12,6 +14,7 @@ describe("Tabview.setup() and destroy() lifecycle", () => {
   const originalLocation = window.location;
 
   beforeEach(() => {
+    delete (window as any).__YTI_TABVIEW_MAIN__;
     Object.defineProperty(window, "location", {
       writable: true,
       value: { host: "www.youtube.com", pathname: "/watch" }
@@ -146,5 +149,20 @@ describe("Tabview.setup() and destroy() lifecycle", () => {
     Tabview.destroy();
     Tabview.destroy();
     expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
+  });
+
+  it("rejects the stable setup promise when the page closes the session synchronously during injection", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(TabviewLifecycleCoordinator.prototype, "init").mockImplementation((): boolean => {
+      throw new Error("coordinator init boom");
+    });
+    (window as any).__YTI_TABVIEW_MAIN__ = pageMain;
+
+    const setupPromise = Tabview.setup();
+    expect(setupPromise).toBeInstanceOf(Promise);
+
+    await expect(setupPromise).rejects.toThrow("page-init-failed");
+    expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

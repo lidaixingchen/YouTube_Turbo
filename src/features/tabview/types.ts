@@ -72,7 +72,8 @@ export type TabviewCloseReason =
   | "setup-timeout"
   | "injection-failed"
   | "protocol-error"
-  | "page-closed";
+  | "page-closed"
+  | "page-init-failed";
 
 export type TabviewProtocolErrorCode =
   | "invalid-envelope"

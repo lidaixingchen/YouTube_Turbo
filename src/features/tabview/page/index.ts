@@ -53,6 +53,7 @@ export function main(bootstrapInput: unknown): void {
   initTrustedTypesPolicy();
 
   const coordinator: TabviewLifecycleCoordinator = TabviewLifecycleCoordinator.getInstance();
+  let sessionClosed = false;
 
   const session: TabviewSession<"page"> = createTabviewSession({
     role: "page",
@@ -61,13 +62,23 @@ export function main(bootstrapInput: unknown): void {
       if (notice.kind === "message") {
         applyCommand(coordinator, notice.message);
       } else if (notice.kind === "closed") {
+        sessionClosed = true;
         coordinator.destroy();
       }
     }
   });
 
+  const finishWithoutReady = (): void => {
+    try {
+      coordinator.destroy();
+    } catch (err: unknown) {
+      console.error("[Tabview:Page] Coordinator cleanup error:", err);
+    }
+    session.close("page-init-failed");
+  };
+
   try {
-    coordinator.init(bootstrap.initialLocale, {
+    const committed: boolean = coordinator.init(bootstrap.initialLocale, {
       onTabChanged: (tabKey: TabKey): void => {
         session.dispatch({ type: "tab-changed", tabKey });
       },
@@ -75,8 +86,14 @@ export function main(bootstrapInput: unknown): void {
         session.dispatch({ type: "font-size-changed", tabKey, fontSize });
       }
     });
+    if (!committed || sessionClosed) {
+      finishWithoutReady();
+      return;
+    }
   } catch (err: unknown) {
     console.error("[Tabview:Page] Coordinator init error:", err);
+    finishWithoutReady();
+    return;
   }
 
   session.dispatch({
