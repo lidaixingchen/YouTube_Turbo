@@ -188,53 +188,63 @@ export class TabviewLifecycleCoordinator {
     const oldGeneration = this.routeGeneration;
     this.advanceRouteGeneration();
 
+    const errors: unknown[] = [];
+
     for (let i = 0; i < this.navListenerCleanupFns.length; i++) {
       try {
         this.navListenerCleanupFns[i]();
-      } catch {
-        // 忽略移除监听异常
+      } catch (err: unknown) {
+        errors.push(err);
       }
     }
     this.navListenerCleanupFns = [];
 
-    this.deactivateCurrentRoute(oldGeneration);
+    try {
+      this.deactivateCurrentRoute(oldGeneration);
+    } catch (err: unknown) {
+      errors.push(err);
+    }
 
     try {
       this.polymerPatcher.restorePatches();
-    } catch {
-      // 忽略恢复原型异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     try {
       this.channelHoverAdapter.destroy();
-    } catch {
-      // 忽略销毁异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     try {
       this.expanderFixer?.destroy();
       this.expanderFixer = null;
-    } catch {
-      // 忽略销毁异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     try {
       this.panelState?.destroy();
       this.panelState = null;
-    } catch {
-      // 忽略销毁异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     try {
       this.relocator.destroy();
-    } catch {
-      // 忽略销毁异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     this.localeSnapshot = null;
     this.onTabChangedCallback = undefined;
     this.onFontSizeChangedCallback = undefined;
     this.isInitialized = false;
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "[TabviewLifecycleCoordinator] Teardown failed");
+    }
   }
 
   private advanceRouteGeneration(): RouteGeneration {
@@ -467,53 +477,63 @@ export class TabviewLifecycleCoordinator {
   }
 
   private deactivateCurrentRoute(generation: RouteGeneration = this.routeGeneration): void {
+    const errors: unknown[] = [];
+
     try {
       this.polymerPatcher.suspendRoute();
-    } catch {
-      // 忽略清理异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     try {
       this.channelHoverAdapter.deactivateRoute(generation);
-    } catch {
-      // 忽略停用异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     try {
       this.expanderFixer?.deactivateRoute(generation);
-    } catch {
-      // 忽略停用异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     try {
       this.panelState?.deactivateRoute(generation);
-    } catch {
-      // 忽略停用异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     try {
       this.relocator.unmountRoute(generation);
-    } catch {
-      // 忽略停用异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     try {
       this.linkedCommentAdapter.destroy();
-    } catch {
-      // 忽略停用异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
     try {
       InfoMirrorEngine.getInstance().destroy();
-    } catch {
-      // 忽略停用异常
+    } catch (err: unknown) {
+      errors.push(err);
     }
 
-    const flexy = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
-    if (flexy) {
-      flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.HIDE_DEFAULT_TEXT_INLINE_EXPANDER);
-      flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB);
-      flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.KEEP_COMMENTS_SCROLLER);
+    try {
+      const flexy = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+      if (flexy) {
+        flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.HIDE_DEFAULT_TEXT_INLINE_EXPANDER);
+        flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB);
+        flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.KEEP_COMMENTS_SCROLLER);
+      }
+    } catch (err: unknown) {
+      errors.push(err);
+    }
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "[TabviewLifecycleCoordinator] Route deactivation failed");
     }
   }
 

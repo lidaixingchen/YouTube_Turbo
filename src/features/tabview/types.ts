@@ -66,6 +66,17 @@ export type TabviewSessionState =
   | "closing"
   | "closed";
 
+export type TabviewControlAction =
+  | {
+      readonly type: "teardown-request";
+    }
+  | {
+      readonly type: "teardown-ack";
+      readonly success: boolean;
+      readonly errorStage?: "coordinator" | "listeners" | "dom" | "unknown";
+      readonly initFailed?: boolean;
+    };
+
 export type TabviewCloseReason =
   | "feature-disabled"
   | "setup-replaced"
@@ -73,7 +84,10 @@ export type TabviewCloseReason =
   | "injection-failed"
   | "protocol-error"
   | "page-closed"
-  | "page-init-failed";
+  | "page-init-failed"
+  | "ready-post-process-failed"
+  | "teardown-failed"
+  | "teardown-timeout";
 
 export type TabviewProtocolErrorCode =
   | "invalid-envelope"
@@ -105,6 +119,10 @@ export interface TabviewEnvelope<T> {
     | {
         readonly kind: "close";
         readonly reason: TabviewCloseReason;
+      }
+    | {
+        readonly kind: "control";
+        readonly action: TabviewControlAction;
       };
 }
 
@@ -112,6 +130,10 @@ export type TabviewSessionNotice<R extends TabviewSessionRole> =
   | {
       readonly kind: "message";
       readonly message: TabviewInbound<R>;
+    }
+  | {
+      readonly kind: "control";
+      readonly action: TabviewControlAction;
     }
   | {
       readonly kind: "closed";
@@ -135,6 +157,8 @@ export type TabviewDispatchResult =
 
 export interface TabviewSession<R extends TabviewSessionRole> {
   dispatch(message: TabviewOutbound<R>): TabviewDispatchResult;
+  dispatchControl(action: TabviewControlAction): TabviewDispatchResult;
   close(reason?: TabviewCloseReason): void;
+  isClosed(): boolean;
 }
 

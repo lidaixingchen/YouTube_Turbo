@@ -32,8 +32,8 @@ describe("Tabview.setup() and destroy() lifecycle", () => {
     };
   });
 
-  afterEach(() => {
-    Tabview.destroy();
+  afterEach(async () => {
+    await Tabview.destroy().catch(() => {});
     delete (window as any).GM_addElement;
     delete (window as any).__YTI_TABVIEW_MAIN__;
     Object.defineProperty(window, "location", {
@@ -110,7 +110,26 @@ describe("Tabview.setup() and destroy() lifecycle", () => {
 
     // Clean up
     delete (window as any).__YTI_TABVIEW_MAIN__;
-    Tabview.destroy();
+    const destroyPromise = Tabview.destroy();
+    const ackEvent = new CustomEvent(TABVIEW_CONSTANTS.CHANNEL_EVENT_NAME, {
+      detail: {
+        namespace: TABVIEW_CONSTANTS.PROTOCOL_NAMESPACE,
+        protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION,
+        sessionId: injectedBootstrap.sessionId,
+        sender: "page",
+        target: "sandbox",
+        sequence: 2,
+        body: {
+          kind: "control",
+          action: {
+            type: "teardown-ack",
+            success: true
+          }
+        }
+      }
+    });
+    window.dispatchEvent(ackEvent);
+    await destroyPromise;
     expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
   });
 
@@ -145,9 +164,9 @@ describe("Tabview.setup() and destroy() lifecycle", () => {
     expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
   });
 
-  it("destroys idempotently without leaks", () => {
-    Tabview.destroy();
-    Tabview.destroy();
+  it("destroys idempotently without leaks", async () => {
+    await Tabview.destroy();
+    await Tabview.destroy();
     expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
   });
 

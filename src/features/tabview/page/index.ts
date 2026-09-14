@@ -61,19 +61,46 @@ export function main(bootstrapInput: unknown): void {
     receive: (notice: TabviewSessionNotice<"page">): void => {
       if (notice.kind === "message") {
         applyCommand(coordinator, notice.message);
+      } else if (notice.kind === "control" && notice.action.type === "teardown-request") {
+        sessionClosed = true;
+        let success: boolean = true;
+        try {
+          coordinator.destroy();
+        } catch (err: unknown) {
+          success = false;
+          console.error("[Tabview:Page] Coordinator destroy error:", err);
+        }
+        session.dispatchControl({
+          type: "teardown-ack",
+          success,
+          errorStage: success ? undefined : "coordinator"
+        });
+        session.close("feature-disabled");
       } else if (notice.kind === "closed") {
         sessionClosed = true;
-        coordinator.destroy();
+        try {
+          coordinator.destroy();
+        } catch (err: unknown) {
+          console.error("[Tabview:Page] Coordinator destroy error on close:", err);
+        }
       }
     }
   });
 
   const finishWithoutReady = (): void => {
+    let success: boolean = true;
     try {
       coordinator.destroy();
     } catch (err: unknown) {
+      success = false;
       console.error("[Tabview:Page] Coordinator cleanup error:", err);
     }
+    session.dispatchControl({
+      type: "teardown-ack",
+      success,
+      initFailed: true,
+      errorStage: success ? undefined : "coordinator"
+    });
     session.close("page-init-failed");
   };
 

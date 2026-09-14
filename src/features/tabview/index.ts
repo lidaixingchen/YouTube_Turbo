@@ -10,7 +10,8 @@ import type {
   TabviewBootstrap,
   TabviewSession,
   TabviewSessionNotice,
-  TabviewCloseReason
+  TabviewCloseReason,
+  TabviewControlAction
 } from "./types";
 
 type FeatureState = "idle" | "starting" | "ready" | "stopping";
@@ -52,11 +53,17 @@ const defaultInjectionAdapter: PageInjectionAdapter = {
 let featureState: FeatureState = "idle";
 let currentSession: TabviewSession<"sandbox"> | null = null;
 let inFlightSetupPromise: Promise<void> | null = null;
+let inFlightDestroyPromise: Promise<void> | null = null;
 let readyTimeoutId: ReturnType<typeof setTimeout> | null = null;
+let readyRejecterFn: ((reason: unknown) => void) | null = null;
+let lastTeardownAck: (TabviewControlAction & { type: "teardown-ack" }) | null = null;
+let teardownAckResolver: ((ack: TabviewControlAction & { type: "teardown-ack" }) => void) | null = null;
+let teardownAckRejecter: ((reason: unknown) => void) | null = null;
 
 function rollback(reason: TabviewCloseReason): void {
   featureState = "idle";
   inFlightSetupPromise = null;
+  readyRejecterFn = null;
   if (readyTimeoutId !== null) {
     clearTimeout(readyTimeoutId);
     readyTimeoutId = null;
@@ -85,6 +92,7 @@ export const Tabview = {
     }
 
     featureState = "starting";
+    lastTeardownAck = null;
     const sessionId = createSessionId();
     const bootstrap: TabviewBootstrap = {
       namespace: TABVIEW_CONSTANTS.PROTOCOL_NAMESPACE,
@@ -101,6 +109,7 @@ export const Tabview = {
       readyRejecter = reject;
     });
 
+    readyRejecterFn = readyRejecter;
     inFlightSetupPromise = readyPromise;
 
     // 步骤 4：先建立 sandbox session 监听器（Listener-before-injection 不变量）
@@ -108,21 +117,53 @@ export const Tabview = {
       role: "sandbox",
       bootstrap,
       receive: (notice: TabviewSessionNotice<"sandbox">): void => {
-        if (notice.kind === "message" && notice.message.type === "ready") {
-          if (readyTimeoutId !== null) {
-            clearTimeout(readyTimeoutId);
-            readyTimeoutId = null;
+        if (notice.kind === "control" && notice.action.type === "teardown-ack") {
+          lastTeardownAck = notice.action;
+          if (teardownAckResolver) {
+            teardownAckResolver(notice.action);
+            teardownAckResolver = null;
+            teardownAckRejecter = null;
           }
-          featureState = "ready";
-          document.documentElement.setAttribute("tabview-loaded", "icp");
-          const styledCSS: string =
-            tabviewCss.trim() +
-            "\n\n/*# sourceURL=" +
-            TABVIEW_CONSTANTS.SOURCE_URL_CSS +
-            " */\n";
-          StyleEngine.inject(TABVIEW_CONSTANTS.STYLE_ID_MAIN, styledCSS);
-          readyResolver?.();
+          if (notice.action.initFailed) {
+            if (readyTimeoutId !== null) {
+              clearTimeout(readyTimeoutId);
+              readyTimeoutId = null;
+            }
+            const closedError = new Error(
+              "[Tabview] Session closed during setup: page-init-failed"
+            );
+            readyRejecter?.(closedError);
+            rollback("page-init-failed");
+          }
+        } else if (notice.kind === "message" && notice.message.type === "ready") {
+          try {
+            document.documentElement.setAttribute("tabview-loaded", "icp");
+            const styledCSS: string =
+              tabviewCss.trim() +
+              "\n\n/*# sourceURL=" +
+              TABVIEW_CONSTANTS.SOURCE_URL_CSS +
+              " */\n";
+            StyleEngine.inject(TABVIEW_CONSTANTS.STYLE_ID_MAIN, styledCSS);
+            if (readyTimeoutId !== null) {
+              clearTimeout(readyTimeoutId);
+              readyTimeoutId = null;
+            }
+            featureState = "ready";
+            readyResolver?.();
+          } catch (err: unknown) {
+            if (readyTimeoutId !== null) {
+              clearTimeout(readyTimeoutId);
+              readyTimeoutId = null;
+            }
+            readyRejecter?.(err);
+            rollback("ready-post-process-failed");
+          }
         } else if (notice.kind === "closed") {
+          if (teardownAckRejecter) {
+            teardownAckRejecter(new Error(`[Tabview] Session closed before teardown ack: ${notice.reason}`));
+            teardownAckResolver = null;
+            teardownAckRejecter = null;
+          }
           const closedError = new Error(
             `[Tabview] Session closed during setup: ${notice.reason}`
           );
@@ -155,22 +196,103 @@ export const Tabview = {
     return readyPromise;
   },
 
-  destroy(): void {
-    if (featureState === "idle" || featureState === "stopping") {
-      return;
+  destroy(): Promise<void> {
+    if (featureState === "idle" && !currentSession && !inFlightDestroyPromise) {
+      return Promise.resolve();
     }
+
+    if (inFlightDestroyPromise) {
+      return inFlightDestroyPromise;
+    }
+
     featureState = "stopping";
     if (readyTimeoutId !== null) {
       clearTimeout(readyTimeoutId);
       readyTimeoutId = null;
     }
-    if (currentSession) {
-      currentSession.close("feature-disabled");
-      currentSession = null;
+    if (inFlightSetupPromise && readyRejecterFn) {
+      readyRejecterFn(new Error("[Tabview] Setup cancelled by teardown"));
+      inFlightSetupPromise = null;
+      readyRejecterFn = null;
     }
+
+    const localErrors: unknown[] = [];
     document.documentElement.removeAttribute("tabview-loaded");
-    StyleEngine.remove(TABVIEW_CONSTANTS.STYLE_ID_MAIN);
-    featureState = "idle";
-    inFlightSetupPromise = null;
+    try {
+      StyleEngine.remove(TABVIEW_CONSTANTS.STYLE_ID_MAIN);
+    } catch (err: unknown) {
+      localErrors.push(err);
+    }
+
+    const sessionToClean = currentSession;
+    currentSession = null;
+
+    if (!sessionToClean || sessionToClean.isClosed()) {
+      const ack = lastTeardownAck;
+      lastTeardownAck = null;
+      featureState = "idle";
+      const earlyErrors: unknown[] = [...localErrors];
+      if (ack && !ack.success) {
+        earlyErrors.unshift(new Error("[Tabview] Page teardown failed"));
+      }
+      if (earlyErrors.length === 1) {
+        return Promise.reject(earlyErrors[0]);
+      }
+      if (earlyErrors.length > 1) {
+        return Promise.reject(new AggregateError(earlyErrors, "[Tabview] Teardown failed across sandbox and page"));
+      }
+      return Promise.resolve();
+    }
+
+    const destroyPromise = (async (): Promise<void> => {
+      let ack = lastTeardownAck;
+      if (!ack) {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        try {
+          ack = await new Promise<TabviewControlAction & { type: "teardown-ack" }>((resolve, reject) => {
+            teardownAckResolver = resolve;
+            teardownAckRejecter = reject;
+            timer = setTimeout(() => {
+              teardownAckResolver = null;
+              teardownAckRejecter = null;
+              reject(new Error(`[Tabview] Teardown timeout after ${TABVIEW_CONSTANTS.TEARDOWN_TIMEOUT_MS}ms`));
+            }, TABVIEW_CONSTANTS.TEARDOWN_TIMEOUT_MS);
+            sessionToClean.dispatchControl({ type: "teardown-request" });
+          });
+        } catch (err: unknown) {
+          if (timer !== null) {
+            clearTimeout(timer);
+          }
+          sessionToClean.close("teardown-timeout");
+          throw err;
+        } finally {
+          if (timer !== null) {
+            clearTimeout(timer);
+          }
+        }
+      }
+
+      sessionToClean.close(ack && ack.success ? "feature-disabled" : "teardown-failed");
+
+      const allErrors: unknown[] = [...localErrors];
+      if (!ack || !ack.success) {
+        allErrors.unshift(new Error("[Tabview] Page teardown failed"));
+      }
+      if (allErrors.length === 1) {
+        throw allErrors[0];
+      }
+      if (allErrors.length > 1) {
+        throw new AggregateError(allErrors, "[Tabview] Teardown failed across sandbox and page");
+      }
+    })().finally(() => {
+      featureState = "idle";
+      inFlightDestroyPromise = null;
+      lastTeardownAck = null;
+      teardownAckResolver = null;
+      teardownAckRejecter = null;
+    });
+
+    inFlightDestroyPromise = destroyPromise;
+    return destroyPromise;
   }
 };

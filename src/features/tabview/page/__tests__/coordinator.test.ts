@@ -207,8 +207,8 @@ describe("TabviewLifecycleCoordinator", () => {
       throw new Error("Simulated unmountRoute failure");
     });
 
-    // destroy should proceed and not throw
-    expect(() => coordinator.destroy()).not.toThrow();
+    // destroy should finish all cleanups and throw AggregateError
+    expect(() => coordinator.destroy()).toThrow(AggregateError);
     expect(FakeResizeObserver.activeInstances.size).toBe(0);
     expect(FakeIntersectionObserver.activeInstances.size).toBe(0);
   });

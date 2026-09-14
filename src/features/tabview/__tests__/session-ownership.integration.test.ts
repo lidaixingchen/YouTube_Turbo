@@ -20,8 +20,8 @@ describe("Tabview Session & Ownership Integration", () => {
     };
   });
 
-  afterEach(() => {
-    Tabview.destroy();
+  afterEach(async () => {
+    await Tabview.destroy().catch(() => {});
     delete (window as any).GM_addElement;
     delete (window as any).__YTI_TABVIEW_MAIN__;
     document.body.innerHTML = "";
@@ -41,7 +41,7 @@ describe("Tabview Session & Ownership Integration", () => {
     expect(document.documentElement.getAttribute("tabview-loaded")).toBe("icp");
 
     // Feature destroy cascades close to page session
-    Tabview.destroy();
+    await Tabview.destroy();
     expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
   });
 
@@ -53,14 +53,14 @@ describe("Tabview Session & Ownership Integration", () => {
     expect(document.documentElement.getAttribute("tabview-loaded")).toBe("icp");
 
     // Destroy
-    Tabview.destroy();
+    await Tabview.destroy();
     expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
 
     // Second setup generates new session and completes handshake
     await expect(Tabview.setup()).resolves.toBeUndefined();
     expect(document.documentElement.getAttribute("tabview-loaded")).toBe("icp");
 
-    Tabview.destroy();
+    await Tabview.destroy();
   });
 
   it("re-evaluating the page bundle reuses the page-lifetime comments adapter", async () => {
@@ -94,7 +94,7 @@ describe("Tabview Session & Ownership Integration", () => {
     expect(effectCalls).toEqual(["data:_dataChanged498:undefined"]);
     expect(document.documentElement.getAttribute("tabview-loaded")).toBe("icp");
 
-    Tabview.destroy();
+    await Tabview.destroy();
     expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
     await flush();
 
@@ -110,7 +110,7 @@ describe("Tabview Session & Ownership Integration", () => {
     callback?.call(commentsElement);
     expect(commentsElement.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_DATA_STATUS)).toBe("1");
 
-    Tabview.destroy();
+    await Tabview.destroy();
     delete (FakeCommentsElement.prototype as unknown as Record<string | symbol, unknown>)[
       Symbol.for(PAGE_CONSTANTS.SYMBOLS.COMMENTS_DATA_ADAPTER)
     ];

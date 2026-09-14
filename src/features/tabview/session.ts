@@ -12,7 +12,8 @@ import type {
   TabviewDispatchResult,
   TabviewOutbound,
   TabviewInbound,
-  TabviewEnvelope
+  TabviewEnvelope,
+  TabviewControlAction
 } from "./types";
 
 class TabviewSessionImpl<R extends TabviewSessionRole> implements TabviewSession<R> {
@@ -101,6 +102,35 @@ class TabviewSessionImpl<R extends TabviewSessionRole> implements TabviewSession
     return { status: "sent" };
   }
 
+  public dispatchControl(action: TabviewControlAction): TabviewDispatchResult {
+    if (this.state === "closed") {
+      return { status: "closed" };
+    }
+
+    try {
+      const controlEnvelope: TabviewEnvelope<never> = {
+        namespace: TABVIEW_CONSTANTS.PROTOCOL_NAMESPACE,
+        protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION,
+        sessionId: this.bootstrap.sessionId,
+        sender: this.role,
+        target: this.peerRole,
+        sequence: this.localSequence++,
+        body: {
+          kind: "control",
+          action
+        }
+      };
+      this.channel.post(controlEnvelope);
+      return { status: "sent" };
+    } catch {
+      return { status: "closed" };
+    }
+  }
+
+  public isClosed(): boolean {
+    return this.state === "closed" || this.state === "closing";
+  }
+
   public close(reason: TabviewCloseReason = "feature-disabled"): void {
     if (this.state === "closed" || this.state === "closing") {
       return;
@@ -187,6 +217,15 @@ class TabviewSessionImpl<R extends TabviewSessionRole> implements TabviewSession
       this.notifySafe({
         kind: "closed",
         reason: envelope.body.reason
+      });
+      return;
+    }
+
+    // 处理 control envelope（控制指令不进入等待队列）
+    if (envelope.body.kind === "control") {
+      this.notifySafe({
+        kind: "control",
+        action: envelope.body.action
       });
       return;
     }

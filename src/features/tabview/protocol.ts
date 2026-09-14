@@ -9,7 +9,8 @@ import type {
   TabviewEnvelope,
   TabviewSessionRole,
   TabviewCloseReason,
-  TabviewProtocolErrorCode
+  TabviewProtocolErrorCode,
+  TabviewControlAction
 } from "./types";
 
 export function createSessionId(): TabviewSessionId {
@@ -131,8 +132,40 @@ export function validateCloseReason(input: unknown): input is TabviewCloseReason
       input === "injection-failed" ||
       input === "protocol-error" ||
       input === "page-closed" ||
-      input === "page-init-failed")
+      input === "page-init-failed" ||
+      input === "ready-post-process-failed" ||
+      input === "teardown-failed" ||
+      input === "teardown-timeout")
   );
+}
+
+export function validateControlAction(input: unknown): input is TabviewControlAction {
+  if (typeof input !== "object" || input === null) {
+    return false;
+  }
+  const candidate = input as Record<string, unknown>;
+  if (candidate.type === "teardown-request") {
+    return true;
+  }
+  if (candidate.type === "teardown-ack") {
+    if (typeof candidate.success !== "boolean") {
+      return false;
+    }
+    if (
+      candidate.errorStage !== undefined &&
+      candidate.errorStage !== "coordinator" &&
+      candidate.errorStage !== "listeners" &&
+      candidate.errorStage !== "dom" &&
+      candidate.errorStage !== "unknown"
+    ) {
+      return false;
+    }
+    if (candidate.initFailed !== undefined && typeof candidate.initFailed !== "boolean") {
+      return false;
+    }
+    return true;
+  }
+  return false;
 }
 
 export type EnvelopeValidationResult =
@@ -180,6 +213,13 @@ export function validateEnvelope(
   if (body.kind === "close") {
     if (!validateCloseReason(body.reason)) {
       return { ok: false, errorCode: "invalid-envelope", cause: "Invalid close reason" };
+    }
+    return { ok: true, envelope: candidate as unknown as TabviewEnvelope<unknown> };
+  }
+
+  if (body.kind === "control") {
+    if (!validateControlAction(body.action)) {
+      return { ok: false, errorCode: "invalid-message", cause: "Invalid control action" };
     }
     return { ok: true, envelope: candidate as unknown as TabviewEnvelope<unknown> };
   }
