@@ -4,7 +4,11 @@ export const PAGE_CONSTANTS = {
     RIGHT_TABS_CONTAINER: "div",
     EXPANDABLE_DESC_BODY_RENDERER: "ytd-expandable-video-description-body-renderer",
     PLACEHOLDER_ANCHOR: "div",
-    NOSCRIPT: "noscript"
+    NOSCRIPT: "noscript",
+    YTD_EXPANDER: "ytd-expander",
+    YTD_COMMENTS: "ytd-comments",
+    YTD_LIVE_CHAT_FRAME: "ytd-live-chat-frame",
+    YTD_WATCH_NEXT_SECONDARY_RESULTS: "ytd-watch-next-secondary-results-renderer"
   },
   IDS: {
     RIGHT_TABS: "right-tabs",
@@ -78,7 +82,9 @@ export const PAGE_CONSTANTS = {
     HIDDEN_CONTAINER: "[hidden]",
     BROWSE_WITH_SUBTYPE: "ytd-page-manager#page-manager > ytd-browse[page-subtype]",
     DESCRIPTION_PREVIEW_VIEW_MODEL: "yt-description-preview-view-model",
-    YTD_APP: "ytd-app"
+    YTD_APP: "ytd-app",
+    CHAT_CONTAINER: "#chat-container",
+    HIDDEN_COMMENT_ENTRY_EXPANDER: "[hidden] ytd-expander#expander"
   },
   CLASSES: {
     SECONDARY_WRAPPER: "tabview-secondary-wrapper",
@@ -138,7 +144,46 @@ export const PAGE_CONSTANTS = {
     ENGAGEMENT_PANEL_VISIBILITY_HIDDEN: "ENGAGEMENT_PANEL_VISIBILITY_HIDDEN"
   },
   VALUES: {
-    TABVIEW_LOADED_ICP: "icp"
+    TABVIEW_LOADED_ICP: "icp",
+    ENGAGEMENT_TARGET_ID_PREFIX: "tid051-"
+  },
+  METHODS: {
+    ATTACHED: "attached",
+    DETACHED: "detached",
+    DATA_CHANGED: "dataChanged",
+    CHILDREN_CHANGED: "childrenChanged",
+    HANDLE_NAVIGATE: "handleNavigate",
+    CALCULATE_CAN_COLLAPSE: "calculateCanCollapse",
+    UPDATE_CHAT_LOCATION: "updateChatLocation",
+    URL_CHANGED: "urlChanged",
+    CREATE_PROPERTY_OBSERVER: "_createPropertyObserver",
+    FLEXY_LOCATION_PROTECT: [
+      "isTwoColumnsChanged_",
+      "defaultTwoColumnLayoutChanged",
+      "updatePlayerLocation",
+      "updateCinematicsLocation",
+      "updatePanelsLocation",
+      "swatcherooUpdatePanelsLocation",
+      "updateErrorScreenLocation",
+      "updateFullBleedElementLocations"
+    ]
+  },
+  ATTACHMENT_KINDS: {
+    CHAT: "chat",
+    PLAYLIST: "playlist",
+    COMMENTS: "comments",
+    ENGAGEMENT_PANEL: "engagementPanel",
+    COMMENT_ENTRY: "commentEntry",
+    METADATA: "metadata"
+  },
+  PROPERTIES: {
+    COMMENTS_DATA_CALLBACK: "_dataChanged498"
+  },
+  SYMBOLS: {
+    COMMENTS_DATA_ADAPTER: "youtube-turbo:tabview:comments-data-adapter"
+  },
+  DIAGNOSTICS: {
+    PATCH_PREFIX: "[Tabview:Patch]"
   },
   ANIMATIONS: {
     RELATED_ELEMENT_PROVIDED: "relatedElementProvided"
