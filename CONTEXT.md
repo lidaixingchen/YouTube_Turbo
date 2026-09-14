@@ -84,6 +84,10 @@ _Avoid_: ToolBox, ToolbarManager, ActionHost
 详情页纯事件驱动生命周期统管深模块，依托 Polymer 原型拦截钩子（`attached`/`dataChanged`）与局部观察总线调度 Tabview 容器挂载、Slot 重排与徽标同步，彻底根除轮询守护定时器。
 _Avoid_: GuardianTimer, TabPoller, TabviewManager
 
+**PolymerPatcher**:
+Tabview 页面端的 Polymer 生命周期适配模块，将页面元素的挂载、卸载与数据变化转为 Tabview 领域语义，并统一管理适配能力的启用与恢复。
+_Avoid_: PolymerManager, PrototypeService, HookRegistry
+
 **TabviewSession**:
 一次 Tabview 功能启用周期内，关联油猴沙箱与页面上下文的有界通信会话，保证不同会话相互隔离、消息按协议有序交付，并在功能停用时确定性终止。
 _Avoid_: RuntimeBridgeSession, BridgeConnection, CommunicationKey
