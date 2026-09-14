@@ -1,8 +1,17 @@
 import {
   DEFAULT_VIDEO_WIDTH,
-  DEFAULT_VIDEO_HEIGHT
+  DEFAULT_VIDEO_HEIGHT,
+  HIDDEN_ATTRIBUTE,
+  PAGE_MANAGER_ID
 } from "./constants";
+import {
+  detectRouteKind,
+  resolveActiveMiniplayerHost,
+  resolveRoutePageRoot
+} from "./scoped-discovery";
 import type { VideoResolution } from "../types";
+
+type DiscoveryRootKind = "route-page" | "miniplayer" | "page-manager";
 
 export class ReactiveDOMRegistry {
   private static instance: ReactiveDOMRegistry | null = null;
@@ -13,7 +22,12 @@ export class ReactiveDOMRegistry {
   private isNavigationBound: boolean = false;
 
   private static readonly SELECTORS = {
-    VIDEO: "ytd-reel-video-renderer[is-active] video, #movie_player video, video.video-stream, video",
+    VIDEO_ALTERNATIVES: [
+      "ytd-reel-video-renderer[is-active] video",
+      "#movie_player video",
+      "video.video-stream",
+      "video"
+    ],
     PLAYER_CONTAINER: "#movie_player, #player-container-outer .html5-video-player, ytd-player, #player",
     VIDEO_TITLE: "h1.title.ytd-video-primary-info-renderer, h1.ytd-watch-metadata, #title h1, h1.watch-title-container"
   } as const;
@@ -48,13 +62,23 @@ export class ReactiveDOMRegistry {
     this.titleRef = null;
   }
 
+  private queryVideoElement(root: ParentNode): HTMLVideoElement | null {
+    for (const selector of ReactiveDOMRegistry.SELECTORS.VIDEO_ALTERNATIVES) {
+      const found: HTMLVideoElement | null = root.querySelector<HTMLVideoElement>(selector);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
   public getVideoElement(): HTMLVideoElement | null {
     const cached = this.videoRef?.deref();
     if (cached && cached.isConnected) {
       return cached;
     }
 
-    const queried = document.querySelector<HTMLVideoElement>(ReactiveDOMRegistry.SELECTORS.VIDEO);
+    const queried = this.queryVideoElement(document);
     if (queried) {
       this.videoRef = new WeakRef(queried);
       return queried;
@@ -144,8 +168,10 @@ export class ReactiveDOMRegistry {
   /**
    * 响应式等待 Video 节点就绪：
    * - 静态命中则立即 resolve；
-   * - 否则在播放器容器上挂载 Scoped MutationObserver，Video 插入即刻 resolve 并断开 Observer；
-   * - 超时（默认 5000ms）后自动断开兜底。
+   * - 否则按有限发现根表（路由页面容器 → 活跃迷你播放器宿主 → #page-manager 直子 + hidden 属性观察）挂载
+   *   Scoped MutationObserver，发现路由页面容器后在同一等待窗口内收缩观察根，截止时间不变；
+   * - 命中以作用域化优先级选择器写入 WeakRef 缓存后 resolve；
+   * - 无合法发现根时不建立观察；超时（默认 5000ms）断开兜底并按 getVideoElement 结果收敛。
    */
   public waitForVideoElement(timeoutMs: number = ReactiveDOMRegistry.DEFAULT_TIMEOUT_MS): Promise<HTMLVideoElement | null> {
     const immediate = this.getVideoElement();
@@ -154,19 +180,10 @@ export class ReactiveDOMRegistry {
     }
 
     return new Promise((resolve) => {
-      const container =
-        this.getPlayerContainer() ||
-        document.querySelector<HTMLElement>("ytd-player, #player, #player-container, #player-container-outer, #content") ||
-        document.body ||
-        document.documentElement;
-
-      if (!container) {
-        resolve(null);
-        return;
-      }
-
       let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
       let observer: MutationObserver | null = null;
+      let currentRoot: HTMLElement | null = null;
+      let currentRootKind: DiscoveryRootKind | null = null;
 
       const cleanup = (): void => {
         if (timeoutTimer !== null) {
@@ -177,25 +194,83 @@ export class ReactiveDOMRegistry {
           observer.disconnect();
           observer = null;
         }
+        currentRoot = null;
+        currentRootKind = null;
       };
 
-      observer = new MutationObserver(() => {
-        const video = this.getVideoElement();
-        if (video) {
-          cleanup();
-          resolve(video);
+      const scopedHit = (root: HTMLElement): HTMLVideoElement | null => {
+        const video: HTMLVideoElement | null = this.queryVideoElement(root);
+        if (video && video.isConnected) {
+          this.videoRef = new WeakRef(video);
+          return video;
         }
-      });
+        return null;
+      };
+
+      const retargetRoot = (node: HTMLElement, kind: DiscoveryRootKind): void => {
+        if (currentRoot === node && currentRootKind === kind) {
+          return;
+        }
+        if (!observer) {
+          observer = new MutationObserver(() => {
+            advance();
+          });
+        } else {
+          observer.disconnect();
+        }
+        const init: MutationObserverInit =
+          kind === "page-manager"
+            ? { childList: true, subtree: false, attributes: true, attributeFilter: [HIDDEN_ATTRIBUTE] }
+            : { childList: true, subtree: true };
+        observer.observe(node, init);
+        currentRoot = node;
+        currentRootKind = kind;
+      };
+
+      const advance = (): void => {
+        const pageRoot: HTMLElement | null = resolveRoutePageRoot();
+        if (pageRoot) {
+          const video: HTMLVideoElement | null = scopedHit(pageRoot);
+          if (video) {
+            cleanup();
+            resolve(video);
+            return;
+          }
+          retargetRoot(pageRoot, "route-page");
+          return;
+        }
+        const miniplayerHost: HTMLElement | null = resolveActiveMiniplayerHost();
+        if (miniplayerHost) {
+          const video: HTMLVideoElement | null = scopedHit(miniplayerHost);
+          if (video) {
+            cleanup();
+            resolve(video);
+            return;
+          }
+          retargetRoot(miniplayerHost, "miniplayer");
+          return;
+        }
+        if (typeof window !== "undefined" && detectRouteKind(window.location.pathname) !== "other") {
+          const pageManager: HTMLElement | null = document.getElementById(PAGE_MANAGER_ID);
+          if (pageManager) {
+            retargetRoot(pageManager, "page-manager");
+            return;
+          }
+        }
+        if (observer) {
+          observer.disconnect();
+          observer = null;
+          currentRoot = null;
+          currentRootKind = null;
+        }
+      };
 
       timeoutTimer = setTimeout(() => {
         cleanup();
         resolve(this.getVideoElement());
       }, timeoutMs);
 
-      observer.observe(container, {
-        childList: true,
-        subtree: true
-      });
+      advance();
     });
   }
 

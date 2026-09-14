@@ -11,6 +11,15 @@ export const PLAYBACK_RATE_EPSILON = 0.01;
 export const VIDEO_RETRY_INTERVAL_MS = 50;
 export const VIDEO_RETRY_MAX_TIMEOUT_MS = 3000;
 
+export const SHORTS_ROUTE_PREFIX = "/shorts";
+export const WATCH_ROUTE_PREFIX = "/watch";
+export const WATCH_PAGE_CONTAINER_SELECTOR = "ytd-watch-flexy";
+export const SHORTS_PAGE_CONTAINER_SELECTOR = "ytd-shorts";
+export const MINIPLAYER_HOST_SELECTOR = "ytd-miniplayer";
+export const RETAINED_PAGE_EXCLUSION = ":not([hidden])";
+export const PAGE_MANAGER_ID = "page-manager";
+export const HIDDEN_ATTRIBUTE = "hidden";
+
 export const DEFAULT_VIDEO_WIDTH = 1920;
 export const DEFAULT_VIDEO_HEIGHT = 1080;
 
