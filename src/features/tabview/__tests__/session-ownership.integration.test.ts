@@ -1,12 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Tabview } from "../index";
-import { main as pageMain } from "../page/index";
-
-vi.mock("virtual:tabview-page-bundle", () => {
-  return {
-    default: "/* mock page bundle */"
-  };
-});
+import { PAGE_CONSTANTS } from "../page/constants";
 
 describe("Tabview Session & Ownership Integration", () => {
   const originalLocation = window.location;
@@ -17,8 +11,6 @@ describe("Tabview Session & Ownership Integration", () => {
       value: { host: "www.youtube.com", pathname: "/watch" }
     });
 
-    // 模拟脚本注入机制，直接驱动 pageMain 执行真实页面初始化与 READY 发布
-    (window as any).__YTI_TABVIEW_MAIN__ = pageMain;
     (window as any).GM_addElement = (
       _target: HTMLElement,
       _tag: string,
@@ -31,6 +23,9 @@ describe("Tabview Session & Ownership Integration", () => {
   afterEach(() => {
     Tabview.destroy();
     delete (window as any).GM_addElement;
+    delete (window as any).__YTI_TABVIEW_MAIN__;
+    document.body.innerHTML = "";
+    document.documentElement.removeAttribute("tabview-loaded");
     Object.defineProperty(window, "location", {
       writable: true,
       value: originalLocation
@@ -66,5 +61,60 @@ describe("Tabview Session & Ownership Integration", () => {
     expect(document.documentElement.getAttribute("tabview-loaded")).toBe("icp");
 
     Tabview.destroy();
+  });
+
+  it("re-evaluating the page bundle reuses the page-lifetime comments adapter", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const effectCalls: string[] = [];
+    class FakeCommentsElement extends HTMLElement {
+      public _createPropertyObserver(property: string, observerMethod: string, options?: unknown): void {
+        effectCalls.push(`${property}:${observerMethod}:${String(options)}`);
+      }
+    }
+    customElements.define("ytd-comments", FakeCommentsElement);
+
+    const flexy = document.createElement(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+    const secondaryInner = document.createElement("div");
+    secondaryInner.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
+    secondaryInner.className = "style-scope ytd-watch-flexy";
+    const commentsElement = document.createElement("ytd-comments");
+    commentsElement.id = "comments";
+    document.body.appendChild(flexy);
+    document.body.appendChild(secondaryInner);
+    document.body.appendChild(commentsElement);
+
+    const flush = async (): Promise<void> => {
+      for (let i = 0; i < 8; i++) {
+        await Promise.resolve();
+      }
+    };
+
+    await expect(Tabview.setup()).resolves.toBeUndefined();
+    await flush();
+    expect(effectCalls).toEqual(["data:_dataChanged498:undefined"]);
+    expect(document.documentElement.getAttribute("tabview-loaded")).toBe("icp");
+
+    Tabview.destroy();
+    expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
+    await flush();
+
+    await expect(Tabview.setup()).resolves.toBeUndefined();
+    await flush();
+    expect(effectCalls).toEqual(["data:_dataChanged498:undefined"]);
+
+    (commentsElement as unknown as { data?: unknown }).data = {
+      contents: [{ commentThreadRenderer: {} }, {}]
+    };
+    const callback = (commentsElement as unknown as { _dataChanged498?: () => void })._dataChanged498;
+    expect(typeof callback).toBe("function");
+    callback?.call(commentsElement);
+    expect(commentsElement.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_COMMENTS_DATA_STATUS)).toBe("1");
+
+    Tabview.destroy();
+    delete (FakeCommentsElement.prototype as unknown as Record<string | symbol, unknown>)[
+      Symbol.for(PAGE_CONSTANTS.SYMBOLS.COMMENTS_DATA_ADAPTER)
+    ];
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });

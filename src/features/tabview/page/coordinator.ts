@@ -13,7 +13,8 @@ import type {
   LocaleSnapshot,
   TabKey,
   RouteGeneration,
-  IdempotentDisposer
+  IdempotentDisposer,
+  WatchRouteContext
 } from "./types";
 
 export interface TabviewLifecycleCallbacks {
@@ -46,6 +47,8 @@ export class TabviewLifecycleCoordinator {
   private onFontSizeChangedCallback?: (tabKey: TabKey, fontSize: number) => void;
   private isInitialized: boolean = false;
   private isMounting: boolean = false;
+  private isDestroyed: boolean = false;
+  private activeInitToken: object | null = null;
 
   public static getInstance(): TabviewLifecycleCoordinator {
     if (!TabviewLifecycleCoordinator.instance) {
@@ -57,10 +60,15 @@ export class TabviewLifecycleCoordinator {
   public init(
     initialLocale: LocaleSnapshot,
     callbacks?: TabviewLifecycleCallbacks
-  ): void {
+  ): boolean {
     if (this.isInitialized) {
-      return;
+      return true;
     }
+    this.isDestroyed = false;
+    const initToken: object = {};
+    this.activeInitToken = initToken;
+    const isInitAbandoned = (): boolean => this.activeInitToken !== initToken;
+
     this.localeSnapshot = initialLocale;
     this.onTabChangedCallback = callbacks?.onTabChanged;
     this.onFontSizeChangedCallback = callbacks?.onFontSizeChanged;
@@ -128,11 +136,21 @@ export class TabviewLifecycleCoordinator {
         this.expanderFixer?.updateCommentsCounter();
       }
     });
+    if (isInitAbandoned()) {
+      return false;
+    }
 
     this.bindNavigationEvents();
+    if (isInitAbandoned()) {
+      return false;
+    }
     this.handleRouteChange();
-    this.polymerPatcher.replayConnected();
+    if (isInitAbandoned()) {
+      return false;
+    }
+
     this.isInitialized = true;
+    return true;
   }
 
   public getState(): Readonly<NavigationState> {
@@ -156,6 +174,12 @@ export class TabviewLifecycleCoordinator {
   }
 
   public destroy(): void {
+    this.activeInitToken = null;
+    if (this.isDestroyed) {
+      return;
+    }
+    this.isDestroyed = true;
+
     const oldGeneration = this.routeGeneration;
     this.advanceRouteGeneration();
 
@@ -310,6 +334,7 @@ export class TabviewLifecycleCoordinator {
     if (flexy) {
       this.polymerPatcher.patchFlexyInstance(flexy);
       flexy.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.HIDE_DEFAULT_TEXT_INLINE_EXPANDER, "");
+      this.polymerPatcher.replayConnected(this.buildRouteContext(this.routeGeneration, nextState, flexy));
     }
 
     const searchParams = new URLSearchParams(window.location.search);
@@ -324,7 +349,14 @@ export class TabviewLifecycleCoordinator {
     InfoMirrorEngine.getInstance().runInfoFix();
     InfoMirrorEngine.getInstance().syncMainDescriptionData();
     this.polymerPatcher.pruneDisconnectedDisposers();
-    this.polymerPatcher.replayConnected();
+  }
+
+  private buildRouteContext(
+    generation: RouteGeneration,
+    state: NavigationState,
+    flexy: HTMLElement
+  ): WatchRouteContext {
+    return { generation, state, flexy };
   }
 
   public tryMount(): void {
@@ -351,6 +383,8 @@ export class TabviewLifecycleCoordinator {
 
     this.isMounting = true;
     try {
+      const routeContext = this.buildRouteContext(generation, nextState, flexy);
+
       this.polymerPatcher.patchFlexyInstance(flexy);
       flexy.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.HIDE_DEFAULT_TEXT_INLINE_EXPANDER, "");
       flexy.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.KEEP_COMMENTS_SCROLLER);
@@ -408,13 +442,19 @@ export class TabviewLifecycleCoordinator {
       this.linkedCommentAdapter.syncLinkedComment();
       InfoMirrorEngine.getInstance().runInfoFix();
       InfoMirrorEngine.getInstance().syncMainDescriptionData();
-      this.polymerPatcher.replayConnected();
+      this.polymerPatcher.replayConnected(routeContext);
     } finally {
       this.isMounting = false;
     }
   }
 
   private deactivateCurrentRoute(generation: RouteGeneration = this.routeGeneration): void {
+    try {
+      this.polymerPatcher.suspendRoute();
+    } catch {
+      // 忽略清理异常
+    }
+
     try {
       this.channelHoverAdapter.deactivateRoute(generation);
     } catch {
@@ -449,12 +489,6 @@ export class TabviewLifecycleCoordinator {
       InfoMirrorEngine.getInstance().destroy();
     } catch {
       // 忽略停用异常
-    }
-
-    try {
-      this.polymerPatcher.clearAllDisposers();
-    } catch {
-      // 忽略清理异常
     }
 
     const flexy = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);

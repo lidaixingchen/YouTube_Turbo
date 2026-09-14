@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { TabviewLifecycleCoordinator } from "../coordinator";
+import { PolymerHelper } from "../polymer-helper";
 import { PAGE_CONSTANTS } from "../constants";
 import type { LocaleSnapshot } from "../types";
 import {
@@ -185,8 +186,7 @@ describe("TabviewLifecycleCoordinator", () => {
     expect(chat.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_ACTIVE_CHAT_FRAME)).toBe(true);
   });
 
-  it("resiliently finishes teardown even if a cleanup step throws an error", () => {
-    Object.defineProperty(window, "location", {
+  it("resiliently finishes teardown even if a cleanup step throws an error", () => {    Object.defineProperty(window, "location", {
       value: new URL("https://www.youtube.com/watch?v=video1"),
       configurable: true,
       writable: true
@@ -211,5 +211,78 @@ describe("TabviewLifecycleCoordinator", () => {
     expect(() => coordinator.destroy()).not.toThrow();
     expect(FakeResizeObserver.activeInstances.size).toBe(0);
     expect(FakeIntersectionObserver.activeInstances.size).toBe(0);
+  });
+
+  it("does not install prototype patches resolved after destroy", async () => {
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=video1"),
+      configurable: true,
+      writable: true
+    });
+
+    const flexy = document.createElement(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+    const secondaryInner = document.createElement("div");
+    secondaryInner.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
+    secondaryInner.className = "style-scope ytd-watch-flexy";
+    document.body.appendChild(flexy);
+    document.body.appendChild(secondaryInner);
+
+    let resolveLate!: (value: Record<string, unknown>) => void;
+    const latePromise = new Promise<Record<string, unknown>>((resolve): void => {
+      resolveLate = resolve;
+    });
+    vi.spyOn(PolymerHelper, "retrieveCE").mockImplementation(
+      async (): Promise<Record<string, unknown> | null> => latePromise
+    );
+
+    coordinator.init(mockLocale);
+    const originalUpdatePlayerLocation = Symbol("original");
+    const lateProto: Record<string, unknown> = {
+      updatePlayerLocation: originalUpdatePlayerLocation
+    };
+    coordinator.destroy();
+    resolveLate(lateProto);
+    for (let i = 0; i < 8; i++) {
+      await Promise.resolve();
+    }
+
+    expect(lateProto.updatePlayerLocation).toBe(originalUpdatePlayerLocation);
+  });
+
+  it("suspends polymer patcher route before deactivating domain owners", () => {
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=video1"),
+      configurable: true,
+      writable: true
+    });
+
+    const flexy = document.createElement(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+    const secondaryInner = document.createElement("div");
+    secondaryInner.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
+    secondaryInner.className = "style-scope ytd-watch-flexy";
+    document.body.appendChild(flexy);
+    document.body.appendChild(secondaryInner);
+
+    coordinator.init(mockLocale);
+
+    const callOrder: string[] = [];
+    const patcher = (coordinator as unknown as { polymerPatcher: { suspendRoute: () => void } }).polymerPatcher;
+    const relocator = (coordinator as unknown as { relocator: { unmountRoute: () => void } }).relocator;
+
+    vi.spyOn(patcher, "suspendRoute").mockImplementation(() => {
+      callOrder.push("suspendRoute");
+    });
+    vi.spyOn(relocator, "unmountRoute").mockImplementation(() => {
+      callOrder.push("unmountRoute");
+    });
+
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/"),
+      configurable: true,
+      writable: true
+    });
+    document.dispatchEvent(new Event(PAGE_CONSTANTS.DOM_EVENTS.YT_NAVIGATE_FINISH));
+
+    expect(callOrder).toEqual(["suspendRoute", "unmountRoute"]);
   });
 });
