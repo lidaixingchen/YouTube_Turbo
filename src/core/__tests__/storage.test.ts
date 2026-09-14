@@ -49,4 +49,21 @@ describe("StorageUtil GM Wrapper and Fallback", () => {
     expect(listenerId).toBeNull();
     expect(() => StorageUtil.removeChangeListener(null)).not.toThrow();
   });
+
+  it("should correctly evaluate isPersistenceAvailable under various GM environments", () => {
+    delete (globalThis as any).GM_getValue;
+    delete (globalThis as any).GM_setValue;
+    expect(StorageUtil.isPersistenceAvailable()).toBe(false);
+
+    (globalThis as any).GM_getValue = () => {};
+    expect(StorageUtil.isPersistenceAvailable()).toBe(false);
+
+    (globalThis as any).GM_setValue = () => {};
+    expect(StorageUtil.isPersistenceAvailable()).toBe(true);
+
+    delete (globalThis as any).GM_getValue;
+    expect(StorageUtil.isPersistenceAvailable()).toBe(false);
+
+    delete (globalThis as any).GM_setValue;
+  });
 });

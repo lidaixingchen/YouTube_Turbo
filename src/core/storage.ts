@@ -21,6 +21,10 @@ export type StorageListenerId = number | string;
 export const StorageUtil = {
   keys: StorageKeys,
 
+  isPersistenceAvailable(): boolean {
+    return typeof GM_getValue === "function" && typeof GM_setValue === "function";
+  },
+
   getValue<T>(key: string, defaultValue: T): T {
     if (typeof GM_getValue === "function") {
       return GM_getValue(key, defaultValue);
