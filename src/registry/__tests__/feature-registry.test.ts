@@ -141,6 +141,20 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
     const saved = mockStorage.state["yt/functionState_01"] as Record<string, unknown>;
     expect(saved.unknownFeatureX).toBe(true);
     expect(saved.unknownFeatureY).toBeUndefined();
+    expect(registry.getAllStates().unknownFeatureX).toBe(true);
+  });
+
+  it("does not treat inherited storage fields as saved feature choices", async () => {
+    const inherited: Record<string, boolean> = { featA: true };
+    const raw: Record<string, unknown> = Object.create(inherited) as Record<string, unknown>;
+    const mockStorage = createMockStorage({ initialState: { "yt/functionState_01": raw } });
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    const setup = vi.fn().mockResolvedValue(undefined);
+    registry.register({ id: "featA", i18nKey: "Feature A", defaultValue: false, setup });
+
+    await registry.initAll();
+    expect(registry.getState("featA").enabled).toBe(false);
+    expect(setup).not.toHaveBeenCalled();
   });
 
   it("should not accept target or drive hooks when storage write fails", async () => {
@@ -373,6 +387,7 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
     expect(errorSnapshot.runtime).toBe("error");
     expect(errorSnapshot.error?.stage).toBe("setup");
     expect(errorSnapshot.error?.retryable).toBe(true);
+    expect(errorSnapshot.error).toEqual({ stage: "setup", retryable: true });
 
     // 显式同值重试
     shouldFail = false;
@@ -641,5 +656,206 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
     expect(receivedSnapshots[0].id).toBe("featA");
 
     unsub();
+  });
+
+  it("returns a request promise when a subscriber submits another feature change", async () => {
+    const mockStorage = createMockStorage();
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    const setupA = vi.fn().mockResolvedValue(undefined);
+    const setupB = vi.fn().mockResolvedValue(undefined);
+    registry.registerAll([
+      { id: "featA", i18nKey: "Feature A", defaultValue: false, setup: setupA },
+      { id: "featB", i18nKey: "Feature B", defaultValue: false, setup: setupB }
+    ]);
+    await registry.initAll();
+
+    let nestedRequest: Promise<void> | null = null;
+    registry.subscribe((snapshot: FeatureStateSnapshot): void => {
+      if (snapshot.id === "featA" && snapshot.enabled && nestedRequest === null) {
+        nestedRequest = registry.setEnabled("featB", true);
+      }
+    });
+
+    await registry.setEnabled("featA", true);
+    expect(nestedRequest).toBeInstanceOf(Promise);
+    await nestedRequest;
+    expect(setupA).toHaveBeenCalledTimes(1);
+    expect(setupB).toHaveBeenCalledTimes(1);
+    expect(registry.getState("featB").applied).toBe(true);
+  });
+
+  it("keeps a recoverable setup failure idle on repeated remote notifications", async () => {
+    const mockStorage = createMockStorage();
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    const setup = vi.fn().mockRejectedValue(new Error("Setup failed"));
+    const teardown = vi.fn().mockResolvedValue(undefined);
+    registry.register({ id: "featA", i18nKey: "Feature A", defaultValue: false, setup, teardown });
+    await registry.initAll();
+
+    await expect(registry.setEnabled("featA", true)).rejects.toThrow("Setup failed");
+    expect(registry.getState("featA").runtime).toBe("error");
+    mockStorage.emitRemoteChange({}, mockStorage.state[mockStorage.keys.youtube.functionState]);
+    await Promise.resolve();
+
+    expect(setup).toHaveBeenCalledTimes(1);
+    expect(registry.getState("featA").runtime).toBe("error");
+  });
+
+  it("waits for failed setup cleanup before completing a newer disable request", async () => {
+    const mockStorage = createMockStorage();
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    let releaseCleanup!: () => void;
+    const cleanup = new Promise<void>((resolve: () => void): void => {
+      releaseCleanup = resolve;
+    });
+    const teardown = vi.fn().mockReturnValue(cleanup);
+    registry.register({
+      id: "featA",
+      i18nKey: "Feature A",
+      defaultValue: false,
+      setup: vi.fn().mockRejectedValue(new Error("Setup failed")),
+      teardown
+    });
+    await registry.initAll();
+
+    const enableFailure = expect(registry.setEnabled("featA", true)).rejects.toThrow("superseded");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(teardown).toHaveBeenCalledTimes(1);
+
+    let disableSettled: boolean = false;
+    const disable = registry.setEnabled("featA", false);
+    void disable.then((): void => { disableSettled = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(disableSettled).toBe(false);
+    expect(registry.getState("featA").runtime).toBe("stopping");
+
+    releaseCleanup();
+    await enableFailure;
+    await disable;
+    expect(registry.getState("featA").runtime).toBe("disabled");
+  });
+
+  it("reconciles other features observed in the storage snapshot during a local submission", async () => {
+    const mockStorage = createMockStorage();
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    const setupB = vi.fn().mockResolvedValue(undefined);
+    registry.registerAll([
+      { id: "featA", i18nKey: "Feature A", defaultValue: false, setup: vi.fn().mockResolvedValue(undefined) },
+      { id: "featB", i18nKey: "Feature B", defaultValue: false, setup: setupB }
+    ]);
+    await registry.initAll();
+
+    mockStorage.state[mockStorage.keys.youtube.functionState] = { featA: false, featB: true };
+    await registry.setEnabled("featA", true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(registry.getState("featB").enabled).toBe(true);
+    expect(registry.getState("featB").applied).toBe(true);
+    expect(setupB).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for initialization eligibility before settling a local request", async () => {
+    const mockStorage = createMockStorage();
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    let releaseA!: () => void;
+    const setupA = vi.fn().mockImplementation((): Promise<void> => new Promise<void>((resolve: () => void): void => {
+      releaseA = resolve;
+    }));
+    const setupB = vi.fn().mockResolvedValue(undefined);
+    registry.registerAll([
+      { id: "featA", i18nKey: "Feature A", defaultValue: true, setup: setupA },
+      { id: "featB", i18nKey: "Feature B", defaultValue: false, setup: setupB }
+    ]);
+
+    const initialization: Promise<void> = registry.initAll();
+    expect(setupA).toHaveBeenCalledTimes(1);
+    let settled: boolean = false;
+    const request: Promise<void> = registry.setEnabled("featB", true);
+    void request.then((): void => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(setupB).not.toHaveBeenCalled();
+
+    releaseA();
+    await initialization;
+    await request;
+    expect(setupB).toHaveBeenCalledTimes(1);
+    expect(registry.getState("featB").applied).toBe(true);
+  });
+
+  it("retries storage access for a same-target request after a read failure", async () => {
+    const mockStorage = createMockStorage();
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    registry.register({ id: "featA", i18nKey: "Feature A", defaultValue: false, setup: vi.fn() });
+    await registry.initAll();
+
+    mockStorage.readFail.value = true;
+    await expect(registry.setEnabled("featA", true)).rejects.toThrow("Storage read error");
+    await expect(registry.setEnabled("featA", false)).rejects.toThrow("Storage read error");
+    mockStorage.readFail.value = false;
+    await registry.setEnabled("featA", false);
+    expect(registry.getState("featA").error).toBeNull();
+  });
+
+  it("preserves session targets when initialization starts after a local choice", async () => {
+    const mockStorage = createMockStorage({
+      persistenceAvailable: false,
+      initialState: { "yt/functionState_01": { featA: false } }
+    });
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    const setup = vi.fn().mockResolvedValue(undefined);
+    registry.register({ id: "featA", i18nKey: "Feature A", defaultValue: false, setup });
+
+    await registry.setEnabled("featA", true);
+    await registry.initAll();
+    expect(registry.getState("featA").enabled).toBe(true);
+    expect(registry.getState("featA").applied).toBe(true);
+    expect(setup).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares one initialization when a subscriber calls initAll during starting", async () => {
+    const mockStorage = createMockStorage();
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    const setup = vi.fn().mockResolvedValue(undefined);
+    registry.register({ id: "featA", i18nKey: "Feature A", defaultValue: true, setup });
+
+    let nestedInitialization: Promise<void> | null = null;
+    let didReenter: boolean = false;
+    registry.subscribe((snapshot: FeatureStateSnapshot): void => {
+      if (snapshot.runtime === "starting" && !didReenter) {
+        didReenter = true;
+        nestedInitialization = registry.initAll();
+      }
+    });
+
+    await registry.initAll();
+    await nestedInitialization;
+    expect(setup).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects the newer disable request when failed setup cleanup leaves resources unknown", async () => {
+    const mockStorage = createMockStorage();
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    let failSetup!: (error: Error) => void;
+    const setup = vi.fn().mockImplementation((): Promise<void> => new Promise<void>((_resolve: () => void, reject: (error: Error) => void): void => {
+      failSetup = reject;
+    }));
+    const teardown = vi.fn().mockRejectedValue(new Error("Cleanup failed"));
+    registry.register({ id: "featA", i18nKey: "Feature A", defaultValue: false, setup, teardown });
+    await registry.initAll();
+
+    const supersededRequest: Promise<void> = expect(registry.setEnabled("featA", true)).rejects.toThrow("superseded");
+    await Promise.resolve();
+    const disableRequest: Promise<void> = registry.setEnabled("featA", false);
+    const cleanupFailure: Promise<void> = expect(disableRequest).rejects.toThrow("Setup and cleanup failed");
+    failSetup(new Error("Setup failed"));
+
+    await supersededRequest;
+    await cleanupFailure;
+    expect(registry.getState("featA").applied).toBeNull();
+    expect(registry.getState("featA").runtime).toBe("reload-required");
   });
 });

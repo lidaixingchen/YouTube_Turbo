@@ -15,13 +15,18 @@ interface PendingRequest {
   readonly reject: (error: unknown) => void;
 }
 
+interface InternalFeatureFailure extends FeatureFailure {
+  readonly error: unknown;
+}
+
 interface FeatureRecord {
   readonly descriptor: FeatureDescriptor;
   targetVersion: number;
   targetEnabled: boolean;
   applied: boolean | null;
   runtime: FeatureRuntimeStatus;
-  error: FeatureFailure | null;
+  error: InternalFeatureFailure | null;
+  failedTargetVersion: number | null;
   currentAttemptId: number;
   activeHook: "setup" | "teardown" | null;
   hasInitEligibility: boolean;
@@ -43,6 +48,7 @@ export class FeatureRegistry {
   private isReconcileScheduled = false;
   private isAdmitting = false;
   private readonly admissionQueue: Array<() => void> = [];
+  private readonly pendingNotifications = new Set<string>();
 
   public constructor(storage: typeof StorageUtil = StorageUtil) {
     this.storage = storage;
@@ -129,6 +135,7 @@ export class FeatureRegistry {
       applied: false,
       runtime: "idle",
       error: null,
+      failedTargetVersion: null,
       currentAttemptId: 1,
       activeHook: null,
       hasInitEligibility: false,
@@ -173,7 +180,7 @@ export class FeatureRegistry {
   }
 
   public getAllStates(): Record<string, boolean> {
-    const result: Record<string, boolean> = {};
+    const result: Record<string, boolean> = { ...this.cachedStates };
     this.records.forEach((record: FeatureRecord, id: string): void => {
       result[id] = record.targetEnabled;
     });
@@ -241,6 +248,22 @@ export class FeatureRegistry {
   }
 
   public setEnabled(id: string, enabled: boolean): Promise<void> {
+    if (this.isAdmitting) {
+      return new Promise<void>((resolve: () => void, reject: (error: unknown) => void): void => {
+        this.admissionQueue.push((): void => {
+          void this.setEnabledInAdmission(id, enabled).then(resolve, reject);
+        });
+      });
+    }
+
+    let requestPromise!: Promise<void>;
+    this.enterAdmission((): void => {
+      requestPromise = this.setEnabledInAdmission(id, enabled);
+    });
+    return requestPromise;
+  }
+
+  private setEnabledInAdmission(id: string, enabled: boolean): Promise<void> {
     const record = this.records.get(id);
     if (!record) {
       return Promise.reject(new Error(`[FeatureRegistry] Unknown feature ID: ${id}`));
@@ -262,7 +285,7 @@ export class FeatureRegistry {
     }
 
     // 检查是否为显式同值重试
-    if (record.targetEnabled === enabled && record.error?.retryable) {
+    if (record.targetEnabled === enabled && record.error?.stage === "setup" && record.error.retryable && record.activeHook === null) {
       record.error = null;
       record.currentAttemptId++;
       this.notifySubscribers(id);
@@ -275,72 +298,62 @@ export class FeatureRegistry {
       return this.createPendingRequest(record, record.targetVersion, record.currentAttemptId);
     }
 
-    let requestPromise!: Promise<void>;
+    let baseRaw: unknown;
+    try {
+      baseRaw = this.readStorageRaw();
+    } catch (err: unknown) {
+      record.error = { stage: "storage", retryable: true, error: err };
+      this.notifySubscribers(id);
+      return Promise.reject(err);
+    }
 
-    this.enterAdmission((): void => {
-      let baseRaw: unknown;
+    const baseDict = this.normalizeDictionary(baseRaw);
+    const needStorageWrite = this.persistenceMode === "persistent" && baseDict[id] !== enabled;
+
+    if (needStorageWrite) {
+      const nextDict: Record<string, boolean> = {
+        ...baseDict,
+        [id]: enabled
+      };
+
       try {
-        baseRaw = this.readStorageRaw();
+        this.storage.setValue(this.storage.keys.youtube.functionState, nextDict);
       } catch (err: unknown) {
+        this.applyStorageSnapshot(baseDict);
         record.error = { stage: "storage", retryable: true, error: err };
         this.notifySubscribers(id);
-        requestPromise = Promise.reject(err);
-        return;
+        return Promise.reject(err);
       }
+    }
 
-      const baseDict = this.normalizeDictionary(baseRaw);
-      const needStorageWrite = this.persistenceMode === "persistent" && baseDict[id] !== enabled;
+    if (record.error?.stage === "storage") {
+      record.error = null;
+    }
 
-      if (needStorageWrite) {
-        const nextDict: Record<string, boolean> = {
-          ...baseDict,
-          [id]: enabled
-        };
+    this.applyStorageSnapshot({ ...baseDict, [id]: enabled });
 
-        try {
-          this.storage.setValue(this.storage.keys.youtube.functionState, nextDict);
-        } catch (err: unknown) {
-          // 写入失败：不接纳本次目标，但接纳本次实际读到的基础配置事实
-          this.applyStorageSnapshot(baseDict);
-          record.error = { stage: "storage", retryable: true, error: err };
-          this.notifySubscribers(id);
-          requestPromise = Promise.reject(err);
-          return;
-        }
-      }
-
-      // 成功提交目标
-      this.updateTarget(record, enabled);
-      this.cachedStates = { ...baseDict, [id]: enabled };
-
-      // 缺少 teardown 且功能已启用的关闭操作：直接进入 reload-required
-      if (!enabled && record.applied === true && !record.descriptor.teardown) {
-        record.applied = null;
-        record.runtime = "reload-required";
-        this.notifySubscribers(id);
-        requestPromise = Promise.resolve();
-        return;
-      }
-
-      // 未开始初始化直接 resolve
-      if (!record.hasInitEligibility) {
-        this.notifySubscribers(id);
-        requestPromise = Promise.resolve();
-        return;
-      }
-
-      // 已应用相同目标且无活动 hook 和错误
-      if (record.applied === enabled && !record.error && record.activeHook === null) {
-        this.notifySubscribers(id);
-        requestPromise = Promise.resolve();
-        return;
-      }
-
-      requestPromise = this.createPendingRequest(record, record.targetVersion, record.currentAttemptId);
+    if (!enabled && record.applied === true && !record.descriptor.teardown) {
+      record.applied = null;
+      record.runtime = "reload-required";
       this.notifySubscribers(id);
-      this.scheduleReconcile();
-    });
+      return Promise.resolve();
+    }
 
+    if (!record.hasInitEligibility) {
+      this.notifySubscribers(id);
+      return this.initPromise === null
+        ? Promise.resolve()
+        : this.createPendingRequest(record, record.targetVersion, record.currentAttemptId);
+    }
+
+    if (record.applied === enabled && !record.error && record.activeHook === null) {
+      this.notifySubscribers(id);
+      return Promise.resolve();
+    }
+
+    const requestPromise: Promise<void> = this.createPendingRequest(record, record.targetVersion, record.currentAttemptId);
+    this.notifySubscribers(id);
+    this.scheduleReconcile();
     return requestPromise;
   }
 
@@ -389,18 +402,24 @@ export class FeatureRegistry {
           record.applied = false;
           record.runtime = "disabled";
           this.notifySubscribers(record.descriptor.id);
+          this.settleRequests(record);
         }
       }
 
       this.isInitialized = true;
     };
 
-    const promise = runInit().catch((err: unknown) => {
-      this.initPromise = null;
-      throw err;
+    let resolveInitialization!: () => void;
+    let rejectInitialization!: (error: unknown) => void;
+    const promise: Promise<void> = new Promise<void>((resolve: () => void, reject: (error: unknown) => void): void => {
+      resolveInitialization = resolve;
+      rejectInitialization = reject;
     });
-
     this.initPromise = promise;
+    void runInit().then(resolveInitialization, (err: unknown): void => {
+      this.initPromise = null;
+      rejectInitialization(err);
+    });
     return promise;
   }
 
@@ -434,6 +453,9 @@ export class FeatureRegistry {
   }
 
   private readStorageRaw(): unknown {
+    if (this.persistenceMode === "session") {
+      return this.cachedStates ?? this.storage.getValue<unknown>(this.storage.keys.youtube.functionState, {});
+    }
     return this.storage.getValue<unknown>(this.storage.keys.youtube.functionState, {});
   }
 
@@ -447,7 +469,7 @@ export class FeatureRegistry {
 
     // 保留已知功能的布尔值，非法或缺失使用 defaultValue
     for (const [id, desc] of this.descriptors.entries()) {
-      const val = dict[id];
+      const val: unknown = Object.prototype.hasOwnProperty.call(dict, id) ? dict[id] : undefined;
       normalized[id] = typeof val === "boolean" ? val : desc.defaultValue;
     }
 
@@ -467,7 +489,10 @@ export class FeatureRegistry {
 
     for (const [id, record] of this.records.entries()) {
       if (id in dict) {
-        this.updateTarget(record, dict[id]);
+        if (record.targetEnabled !== dict[id]) {
+          this.updateTarget(record, dict[id]);
+          this.notifySubscribers(id);
+        }
       }
     }
 
@@ -479,6 +504,15 @@ export class FeatureRegistry {
       record.targetEnabled = enabled;
       record.targetVersion++;
       record.currentAttemptId++;
+      const pending: PendingRequest[] = [];
+      for (const request of record.pendingRequests) {
+        if (request.targetVersion < record.targetVersion) {
+          request.reject(new Error("superseded"));
+        } else {
+          pending.push(request);
+        }
+      }
+      record.pendingRequests = pending;
     }
   }
 
@@ -492,17 +526,30 @@ export class FeatureRegistry {
     try {
       action();
     } finally {
-      while (this.admissionQueue.length > 0) {
-        const next = this.admissionQueue.shift();
-        if (next) {
-          try {
-            next();
-          } catch (err: unknown) {
-            console.error("[FeatureRegistry] Admission queue error:", err);
+      try {
+        this.flushPendingNotifications();
+        while (this.admissionQueue.length > 0) {
+          const next = this.admissionQueue.shift();
+          if (next) {
+            try {
+              next();
+            } catch (err: unknown) {
+              console.error("[FeatureRegistry] Admission queue error:", err);
+            }
+            this.flushPendingNotifications();
           }
         }
+      } finally {
+        this.isAdmitting = false;
       }
-      this.isAdmitting = false;
+    }
+  }
+
+  private flushPendingNotifications(): void {
+    const ids: string[] = Array.from(this.pendingNotifications);
+    this.pendingNotifications.clear();
+    for (const id of ids) {
+      this.deliverSubscribers(id);
     }
   }
 
@@ -535,6 +582,10 @@ export class FeatureRegistry {
       return;
     }
 
+    if (record.error?.stage === "setup" && record.error.retryable && record.failedTargetVersion === record.targetVersion) {
+      return;
+    }
+
     if (record.targetEnabled && record.applied !== true) {
       void this.executeSetupWithCleanup(record);
     } else if (!record.targetEnabled && record.applied !== false) {
@@ -553,6 +604,7 @@ export class FeatureRegistry {
     record.activeHook = "setup";
     record.runtime = "starting";
     const currentTargetVersion = record.targetVersion;
+    const currentAttemptId = record.currentAttemptId;
     this.notifySubscribers(record.descriptor.id);
 
     try {
@@ -565,8 +617,6 @@ export class FeatureRegistry {
       this.settleRequests(record);
     } catch (err: unknown) {
       console.error(`[FeatureRegistry] Initial setup failed for "${record.descriptor.id}":`, err);
-      record.activeHook = null;
-
       if (record.descriptor.teardown) {
         record.runtime = "stopping";
         this.notifySubscribers(record.descriptor.id);
@@ -576,6 +626,7 @@ export class FeatureRegistry {
           record.applied = false;
           record.runtime = "error";
           record.error = { stage: "setup", retryable: true, error: err };
+          record.failedTargetVersion = currentTargetVersion;
         } catch (cleanupErr: unknown) {
           console.error(`[FeatureRegistry] Initial cleanup failed for "${record.descriptor.id}":`, cleanupErr);
           record.applied = null;
@@ -589,8 +640,9 @@ export class FeatureRegistry {
         record.error = { stage: "setup", retryable: false, error: err };
       }
 
+      record.activeHook = null;
       this.notifySubscribers(record.descriptor.id);
-      this.rejectAttemptRequests(record, record.currentAttemptId, err);
+      this.rejectAttemptRequests(record, currentAttemptId, err);
     } finally {
       if (record.targetVersion !== currentTargetVersion) {
         this.scheduleReconcile();
@@ -615,8 +667,6 @@ export class FeatureRegistry {
       this.settleRequests(record);
     } catch (setupError: unknown) {
       console.error(`[FeatureRegistry] Setup error for "${record.descriptor.id}":`, setupError);
-      record.activeHook = null;
-
       // setup 失败后在同一执行器中尝试一次必要的清理 teardown
       if (record.descriptor.teardown) {
         record.runtime = "stopping";
@@ -628,6 +678,7 @@ export class FeatureRegistry {
           record.applied = false;
           record.runtime = "error";
           record.error = { stage: "setup", retryable: true, error: setupError };
+          record.failedTargetVersion = currentTargetVersion;
           this.rejectAttemptRequests(record, currentAttemptId, setupError);
         } catch (cleanupError: unknown) {
           console.error(`[FeatureRegistry] Cleanup teardown error for "${record.descriptor.id}":`, cleanupError);
@@ -644,6 +695,7 @@ export class FeatureRegistry {
         this.rejectAttemptRequests(record, currentAttemptId, setupError);
       }
 
+      record.activeHook = null;
       this.notifySubscribers(record.descriptor.id);
     }
 
@@ -698,11 +750,14 @@ export class FeatureRegistry {
 
   private settleRequests(record: FeatureRecord): void {
     const remaining: PendingRequest[] = [];
-    const isSatisfied = record.applied === record.targetEnabled || record.runtime === "reload-required";
+    const isSatisfied: boolean = record.applied === record.targetEnabled ||
+      (record.runtime === "reload-required" && record.error === null);
 
     for (const req of record.pendingRequests) {
       if (req.targetVersion < record.targetVersion) {
         req.reject(new Error("superseded"));
+      } else if (record.applied === null && record.error !== null) {
+        req.reject(record.error.error);
       } else if (req.targetVersion === record.targetVersion && isSatisfied) {
         req.resolve();
       } else {
@@ -726,6 +781,14 @@ export class FeatureRegistry {
   }
 
   private notifySubscribers(id: string): void {
+    if (this.isAdmitting) {
+      this.pendingNotifications.add(id);
+      return;
+    }
+    this.deliverSubscribers(id);
+  }
+
+  private deliverSubscribers(id: string): void {
     const record = this.records.get(id);
     if (!record || this.subscribers.size === 0) {
       return;
@@ -747,7 +810,9 @@ export class FeatureRegistry {
       enabled: record.targetEnabled,
       applied: record.applied,
       runtime: record.runtime,
-      error: record.error ? Object.freeze({ ...record.error }) : null,
+      error: record.error
+        ? Object.freeze({ stage: record.error.stage, retryable: record.error.retryable })
+        : null,
       persistence: this.persistenceMode
     });
   }
