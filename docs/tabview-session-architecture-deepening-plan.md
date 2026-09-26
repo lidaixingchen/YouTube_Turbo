@@ -67,7 +67,7 @@ module 职责如下：
 
 - `RuntimeChannel`：transport deep module。只负责本地 `CustomEvent` listener 的安装、派发和释放，不理解 Tabview command、READY 或 locale。
 - `TabviewSession`：领域 protocol deep module。负责 envelope、runtime validation、session 状态机、READY queue、sequence、close 和 protocol error。
-- `Tabview`：沙箱 composition root。保持现有 interface，负责生成 bootstrap、先创建 session 后注入页面脚本，并执行 setup dedupe 与 timeout rollback。
+- `Tabview`：沙箱 composition root。保持现有 interface，负责生成 bootstrap、先创建 session 后注入页面脚本，并执行 setup 去重、就绪等待与清理回执确认。
 - `page/main`：页面 composition root。创建 page session 与 `TabviewLifecycleCoordinator`，完成 coordinator 初始化后发布 READY。
 - `TabviewLifecycleCoordinator`：维持现有页面领域职责，只接收已通过校验的 command，并将领域变化发布为 typed event；不依赖 `CustomEvent`、envelope 或 transport。
 
@@ -436,22 +436,18 @@ READY barrier 不等待未来才定义或挂载的 Custom Elements。异步 prot
 
 1. 将 feature 状态切换为 `stopping`，阻止新的 setup 复用旧 promise。
 2. 取消 READY timeout。
-3. 调用 sandbox session `close("feature-disabled")`，向 page 发送 close control。
-4. page session 将 close notice 交给 page composition root。
-5. page composition root 调用 `TabviewLifecycleCoordinator.destroy()`。
-6. coordinator 严格执行 `docs/tabview-observer-ownership-architecture-deepening-plan.md` 第 9.4 节定义的唯一 feature teardown ordering；本方案不复制或重定义 page owner 的内部清理顺序。
-7. coordinator teardown 完成后，page composition root 关闭 page session；page session 再关闭其 `RuntimeChannel`。
-8. sandbox session 的隐藏 implementation 关闭 sandbox `RuntimeChannel`，同步移除 listener并清空 queue。
-9. 沙箱端清空 session、bootstrap 与 setup promise 引用，移除 Tabview attribute 与样式。
-10. 将 feature 状态切换为 `idle`。
+3. 沙箱端移除 Tabview attribute 与样式，并在发送 `teardown-request` 前建立该会话的回执等待与单次超时。
+4. page composition root 使异步回调失效，调用 `TabviewLifecycleCoordinator.destroy()`；coordinator 按 [观察者所有权方案](./tabview-observer-ownership-architecture-deepening-plan.md)第 9.4 节释放资源。
+5. page 端完成所有必要清理后发送 `teardown-ack`，携带成功或失败结果，再关闭 session/channel。
+6. 沙箱端依据有效回执与本地释放结果完成 `destroy()`，随后关闭 session/channel 并移除 listener、timeout 与 queue。
 
-`destroy()` 必须幂等。page composition root 使用 `try/finally` 保证 coordinator owner cleanup 发生在 page session/channel close 之前；任一步骤的异常不能阻止其余资源清理。
+`destroy()` 的完整清理回执契约遵循[特性注册表状态迁移方案](./feature-registry-state-transition-architecture-deepening-plan.md)第 7.4 节。清理成功后可重复调用；清理失败或回执缺失时保留资源未知状态并要求刷新。
 
 ### 8.3 重复 setup
 
 - 并发调用共享同一个 in-flight promise，不重复注入、不重复创建 listener。
 - 已 ready 时再次调用直接返回已完成结果。
-- timeout 或 injection failure rollback 完成后，下一次 setup 可以生成新 session 并重试。
+- timeout 或 injection failure 后，只有页面资源释放已确认的会话才能再次 setup；释放失败或回执缺失时要求刷新。
 - 旧 session 的迟到 READY 因 `sessionId` 不匹配而被忽略。
 - re-setup 创建新 session 与新 ownership generation；旧 envelope 与旧 observer callback 即使迟到，也分别因 `sessionId` 与 owner generation 不匹配而失效。
 
@@ -465,9 +461,9 @@ READY barrier 不等待未来才定义或挂载的 Custom Elements。异步 prot
 
 | error mode | detection | required behavior |
 | --- | --- | --- |
-| 页面脚本注入抛错 | `GM_addElement` 与原生注入 adapter 均失败 | `close("injection-failed")`，取消 timeout，移除 listener/attribute/style，清空状态并 reject setup promise。 |
-| READY 超时 | 单次 `setTimeout` 到期 | `close("setup-timeout")`，执行完整 rollback；禁止追加轮询或级联延时。 |
-| bootstrap 非法 | page main runtime validation 失败 | 不初始化 coordinator；页面端不发送 READY；sandbox 最终按 timeout rollback。 |
+| 页面脚本注入抛错 | `GM_addElement` 与原生注入 adapter 均失败 | 取消 READY timeout，移除本地 attribute/style 并 reject setup promise；已尝试页面注入时由 destroy 等待页面释放结果。 |
+| READY 超时 | 单次 `setTimeout` 到期 | reject setup promise，并保留会话供 destroy 请求页面清理；禁止轮询或级联就绪超时。 |
+| bootstrap 非法 | page main runtime validation 失败 | 不初始化 coordinator；页面端不发送 READY；sandbox 的就绪等待按单次超时结束，再请求页面清理结果。 |
 | namespace/session 不匹配 | envelope validation | 忽略 envelope；不泄漏到领域 handler。 |
 | protocol version 不匹配 | envelope validation | 报告 `version-mismatch`，关闭当前 session，不协商降级。 |
 | sender/target 不匹配 | envelope validation | 报告 `direction-mismatch` 并丢弃。 |
@@ -592,8 +588,8 @@ pnpm build
 | 正常首次 setup | listener 先于注入；page READY 后 setup resolve；queue FIFO flush | `pnpm build` 后在 YouTube watch 页成功挂载 Tabview。 |
 | 并发两次 setup | 共享同一 promise；仅一次注入和一对 session listener | 开关 feature 时无重复 Tabview 容器或重复回调。 |
 | 已 ready 后再次 setup | 无新 session、无新注入 | SPA 导航后功能维持单实例；跨路由不重建 session。 |
-| 注入失败 | 完整 rollback，setup reject，随后可重试 | 模拟禁用 `GM_addElement` 后原生 fallback 具备 Trusted Types 合规且正常执行。 |
-| READY 超时 | 单次 timeout 触发，listener/style/attribute/state 全部清理 | 无轮询、无级联 timeout。 |
+| 注入失败 | setup reject；已尝试页面注入时，清理回执成功后可重试 | 模拟禁用 `GM_addElement` 后原生 fallback 具备 Trusted Types 合规且正常执行。 |
+| READY 超时 | 单次 timeout 结束 setup；destroy 收到清理回执后释放 listener/style/attribute/state | 无轮询、无级联就绪超时。 |
 | 两个 session 并存 | 不同 sessionId 消息互不交付 | 旧页面迟到事件不影响新 setup。 |
 | 非法 envelope | 每一种错误均不进入领域 handler | 控制台 diagnostic 脱敏，仅输出协议元数据，不包含 locale snapshot 字典等 payload。 |
 | sequence 重复/倒退 | 丢弃并产生 typed error notice | 正常连续交互顺序不变。 |
@@ -601,8 +597,8 @@ pnpm build
 | READY 前 page event | page FIFO 排队；READY post 返回后再按原序 flush | 初始化产生的 tab/font event 不越过 READY barrier。 |
 | 重复 READY | 报告 `duplicate-ready`；command/event queue 均不二次 flush | 页面状态与首次 READY 后保持一致。 |
 | READY barrier | session、navigation listener、route owner、初始 mount、`replayConnected()` 同步阶段均完成 | 不等待未来 Custom Elements；异步 patch 缺失只产生 diagnostic。 |
-| page 主动 close | sandbox 收到 closed notice 并释放本地资源 | feature 可再次 setup。 |
-| destroy 重入 | close envelope 最多一次；listener 清零 | 多次关闭 feature 无异常。 |
+| page 主动 close | sandbox 收到 closed notice；只有有效清理回执能确认页面资源释放 | 清理结果未知时提示刷新。 |
+| destroy 重入 | 同一会话共享清理结果；成功后 listener 清零 | 多次关闭 feature 得到一致结果。 |
 | session 与 ownership 联合 teardown | coordinator owners 先清理，随后 page session/channel 关闭 | 所有 listener、observer、patch 与 relocated DOM 均恢复。 |
 | destroy 后 re-setup | 旧 envelope 与旧 observer callback 均不产生副作用 | 新 session 与新 route owner 正常接管。 |
 | closed 后 dispatch | 返回 closed，不发送事件 | teardown 后无 Tabview callback。 |
@@ -622,8 +618,8 @@ pnpm build
 - `communicationKey` 被真实的 `sessionId` correlation invariant 替代，不同 session 无法串扰；文档与代码均不把它表述为认证机制。
 - 所有跨上下文输入均从 `unknown` 开始执行 runtime validation。
 - bootstrap 仅通过安全序列化的 page main 参数传递；session 建立后的消息仅走 `CustomEvent`，两条路径都只承载数据。
-- setup 具备 dedupe、listener-before-injection、原生脚本 Trusted Types 策略合规、timeout rollback 与失败后重试能力。
-- destroy 与 session close 均幂等，所有 listener、timeout 与 queue 可证明被释放。
+- setup 具备 dedupe、listener-before-injection、原生脚本 Trusted Types 策略合规、有界 READY 等待与清理确认后的重试能力。
+- destroy 根据跨上下文清理回执决定成功或失败，所有 listener、timeout 与 queue 可证明被释放；清理结果未知时要求刷新。
 - READY barrier 统一覆盖 page session、navigation listener、当前 route owner、初始 mount 与 `PolymerPatcher.replayConnected()`；page 普通 event 不得越过 barrier。
 - SPA 路由漫游期间保持单一长生命周期 Session 存活，跨视频路由与观察器由页面协调器自主管理，不触发非预期 session 重建。
 - 诊断输出严格执行数据脱敏，不输出敏感或大体积 payload。
