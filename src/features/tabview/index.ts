@@ -10,11 +10,10 @@ import type {
   TabviewBootstrap,
   TabviewSession,
   TabviewSessionNotice,
-  TabviewCloseReason,
   TabviewControlAction
 } from "./types";
 
-type FeatureState = "idle" | "starting" | "ready" | "stopping";
+type FeatureState = "idle" | "starting" | "ready" | "stopping" | "reload-required";
 
 interface PageInjectionAdapter {
   inject(source: string): void;
@@ -28,6 +27,7 @@ const defaultInjectionAdapter: PageInjectionAdapter = {
       throw new Error("[Tabview] No valid injection target element found");
     }
 
+    sessionInjectionStarted = true;
     let injected = false;
     if (typeof GM_addElement === "function") {
       try {
@@ -59,19 +59,16 @@ let readyRejecterFn: ((reason: unknown) => void) | null = null;
 let lastTeardownAck: (TabviewControlAction & { type: "teardown-ack" }) | null = null;
 let teardownAckResolver: ((ack: TabviewControlAction & { type: "teardown-ack" }) => void) | null = null;
 let teardownAckRejecter: ((reason: unknown) => void) | null = null;
+let sessionInjectionStarted: boolean = false;
+let teardownFailure: unknown | null = null;
 
-function rollback(reason: TabviewCloseReason): void {
-  featureState = "idle";
+function rollback(): void {
+  featureState = "stopping";
   inFlightSetupPromise = null;
   readyRejecterFn = null;
   if (readyTimeoutId !== null) {
     clearTimeout(readyTimeoutId);
     readyTimeoutId = null;
-  }
-  if (currentSession) {
-    const sessionToClose = currentSession;
-    currentSession = null;
-    sessionToClose.close(reason);
   }
   document.documentElement.removeAttribute("tabview-loaded");
   StyleEngine.remove(TABVIEW_CONSTANTS.STYLE_ID_MAIN);
@@ -90,9 +87,16 @@ export const Tabview = {
     if (featureState === "starting" && inFlightSetupPromise) {
       return inFlightSetupPromise;
     }
+    if (featureState === "stopping") {
+      return Promise.reject(new Error("[Tabview] Teardown must finish before setup"));
+    }
+    if (featureState === "reload-required") {
+      return Promise.reject(new Error("[Tabview] Page cleanup is unknown; reload required"));
+    }
 
     featureState = "starting";
     lastTeardownAck = null;
+    sessionInjectionStarted = false;
     const sessionId = createSessionId();
     const bootstrap: TabviewBootstrap = {
       namespace: TABVIEW_CONSTANTS.PROTOCOL_NAMESPACE,
@@ -133,9 +137,12 @@ export const Tabview = {
               "[Tabview] Session closed during setup: page-init-failed"
             );
             readyRejecter?.(closedError);
-            rollback("page-init-failed");
+            rollback();
           }
         } else if (notice.kind === "message" && notice.message.type === "ready") {
+          if (featureState !== "starting") {
+            return;
+          }
           try {
             document.documentElement.setAttribute("tabview-loaded", "icp");
             const styledCSS: string =
@@ -156,7 +163,7 @@ export const Tabview = {
               readyTimeoutId = null;
             }
             readyRejecter?.(err);
-            rollback("ready-post-process-failed");
+            rollback();
           }
         } else if (notice.kind === "closed") {
           if (teardownAckRejecter) {
@@ -168,7 +175,7 @@ export const Tabview = {
             `[Tabview] Session closed during setup: ${notice.reason}`
           );
           readyRejecter?.(closedError);
-          rollback(notice.reason);
+          rollback();
         }
       }
     });
@@ -180,7 +187,7 @@ export const Tabview = {
         `[Tabview] Ready barrier timeout after ${TABVIEW_CONSTANTS.READY_TIMEOUT_MS}ms`
       );
       readyRejecter?.(timeoutError);
-      rollback("setup-timeout");
+      rollback();
     }, TABVIEW_CONSTANTS.READY_TIMEOUT_MS);
 
     // 步骤 6：安全序列化 bootstrap 注入页面
@@ -190,13 +197,16 @@ export const Tabview = {
       defaultInjectionAdapter.inject(scriptToRun);
     } catch (err: unknown) {
       readyRejecter?.(err);
-      rollback("injection-failed");
+      rollback();
     }
 
     return readyPromise;
   },
 
   destroy(): Promise<void> {
+    if (featureState === "reload-required") {
+      return Promise.reject(teardownFailure);
+    }
     if (featureState === "idle" && !currentSession && !inFlightDestroyPromise) {
       return Promise.resolve();
     }
@@ -226,21 +236,33 @@ export const Tabview = {
 
     const sessionToClean = currentSession;
     currentSession = null;
+    const requiresPageAck: boolean = sessionInjectionStarted;
+    sessionInjectionStarted = false;
 
-    if (!sessionToClean || sessionToClean.isClosed()) {
+    if (!sessionToClean || sessionToClean.isClosed() || !requiresPageAck) {
+      if (sessionToClean && !sessionToClean.isClosed()) {
+        sessionToClean.close("feature-disabled");
+      }
       const ack = lastTeardownAck;
       lastTeardownAck = null;
-      featureState = "idle";
       const earlyErrors: unknown[] = [...localErrors];
-      if (ack && !ack.success) {
+      if (requiresPageAck && !ack) {
+        earlyErrors.unshift(new Error("[Tabview] Page teardown result is unknown"));
+      } else if (ack && !ack.success) {
         earlyErrors.unshift(new Error("[Tabview] Page teardown failed"));
       }
       if (earlyErrors.length === 1) {
+        featureState = "reload-required";
+        teardownFailure = earlyErrors[0];
         return Promise.reject(earlyErrors[0]);
       }
       if (earlyErrors.length > 1) {
-        return Promise.reject(new AggregateError(earlyErrors, "[Tabview] Teardown failed across sandbox and page"));
+        const combinedError: AggregateError = new AggregateError(earlyErrors, "[Tabview] Teardown failed across sandbox and page");
+        featureState = "reload-required";
+        teardownFailure = combinedError;
+        return Promise.reject(combinedError);
       }
+      featureState = "idle";
       return Promise.resolve();
     }
 
@@ -264,6 +286,9 @@ export const Tabview = {
             clearTimeout(timer);
           }
           sessionToClean.close("teardown-timeout");
+          if (localErrors.length > 0) {
+            throw new AggregateError([err, ...localErrors], "[Tabview] Teardown failed across sandbox and page");
+          }
           throw err;
         } finally {
           if (timer !== null) {
@@ -284,8 +309,13 @@ export const Tabview = {
       if (allErrors.length > 1) {
         throw new AggregateError(allErrors, "[Tabview] Teardown failed across sandbox and page");
       }
-    })().finally(() => {
+    })().then((): void => {
       featureState = "idle";
+    }, (err: unknown): never => {
+      featureState = "reload-required";
+      teardownFailure = err;
+      throw err;
+    }).finally(() => {
       inFlightDestroyPromise = null;
       lastTeardownAck = null;
       teardownAckResolver = null;
