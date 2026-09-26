@@ -9,6 +9,8 @@ export const FEATURE_REGISTRY_CONSTANTS = {
     STATUS_ENABLED: "status_enabled",
     STATUS_DISABLED: "status_disabled",
     STATUS_ERROR: "status_error",
+    STATUS_LOADING_SETTINGS: "status_loading_settings",
+    STATUS_SETTINGS_LOAD_FAILED: "status_settings_load_failed",
     STATUS_RELOAD_REQUIRED: "status_reload_required",
     ERROR_STAGE_STORAGE: "error_stage_storage",
     ERROR_STAGE_SETUP: "error_stage_setup",

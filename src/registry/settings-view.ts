@@ -26,6 +26,10 @@ export class SettingsModalView {
 
     const language = LangueUtil.getLanguage();
     const registry = FeatureRegistry.getInstance();
+    if (!registry.hasInitialized) {
+      this.showInitializationGate(registry, language);
+      return;
+    }
     const descriptors = registry.getAllDescriptors();
     const initialStates: Record<string, boolean> = { ...registry.getAllStates() };
 
@@ -139,13 +143,12 @@ export class SettingsModalView {
       const { input, statusEl, extraContainer } = controls;
 
       input.checked = snapshot.enabled;
+      input.disabled = snapshot.runtime === "reload-required";
 
       if (snapshot.runtime === "starting" || snapshot.runtime === "stopping") {
         input.setAttribute("aria-busy", "true");
-        input.disabled = true;
       } else {
         input.removeAttribute("aria-busy");
-        input.disabled = false;
       }
 
       statusEl.textContent = "";
@@ -177,7 +180,7 @@ export class SettingsModalView {
           }
         });
         statusEl.appendChild(reloadBtn);
-      } else if (snapshot.runtime === "error") {
+      } else if (snapshot.runtime === "error" || snapshot.error?.stage === "storage") {
         statusEl.classList.add("setting-status-error");
         const textNode = document.createElement("span");
         const errorLabel =
@@ -196,7 +199,7 @@ export class SettingsModalView {
         textNode.textContent = stageDetail ? `${errorLabel} (${stageDetail})` : errorLabel;
         statusEl.appendChild(textNode);
 
-        if (snapshot.error?.retryable) {
+        if (snapshot.error?.stage !== "storage" && snapshot.error?.retryable) {
           const retryBtn = document.createElement("button");
           retryBtn.type = "button";
           retryBtn.className = "yt-settings-btn-action";
@@ -208,7 +211,7 @@ export class SettingsModalView {
             });
           });
           statusEl.appendChild(retryBtn);
-        } else {
+        } else if (snapshot.error?.stage !== "storage") {
           const reloadBtn = document.createElement("button");
           reloadBtn.type = "button";
           reloadBtn.className = "yt-settings-btn-action";
@@ -260,6 +263,71 @@ export class SettingsModalView {
         }
       }
     });
+  }
+
+  private static showInitializationGate(
+    registry: FeatureRegistry,
+    language: ReturnType<typeof LangueUtil.getLanguage>
+  ): void {
+    const container: HTMLDivElement = document.createElement("div");
+    container.className = "yt-settings-form";
+
+    const statusEl: HTMLDivElement = document.createElement("div");
+    statusEl.className = "setting-status";
+    statusEl.setAttribute("role", "status");
+    statusEl.setAttribute("aria-live", "polite");
+    container.appendChild(statusEl);
+
+    const retryButton: HTMLButtonElement = document.createElement("button");
+    retryButton.type = "button";
+    retryButton.className = "yt-settings-btn-action";
+    retryButton.textContent = language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.ACTION_RETRY] || "";
+    container.appendChild(retryButton);
+
+    let isDisposed: boolean = false;
+    let isLoading: boolean = false;
+    const modal: ReturnType<typeof Modal.open> = Modal.open({
+      size: "medium",
+      title: language.content.function_setting_title || "",
+      content: container,
+      direction: language.direction,
+      onClose: (): void => {
+        isDisposed = true;
+        SettingsModalView.isOpen = false;
+      }
+    });
+
+    const loadSettings = (): void => {
+      if (isDisposed || isLoading) {
+        return;
+      }
+      isLoading = true;
+      retryButton.disabled = true;
+      statusEl.setAttribute("aria-busy", "true");
+      statusEl.className = "setting-status setting-status-starting";
+      statusEl.textContent = language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.STATUS_LOADING_SETTINGS] || "";
+
+      void registry.initAll().then((): void => {
+        if (isDisposed) {
+          return;
+        }
+        modal.close();
+        SettingsModalView.show();
+      }, (err: unknown): void => {
+        if (isDisposed) {
+          return;
+        }
+        console.error("[SettingsModalView] Feature initialization failed:", err);
+        isLoading = false;
+        retryButton.disabled = false;
+        statusEl.removeAttribute("aria-busy");
+        statusEl.className = "setting-status setting-status-error";
+        statusEl.textContent = language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.STATUS_SETTINGS_LOAD_FAILED] || "";
+      });
+    };
+
+    retryButton.addEventListener("click", loadSettings);
+    loadSettings();
   }
 
   private static updateFieldAvailability(container: HTMLElement, available: boolean): void {

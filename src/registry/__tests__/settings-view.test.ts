@@ -5,6 +5,8 @@ import type { FeatureDescriptor } from "../../types";
 import type { FeatureStateListener, FeatureStateSnapshot } from "../types";
 
 interface MockFeatureRegistry {
+  hasInitialized: boolean;
+  initAll: ReturnType<typeof vi.fn>;
   getAllDescriptors: ReturnType<typeof vi.fn>;
   getAllStates: ReturnType<typeof vi.fn>;
   isEnabled: ReturnType<typeof vi.fn>;
@@ -58,6 +60,8 @@ describe("SettingsModalView Component & Interactions", () => {
     unsubscribeSpy = vi.fn();
 
     mockRegistry = {
+      hasInitialized: true,
+      initAll: vi.fn().mockResolvedValue(undefined),
       getAllDescriptors: vi.fn().mockReturnValue([sampleDescriptor]),
       getAllStates: vi.fn().mockReturnValue({ testFeature: false }),
       isEnabled: vi.fn().mockReturnValue(false),
@@ -119,6 +123,7 @@ describe("SettingsModalView Component & Interactions", () => {
     });
 
     expect(input.getAttribute("aria-busy")).toBe("true");
+    expect(input.disabled).toBe(false);
     expect(statusEl.classList.contains("setting-status-starting")).toBe(true);
 
     // 状态变迁为 stopping
@@ -129,7 +134,12 @@ describe("SettingsModalView Component & Interactions", () => {
     });
 
     expect(input.getAttribute("aria-busy")).toBe("true");
+    expect(input.disabled).toBe(false);
     expect(statusEl.classList.contains("setting-status-stopping")).toBe(true);
+
+    input.checked = true;
+    input.dispatchEvent(new Event("change"));
+    expect(mockRegistry.setEnabled).toHaveBeenCalledWith("testFeature", true);
 
     // 状态变迁为 enabled
     subscribedListener!({
@@ -164,6 +174,73 @@ describe("SettingsModalView Component & Interactions", () => {
 
     retryBtn.click();
     expect(mockRegistry.setEnabled).toHaveBeenCalledWith("testFeature", true);
+  });
+
+  it("shows a storage error while preserving the user's switch target", () => {
+    SettingsModalView.show();
+
+    subscribedListener!({
+      ...sampleSnapshot,
+      enabled: true,
+      applied: true,
+      runtime: "enabled",
+      error: { stage: "storage", retryable: true }
+    });
+
+    const statusEl = document.querySelector(".setting-status") as HTMLElement;
+    expect(statusEl.classList.contains("setting-status-error")).toBe(true);
+    expect(statusEl.querySelector(".yt-settings-btn-action")).toBeNull();
+
+    const input = document.querySelector("#yt_feat_testFeature") as HTMLInputElement;
+    input.checked = false;
+    input.dispatchEvent(new Event("change"));
+    expect(mockRegistry.setEnabled).toHaveBeenCalledWith("testFeature", false);
+  });
+
+  it("shows initialization failure and opens feature rows after retry", async () => {
+    mockRegistry.hasInitialized = false;
+    mockRegistry.initAll
+      .mockRejectedValueOnce(new Error("Storage read error"))
+      .mockImplementationOnce(async (): Promise<void> => {
+        mockRegistry.hasInitialized = true;
+      });
+
+    SettingsModalView.show();
+    expect(document.querySelector("#yt_feat_testFeature")).toBeNull();
+
+    const retryButton: HTMLButtonElement = await vi.waitFor((): HTMLButtonElement => {
+      const button = document.querySelector<HTMLButtonElement>(".yt-settings-btn-action");
+      expect(button).not.toBeNull();
+      expect(button?.disabled).toBe(false);
+      return button!;
+    });
+    retryButton.click();
+
+    await vi.waitFor((): void => {
+      expect(document.querySelector("#yt_feat_testFeature")).not.toBeNull();
+    });
+    expect(mockRegistry.initAll).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the modal closed when initialization finishes after dismissal", async () => {
+    mockRegistry.hasInitialized = false;
+    let finishInitialization!: () => void;
+    mockRegistry.initAll.mockImplementation((): Promise<void> => new Promise<void>((resolve: () => void): void => {
+      finishInitialization = (): void => {
+        mockRegistry.hasInitialized = true;
+        resolve();
+      };
+    }));
+
+    SettingsModalView.show();
+    const closeButton = document.querySelector(".yt-modal-close-btn") as HTMLButtonElement;
+    closeButton.click();
+    finishInitialization();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.querySelector(".yt-modal-backdrop")).toBeNull();
+    expect(document.querySelector("#yt_feat_testFeature")).toBeNull();
   });
 
   it("should render reload button on non-retryable error and reload-required", () => {

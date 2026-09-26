@@ -115,6 +115,10 @@ export class FeatureRegistry {
     return this.storage.isPersistenceAvailable() ? "persistent" : "session";
   }
 
+  public get hasInitialized(): boolean {
+    return this.isInitialized;
+  }
+
   public register(descriptor: FeatureDescriptor): void {
     this.assertRegistrationPhase();
     const existing = this.descriptors.get(descriptor.id);
