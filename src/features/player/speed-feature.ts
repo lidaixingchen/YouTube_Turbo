@@ -76,8 +76,8 @@ export const PlayerSpeedFeature: FeatureFacade = Object.freeze({
         })
       );
 
-      PlayerSpeedButtonView.mount();
       isViewMounted = true;
+      PlayerSpeedButtonView.mount();
       shortcutCleanups = acquiredCleanups;
       isEnabled = true;
     } catch (error: unknown) {

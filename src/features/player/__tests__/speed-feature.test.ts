@@ -134,6 +134,7 @@ describe("PlayerSpeedFeature", () => {
     expect(PlayerSpeedFeature.isActive()).toBe(false);
     expect(SlotMountBus.getInstance().hasSlot(PLAYER_CONSTANTS.SELECTORS.SPEED_SLOT_KEY)).toBe(false);
     expect(SlotMountBus.getInstance().isSlotPending(PLAYER_CONSTANTS.SELECTORS.SPEED_SLOT_KEY)).toBe(false);
+    expect(PlayerSpeedButtonView.isMounted()).toBe(false);
     expect(registerSpy).toHaveBeenCalledTimes(3);
     expect(rendererSpy).toHaveBeenCalledTimes(1);
 
@@ -142,7 +143,43 @@ describe("PlayerSpeedFeature", () => {
 
     rendererSpy.mockRestore();
     injectSpy.mockRestore();
+    PlayerSpeedFeature.enable();
+    expect(SlotMountBus.getInstance().hasSlot(PLAYER_CONSTANTS.SELECTORS.SPEED_SLOT_KEY)).toBe(true);
+    PlayerSpeedFeature.disable();
     watchPage.remove();
+  });
+
+  it("releases a partial speed view when style registration fails", (): void => {
+    const originalLocation: Location = window.location;
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=speed_cleanup"),
+      writable: true,
+      configurable: true
+    });
+    const cleanup = vi.fn();
+    vi.spyOn(ShortcutDispatcher, "register").mockReturnValue(cleanup);
+    const injectError: Error = new Error("Speed style failed");
+    const injectSpy = vi.spyOn(StyleEngine, "inject").mockImplementationOnce((): HTMLStyleElement => {
+      throw injectError;
+    });
+
+    try {
+      expect((): void => PlayerSpeedFeature.enable()).toThrow(injectError);
+      expect(cleanup).toHaveBeenCalledTimes(3);
+      expect(PlayerSpeedButtonView.isMounted()).toBe(false);
+      expect(SlotMountBus.getInstance().hasSlot(PLAYER_CONSTANTS.SELECTORS.SPEED_SLOT_KEY)).toBe(false);
+
+      injectSpy.mockRestore();
+      PlayerSpeedFeature.enable();
+      expect(SlotMountBus.getInstance().hasSlot(PLAYER_CONSTANTS.SELECTORS.SPEED_SLOT_KEY)).toBe(true);
+      PlayerSpeedFeature.disable();
+    } finally {
+      Object.defineProperty(window, "location", {
+        value: originalLocation,
+        writable: true,
+        configurable: true
+      });
+    }
   });
 
   it("should isolate teardown exceptions and continue releasing other resources", () => {

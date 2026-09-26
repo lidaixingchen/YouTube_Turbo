@@ -44,13 +44,13 @@ export class PlayerSpeedButtonView {
       }
       try {
         this.instance.destroy();
-        this.instance = null;
       } catch (err: unknown) {
         errors.push(err);
       }
       if (errors.length > 0) {
         throw new AggregateError(errors, "[PlayerSpeedButtonView] Failed to unmount cleanly");
       }
+      this.instance = null;
     }
   }
 
@@ -58,7 +58,6 @@ export class PlayerSpeedButtonView {
     if (this.isRegistered) {
       return;
     }
-    this.isRegistered = true;
     this.injectStyles();
 
     const slotDef: SlotDefinition = {
@@ -85,6 +84,7 @@ export class PlayerSpeedButtonView {
       slotDef,
       (context: SlotMountContext): HTMLElement | null => this.createSlotElement(context)
     );
+    this.isRegistered = true;
   }
 
   private injectStyles(): void {
@@ -270,4 +270,3 @@ export class PlayerSpeedButtonView {
     this.isRegistered = false;
   }
 }
-
