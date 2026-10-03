@@ -191,7 +191,7 @@ export class ToolbarController {
       const record: ToolbarActionRecord = {
         owner: ownerToken,
         sequence: this.nextRegistrationSequence++,
-        config: Object.freeze({ ...config }),
+        config: this.normalizeActionConfig(config),
         stateDisposer: null,
         stateBindingStatus: "unbound",
         isExecuting: false,
@@ -227,18 +227,47 @@ export class ToolbarController {
     };
   }
 
+  private normalizeActionConfig(config: ActionConfig): Readonly<ActionConfig> {
+    return Object.freeze({
+      ...config,
+      isVisible: this.createStateProbe(config.id, "isVisible", config.isVisible, TOOLBAR_CONSTANTS.DEFAULT_ACTION_VISIBLE),
+      isActive: this.createStateProbe(config.id, "isActive", config.isActive, TOOLBAR_CONSTANTS.DEFAULT_ACTION_ACTIVE)
+    });
+  }
+
+  private createStateProbe(
+    actionId: string,
+    name: "isVisible" | "isActive",
+    probe: (() => boolean) | undefined,
+    defaultValue: boolean
+  ): () => boolean {
+    let lastValue: boolean = defaultValue;
+    return (): boolean => {
+      if (typeof probe === "function") {
+        try {
+          lastValue = Boolean(probe());
+        } catch (error: unknown) {
+          console.error(`[ToolbarController] Error evaluating ${name} for action "${actionId}":`, error);
+        }
+      }
+      return lastValue;
+    };
+  }
+
   public destroy(): void {
     this.isInitialized = false;
     this.lifecycleGeneration++;
     this.pendingSlotInvalidations.clear();
+    this.invalidationScheduled = false;
 
     // 1. 释放所有状态订阅
-    this.actionsById.forEach((record: ToolbarActionRecord, id: string): void => {
+    this.actionsById.forEach((record: ToolbarActionRecord): void => {
       if (record.executionTimer !== null) {
         clearTimeout(record.executionTimer);
         record.executionTimer = null;
       }
       record.isExecuting = false;
+      record.executionEpoch++;
 
       if (record.stateDisposer) {
         try {
@@ -249,7 +278,6 @@ export class ToolbarController {
         record.stateDisposer = null;
       }
       record.stateBindingStatus = "unbound";
-      this.actionsById.delete(id);
     });
 
     // 2. 销毁 Popover
@@ -281,6 +309,7 @@ export class ToolbarController {
     } catch (err: unknown) {
       console.error("[ToolbarController] Error cleaning up DOM and styles:", err);
     }
+    this.toolboxPanelHost = null;
   }
 
   private unregisterBatch(ownerToken: symbol): void {
@@ -377,11 +406,10 @@ export class ToolbarController {
       const gen: number = this.lifecycleGeneration;
 
       queueMicrotask((): void => {
-        this.invalidationScheduled = false;
         if (!this.isInitialized || this.lifecycleGeneration !== gen) {
-          this.pendingSlotInvalidations.clear();
           return;
         }
+        this.invalidationScheduled = false;
 
         const slotsToReconcile: string[] = Array.from(this.pendingSlotInvalidations);
         this.pendingSlotInvalidations.clear();

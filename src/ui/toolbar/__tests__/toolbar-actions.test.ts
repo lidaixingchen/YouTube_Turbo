@@ -404,6 +404,7 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
     expect((): void => {
       Toolbar.destroy();
     }).not.toThrow();
+    disposer();
 
     errorSpy.mockRestore();
   });

@@ -3,6 +3,19 @@ import { Toolbar } from "../toolbar";
 import { TOOLBAR_CONSTANTS } from "../constants";
 import { SlotMountBus } from "../slot-mount-bus";
 import { PLAYER_CONSTANTS } from "../../../features/player/constants";
+import type { ActionConfig } from "../types";
+
+function createPlayerHost(): HTMLElement {
+  const watchPage: HTMLElement = document.createElement("ytd-watch-flexy");
+  const playerContainer: HTMLElement = document.createElement("div");
+  playerContainer.id = "movie_player";
+  const controls: HTMLElement = document.createElement("div");
+  controls.className = "ytp-right-controls";
+  playerContainer.appendChild(controls);
+  watchPage.appendChild(playerContainer);
+  document.body.appendChild(watchPage);
+  return watchPage;
+}
 
 describe("Toolbar Actions Integration Tests", (): void => {
   beforeEach((): void => {
@@ -283,6 +296,310 @@ describe("Toolbar Actions Integration Tests", (): void => {
 
     disposer();
     watchPage.remove();
+  });
+
+  it("restores registered actions and subscriptions after destroy and init", async (): Promise<void> => {
+    const watchPage: HTMLElement = createPlayerHost();
+    const notifications: Array<() => void> = [];
+    let bindingCount: number = 0;
+    let cleanupCount: number = 0;
+    let executionCount: number = 0;
+    let visible: boolean = true;
+    const config: ActionConfig = {
+      id: "restored-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "action_download",
+      defaultTitle: "Download",
+      icon: "download",
+      isVisible: (): boolean => visible,
+      onClick: (): void => { executionCount++; },
+      onStateBind: (notify: () => void): (() => void) => {
+        bindingCount++;
+        notifications.push(notify);
+        return (): void => { cleanupCount++; };
+      }
+    };
+    const dispose: () => void = Toolbar.registerAction(config);
+
+    try {
+      Toolbar.init();
+      const originalButton: HTMLElement | null = document.getElementById("action_restored-action");
+      expect(originalButton).not.toBeNull();
+      expect(bindingCount).toBe(1);
+
+      Toolbar.destroy();
+      expect(originalButton?.isConnected).toBe(false);
+      expect(cleanupCount).toBe(1);
+      expect((): void => { Toolbar.registerAction(config); }).toThrow(/already registered/);
+
+      Toolbar.init();
+      const restoredButton: HTMLElement | null = document.getElementById("action_restored-action");
+      expect(restoredButton).not.toBeNull();
+      expect(restoredButton).not.toBe(originalButton);
+      expect(bindingCount).toBe(2);
+      restoredButton?.click();
+      expect(executionCount).toBe(1);
+      await Promise.resolve();
+
+      visible = false;
+      notifications[0]();
+      await Promise.resolve();
+      expect(document.getElementById("action_restored-action")).not.toBeNull();
+      notifications[1]();
+      await Promise.resolve();
+      expect(document.getElementById("action_restored-action")).toBeNull();
+
+      Toolbar.destroy();
+      expect(cleanupCount).toBe(2);
+      dispose();
+      dispose();
+      Toolbar.init();
+      expect(document.getElementById("action_restored-action")).toBeNull();
+      expect(bindingCount).toBe(2);
+    } finally {
+      Toolbar.destroy();
+      dispose();
+      watchPage.remove();
+    }
+  });
+
+  it("keeps the latest visibility result when its probe fails and recovers", async (): Promise<void> => {
+    const watchPage: HTMLElement = createPlayerHost();
+    const notifications: Array<() => void> = [];
+    let visible: boolean = false;
+    let probeFails: boolean = false;
+    vi.spyOn(console, "error").mockImplementation((): void => {});
+    const dispose: () => void = Toolbar.registerAction({
+      id: "visibility-probe-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "action_download",
+      defaultTitle: "Download",
+      icon: "download",
+      onClick: (): void => {},
+      isVisible: (): boolean => {
+        if (probeFails) throw new Error("Visibility unavailable");
+        return visible;
+      },
+      onStateBind: (notify: () => void): void => { notifications.push(notify); }
+    });
+
+    try {
+      Toolbar.init();
+      expect(document.getElementById("action_visibility-probe-action")).toBeNull();
+
+      probeFails = true;
+      notifications[0]();
+      await Promise.resolve();
+      expect(document.getElementById("action_visibility-probe-action")).toBeNull();
+
+      probeFails = false;
+      visible = true;
+      notifications[0]();
+      await Promise.resolve();
+      expect(document.getElementById("action_visibility-probe-action")).not.toBeNull();
+
+      probeFails = true;
+      notifications[0]();
+      await Promise.resolve();
+      expect(document.getElementById("action_visibility-probe-action")).not.toBeNull();
+
+      probeFails = false;
+      visible = false;
+      notifications[0]();
+      await Promise.resolve();
+      expect(document.getElementById("action_visibility-probe-action")).toBeNull();
+    } finally {
+      Toolbar.destroy();
+      dispose();
+      watchPage.remove();
+    }
+  });
+
+  it("keeps the latest active class and icon when its probe fails and recovers", async (): Promise<void> => {
+    const watchPage: HTMLElement = createPlayerHost();
+    const notifications: Array<() => void> = [];
+    let active: boolean = true;
+    let probeFails: boolean = false;
+    vi.spyOn(console, "error").mockImplementation((): void => {});
+    const dispose: () => void = Toolbar.registerAction({
+      id: "active-probe-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "action_download",
+      defaultTitle: "Download",
+      icon: { normal: "download", active: "theme" },
+      onClick: (): void => {},
+      isActive: (): boolean => {
+        if (probeFails) throw new Error("Active state unavailable");
+        return active;
+      },
+      onStateBind: (notify: () => void): void => { notifications.push(notify); }
+    });
+
+    try {
+      Toolbar.init();
+      const initialButton: HTMLElement | null = document.getElementById("action_active-probe-action");
+      const activeIcon: string | undefined = initialButton?.innerHTML;
+      expect(initialButton?.classList.contains("active")).toBe(true);
+
+      probeFails = true;
+      notifications[0]();
+      await Promise.resolve();
+      const retainedButton: HTMLElement | null = document.getElementById("action_active-probe-action");
+      expect(retainedButton?.classList.contains("active")).toBe(true);
+      expect(retainedButton?.innerHTML).toBe(activeIcon);
+
+      probeFails = false;
+      active = false;
+      notifications[0]();
+      await Promise.resolve();
+      const inactiveButton: HTMLElement | null = document.getElementById("action_active-probe-action");
+      const inactiveIcon: string | undefined = inactiveButton?.innerHTML;
+      expect(inactiveButton?.classList.contains("active")).toBe(false);
+      expect(inactiveIcon).not.toBe(activeIcon);
+
+      probeFails = true;
+      notifications[0]();
+      await Promise.resolve();
+      expect(document.getElementById("action_active-probe-action")?.innerHTML).toBe(inactiveIcon);
+
+      probeFails = false;
+      active = true;
+      notifications[0]();
+      await Promise.resolve();
+      expect(document.getElementById("action_active-probe-action")?.classList.contains("active")).toBe(true);
+    } finally {
+      Toolbar.destroy();
+      dispose();
+      watchPage.remove();
+    }
+  });
+
+  it("applies new state notifications while an earlier lifecycle refresh is queued", async (): Promise<void> => {
+    const watchPage: HTMLElement = createPlayerHost();
+    const notifications: Array<() => void> = [];
+    let visible: boolean = true;
+    const dispose: () => void = Toolbar.registerAction({
+      id: "queued-lifecycle-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "action_download",
+      defaultTitle: "Download",
+      icon: "download",
+      onClick: (): void => {},
+      isVisible: (): boolean => visible,
+      onStateBind: (notify: () => void): void => { notifications.push(notify); }
+    });
+
+    try {
+      Toolbar.init();
+      notifications[0]();
+      Toolbar.destroy();
+      Toolbar.init();
+      expect(document.getElementById("action_queued-lifecycle-action")).not.toBeNull();
+      visible = false;
+      notifications[1]();
+      await Promise.resolve();
+      expect(document.getElementById("action_queued-lifecycle-action")).toBeNull();
+    } finally {
+      Toolbar.destroy();
+      dispose();
+      watchPage.remove();
+    }
+  });
+
+  it("preserves the current execution lock when an earlier lifecycle action settles", async (): Promise<void> => {
+    const watchPage: HTMLElement = createPlayerHost();
+    const resolveActions: Array<() => void> = [];
+    const dispose: () => void = Toolbar.registerAction({
+      id: "lifecycle-execution-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "action_download",
+      defaultTitle: "Download",
+      icon: "download",
+      onClick: (): Promise<void> => new Promise<void>((resolve: () => void): void => {
+        resolveActions.push(resolve);
+      })
+    });
+
+    try {
+      Toolbar.init();
+      document.getElementById("action_lifecycle-execution-action")?.click();
+      expect(resolveActions).toHaveLength(1);
+      Toolbar.destroy();
+      Toolbar.init();
+      document.getElementById("action_lifecycle-execution-action")?.click();
+      expect(resolveActions).toHaveLength(2);
+
+      resolveActions[0]();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      document.getElementById("action_lifecycle-execution-action")?.click();
+      expect(resolveActions).toHaveLength(2);
+
+      resolveActions[1]();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      document.getElementById("action_lifecycle-execution-action")?.click();
+      expect(resolveActions).toHaveLength(3);
+      resolveActions[2]();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    } finally {
+      Toolbar.destroy();
+      dispose();
+      watchPage.remove();
+    }
+  });
+
+  it("uses safe probe defaults for a new registration with a reused action ID", async (): Promise<void> => {
+    const watchPage: HTMLElement = createPlayerHost();
+    const notifications: Array<() => void> = [];
+    let visible: boolean = true;
+    let probeFails: boolean = false;
+    vi.spyOn(console, "error").mockImplementation((): void => {});
+    const config: ActionConfig = {
+      id: "reused-probe-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "action_download",
+      defaultTitle: "Download",
+      icon: { normal: "download", active: "theme" },
+      onClick: (): void => {},
+      isVisible: (): boolean => {
+        if (probeFails) throw new Error("Visibility unavailable");
+        return visible;
+      },
+      isActive: (): boolean => {
+        if (probeFails) throw new Error("Active state unavailable");
+        return true;
+      },
+      onStateBind: (notify: () => void): void => { notifications.push(notify); }
+    };
+    const disposeOriginal: () => void = Toolbar.registerAction(config);
+    let disposeReplacement: (() => void) | null = null;
+
+    try {
+      Toolbar.init();
+      expect(document.getElementById("action_reused-probe-action")?.classList.contains("active")).toBe(true);
+      visible = false;
+      notifications[0]();
+      await Promise.resolve();
+      expect(document.getElementById("action_reused-probe-action")).toBeNull();
+      disposeOriginal();
+
+      probeFails = true;
+      disposeReplacement = Toolbar.registerAction(config);
+      await Promise.resolve();
+      const replacementButton: HTMLElement | null = document.getElementById("action_reused-probe-action");
+      expect(replacementButton).not.toBeNull();
+      expect(replacementButton?.classList.contains("active")).toBe(false);
+    } finally {
+      Toolbar.destroy();
+      disposeOriginal();
+      disposeReplacement?.();
+      watchPage.remove();
+    }
   });
 
   it("should preserve speed slot on SlotMountBus when Toolbar is destroyed", (): void => {
