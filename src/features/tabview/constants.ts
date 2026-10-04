@@ -6,6 +6,7 @@ export const TABVIEW_CONSTANTS = {
   STORAGE_KEY_ACTIVE_TAB: "tabview.activeTab",
   STORAGE_KEY_FONT_SIZES: "tabview.fontSizes",
   PROTOCOL_NAMESPACE: "youtube-turbo.tabview",
+  PAGE_SESSION_OWNER_KEY: "youtube-turbo.tabview.page-session-owner",
   PROTOCOL_VERSION: "1.3.0",
   CHANNEL_EVENT_NAME: "__YTI_TABVIEW_CHANNEL_EVENT__",
   READY_TIMEOUT_MS: 5000,

@@ -19,6 +19,10 @@ interface PageInjectionAdapter {
   inject(source: string): void;
 }
 
+function isScriptElement(value: unknown): value is HTMLScriptElement {
+  return typeof HTMLScriptElement !== "undefined" && value instanceof HTMLScriptElement;
+}
+
 const defaultInjectionAdapter: PageInjectionAdapter = {
   inject(source: string): void {
     const injectTarget: HTMLElement | null =
@@ -27,14 +31,13 @@ const defaultInjectionAdapter: PageInjectionAdapter = {
       throw new Error("[Tabview] No valid injection target element found");
     }
 
-    sessionInjectionStarted = true;
-    let injected = false;
+    let injected: boolean = false;
     if (typeof GM_addElement === "function") {
       try {
-        GM_addElement(injectTarget, "script", { textContent: source });
-        injected = true;
+        const injectionResult: unknown = GM_addElement(injectTarget, "script", { textContent: source });
+        injected = isScriptElement(injectionResult);
       } catch {
-        // fallback to native element
+        injected = false;
       }
     }
 
@@ -195,9 +198,17 @@ export const Tabview = {
 
     try {
       defaultInjectionAdapter.inject(scriptToRun);
+      sessionInjectionStarted = true;
     } catch (err: unknown) {
       readyRejecter?.(err);
       rollback();
+      const failedSession: TabviewSession<"sandbox"> | null = currentSession;
+      currentSession = null;
+      sessionInjectionStarted = false;
+      if (failedSession && !failedSession.isClosed()) {
+        failedSession.close("injection-failed");
+      }
+      featureState = "idle";
     }
 
     return readyPromise;

@@ -4,6 +4,11 @@ import { Tabview } from "../index";
 import { TabviewLifecycleCoordinator } from "../page/coordinator";
 import { main as pageMain } from "../page/index";
 
+const READY_SEQUENCE: number = TABVIEW_CONSTANTS.INITIAL_SEQUENCE + 1;
+const TEARDOWN_ACK_SEQUENCE: number = READY_SEQUENCE + 1;
+const COMMAND_SEQUENCE: number = READY_SEQUENCE + 1;
+const MANUAL_TEARDOWN_SEQUENCE: number = COMMAND_SEQUENCE + 1;
+
 vi.mock("virtual:tabview-page-bundle", () => {
   return {
     default: "/* mock page bundle */"
@@ -27,6 +32,57 @@ describe("Tabview.setup() and destroy() lifecycle", () => {
     }));
   }
 
+  function publishReady(sessionId: string): void {
+    window.dispatchEvent(new CustomEvent(TABVIEW_CONSTANTS.CHANNEL_EVENT_NAME, {
+      detail: {
+        namespace: TABVIEW_CONSTANTS.PROTOCOL_NAMESPACE,
+        protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION,
+        sessionId,
+        sender: "page",
+        target: "sandbox",
+        sequence: READY_SEQUENCE,
+        body: {
+          kind: "message",
+          value: {
+            type: "ready",
+            protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION
+          }
+        }
+      }
+    }));
+  }
+
+  function publishActiveTabCommand(sessionId: string): void {
+    window.dispatchEvent(new CustomEvent(TABVIEW_CONSTANTS.CHANNEL_EVENT_NAME, {
+      detail: {
+        namespace: TABVIEW_CONSTANTS.PROTOCOL_NAMESPACE,
+        protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION,
+        sessionId,
+        sender: "sandbox",
+        target: "page",
+        sequence: COMMAND_SEQUENCE,
+        body: {
+          kind: "message",
+          value: { type: "set-active-tab", tabKey: "videos" }
+        }
+      }
+    }));
+  }
+
+  function publishTeardownRequest(sessionId: string): void {
+    window.dispatchEvent(new CustomEvent(TABVIEW_CONSTANTS.CHANNEL_EVENT_NAME, {
+      detail: {
+        namespace: TABVIEW_CONSTANTS.PROTOCOL_NAMESPACE,
+        protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION,
+        sessionId,
+        sender: "sandbox",
+        target: "page",
+        sequence: MANUAL_TEARDOWN_SEQUENCE,
+        body: { kind: "control", action: { type: "teardown-request" } }
+      }
+    }));
+  }
+
   beforeEach(() => {
     delete (window as any).__YTI_TABVIEW_MAIN__;
     Object.defineProperty(window, "location", {
@@ -37,12 +93,13 @@ describe("Tabview.setup() and destroy() lifecycle", () => {
       _target: HTMLElement,
       _tag: string,
       options: { textContent: string }
-    ) => {
+    ): HTMLScriptElement => {
       try {
         eval(options.textContent);
       } catch {
         // ignore
       }
+      return document.createElement("script");
     };
   });
 
@@ -171,6 +228,180 @@ describe("Tabview.setup() and destroy() lifecycle", () => {
     window.dispatchEvent(ackEvent);
     await destroyPromise;
     expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
+  });
+
+  it.each(["null", "throw"] as const)(
+    "uses native script injection when GM_addElement %s",
+    async (failureMode: "null" | "throw"): Promise<void> => {
+      vi.useFakeTimers();
+
+      const invokedSessionIds: string[] = [];
+      (window as any).__YTI_TABVIEW_MAIN__ = (bootstrap: { sessionId: string }): void => {
+        invokedSessionIds.push(bootstrap.sessionId);
+        pageMain(bootstrap);
+      };
+      const initSpy: ReturnType<typeof vi.spyOn> = vi
+        .spyOn(TabviewLifecycleCoordinator.prototype, "init")
+        .mockReturnValue(true);
+      const commandSpy: ReturnType<typeof vi.spyOn> = vi
+        .spyOn(TabviewLifecycleCoordinator.prototype, "setActiveTab")
+        .mockImplementation((): void => {});
+      const destroySpy: ReturnType<typeof vi.spyOn> = vi
+        .spyOn(TabviewLifecycleCoordinator.prototype, "destroy")
+        .mockImplementation((): void => {});
+      const nativeAppendChild: typeof document.head.appendChild = document.head.appendChild.bind(document.head);
+      const appendSpy: ReturnType<typeof vi.spyOn> = vi
+        .spyOn(document.head, "appendChild")
+        .mockImplementation((node: Node): Node => {
+          const scriptSource: string = node.textContent ?? "";
+          if (node instanceof HTMLScriptElement && scriptSource.includes("window.__YTI_TABVIEW_MAIN__")) {
+            eval(scriptSource);
+          }
+          return nativeAppendChild(node);
+        });
+      const injectionError: Error = new Error("GM_addElement failed");
+      const gmAddElementSpy: ReturnType<typeof vi.fn> = vi.fn(
+        (
+          _target: HTMLElement,
+          _tag: string,
+          options: { textContent: string }
+        ): HTMLScriptElement | null => {
+          try {
+            eval(options.textContent);
+          } catch {
+            return null;
+          }
+          if (failureMode === "throw") {
+            throw injectionError;
+          }
+          return null;
+        }
+      );
+      (window as any).GM_addElement = gmAddElementSpy;
+
+      const scriptCountBefore: number = document.head.querySelectorAll("script").length;
+      const setupPromise: Promise<void> = Tabview.setup();
+
+      expect(gmAddElementSpy).toHaveBeenCalledOnce();
+      expect(document.head.querySelectorAll("script")).toHaveLength(scriptCountBefore + 1);
+      expect(invokedSessionIds).toHaveLength(2);
+      const firstSessionId: string = invokedSessionIds[0];
+      expect(invokedSessionIds).toEqual([firstSessionId, firstSessionId]);
+      expect(initSpy).toHaveBeenCalledOnce();
+      await expect(setupPromise).resolves.toBeUndefined();
+
+      publishActiveTabCommand(firstSessionId);
+      expect(commandSpy).toHaveBeenCalledTimes(1);
+
+      const destroyPromise: Promise<void> = Tabview.destroy();
+      publishTeardownRequest(firstSessionId);
+      await expect(destroyPromise).resolves.toBeUndefined();
+      expect(destroySpy).toHaveBeenCalledOnce();
+
+      const retryPromise: Promise<void> = Tabview.setup();
+      expect(invokedSessionIds).toHaveLength(4);
+      const retrySessionId: string = invokedSessionIds[2];
+      expect(invokedSessionIds.slice(2)).toEqual([retrySessionId, retrySessionId]);
+      expect(retrySessionId).not.toBe(firstSessionId);
+      expect(initSpy).toHaveBeenCalledTimes(2);
+      await expect(retryPromise).resolves.toBeUndefined();
+
+      publishActiveTabCommand(retrySessionId);
+      expect(commandSpy).toHaveBeenCalledTimes(2);
+
+      const retryDestroyPromise: Promise<void> = Tabview.destroy();
+      publishTeardownRequest(retrySessionId);
+      await expect(retryDestroyPromise).resolves.toBeUndefined();
+      expect(destroySpy).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+      appendSpy.mockRestore();
+    }
+  );
+
+  it("uses the GM script element when injection succeeds", async (): Promise<void> => {
+    vi.useFakeTimers();
+
+    let injectedBootstrap: { sessionId: string } | null = null;
+    (window as any).__YTI_TABVIEW_MAIN__ = (bootstrap: { sessionId: string }): void => {
+      injectedBootstrap = bootstrap;
+    };
+    const nativeAppendSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(document.head, "appendChild");
+    const gmAddElementSpy: ReturnType<typeof vi.fn> = vi.fn(
+      (
+        _target: HTMLElement,
+        _tag: string,
+        options: { textContent: string }
+      ): HTMLScriptElement => {
+        try {
+          eval(options.textContent);
+        } catch {
+          return document.createElement("script");
+        }
+        return document.createElement("script");
+      }
+    );
+    (window as any).GM_addElement = gmAddElementSpy;
+
+    const setupPromise: Promise<void> = Tabview.setup();
+
+    expect(gmAddElementSpy).toHaveBeenCalledOnce();
+    expect(nativeAppendSpy).not.toHaveBeenCalled();
+    expect(injectedBootstrap).not.toBeNull();
+    publishReady(injectedBootstrap!.sessionId);
+    await expect(setupPromise).resolves.toBeUndefined();
+    nativeAppendSpy.mockRestore();
+
+    const destroyPromise: Promise<void> = Tabview.destroy();
+    acknowledgeTeardown(injectedBootstrap!.sessionId, TEARDOWN_ACK_SEQUENCE);
+    await expect(destroyPromise).resolves.toBeUndefined();
+  });
+
+  it("settles failed injection and releases the sandbox session listener", async (): Promise<void> => {
+    vi.useFakeTimers();
+
+    const injectionError: Error = new Error("native injection failed");
+    const removeListenerSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(window, "removeEventListener");
+    const appendSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(document.head, "appendChild");
+    appendSpy.mockImplementation((_node: Node): Node => {
+      throw injectionError;
+    });
+    (window as any).GM_addElement = (): null => null;
+
+    const setupPromise: Promise<void> = Tabview.setup();
+
+    await expect(setupPromise).rejects.toBe(injectionError);
+    expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removeListenerSpy).toHaveBeenCalledWith(
+      TABVIEW_CONSTANTS.CHANNEL_EVENT_NAME,
+      expect.any(Function)
+    );
+
+    await expect(Tabview.destroy()).resolves.toBeUndefined();
+    expect(vi.getTimerCount()).toBe(0);
+
+    appendSpy.mockRestore();
+    let retryBootstrap: { sessionId: string } | null = null;
+    (window as any).__YTI_TABVIEW_MAIN__ = (bootstrap: { sessionId: string }): void => {
+      retryBootstrap = bootstrap;
+    };
+    (window as any).GM_addElement = (
+      _target: HTMLElement,
+      _tag: string,
+      options: { textContent: string }
+    ): HTMLScriptElement => {
+      eval(options.textContent);
+      return document.createElement("script");
+    };
+
+    const retryPromise: Promise<void> = Tabview.setup();
+    expect(retryBootstrap).not.toBeNull();
+    publishReady(retryBootstrap!.sessionId);
+    await expect(retryPromise).resolves.toBeUndefined();
+    const retryDestroyPromise: Promise<void> = Tabview.destroy();
+    acknowledgeTeardown(retryBootstrap!.sessionId, TEARDOWN_ACK_SEQUENCE);
+    await expect(retryDestroyPromise).resolves.toBeUndefined();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("waits for the page cleanup result after a ready timeout", async () => {

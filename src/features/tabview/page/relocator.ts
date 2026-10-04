@@ -6,6 +6,11 @@ interface ActiveSlotState {
   slot: RelocationSlot;
   element: HTMLElement | null;
   anchor: HTMLElement | null;
+  sourceParent: Node | null;
+  sourceNextSibling: Node | null;
+  fallbackParent: Node | null;
+  fallbackNextSibling: Node | null;
+  recoveryRoot: HTMLElement | null;
 }
 
 export class DOMRelocator {
@@ -81,31 +86,33 @@ export class DOMRelocator {
   }
 
   public mountTabsContainer(secondaryInner: HTMLElement, tabsOptions: TabsViewOptions): HTMLElement {
-    let rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
-    let wrapper = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
+    return this.runWithSilenceLock((): HTMLElement => {
+      let rightTabs: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+      let wrapper: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
 
-    if (!wrapper || !wrapper.isConnected) {
-      wrapper = document.createElement(PAGE_CONSTANTS.TAGS.SECONDARY_WRAPPER);
-      wrapper.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER_WRAPPER;
-      wrapper.className = PAGE_CONSTANTS.CLASSES.SECONDARY_WRAPPER;
+      if (!wrapper || !wrapper.isConnected) {
+        wrapper = document.createElement(PAGE_CONSTANTS.TAGS.SECONDARY_WRAPPER);
+        wrapper.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER_WRAPPER;
+        wrapper.className = PAGE_CONSTANTS.CLASSES.SECONDARY_WRAPPER;
 
-      const children = Array.from(secondaryInner.childNodes);
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i];
-        if (child !== wrapper) {
-          wrapper.appendChild(child);
+        const children: Node[] = Array.from(secondaryInner.childNodes);
+        for (let i = 0; i < children.length; i++) {
+          const child: Node = children[i];
+          if (child !== wrapper) {
+            wrapper.appendChild(child);
+          }
         }
+        secondaryInner.insertBefore(wrapper, secondaryInner.firstChild);
       }
-      secondaryInner.insertBefore(wrapper, secondaryInner.firstChild);
-    }
-    if (!rightTabs || !rightTabs.isConnected) {
-      rightTabs = document.createElement(PAGE_CONSTANTS.TAGS.RIGHT_TABS_CONTAINER);
-      rightTabs.id = PAGE_CONSTANTS.IDS.RIGHT_TABS;
-      wrapper.insertBefore(rightTabs, wrapper.firstChild);
-      this.tabsView.render(rightTabs, tabsOptions);
-    }
+      if (!rightTabs || !rightTabs.isConnected) {
+        rightTabs = document.createElement(PAGE_CONSTANTS.TAGS.RIGHT_TABS_CONTAINER);
+        rightTabs.id = PAGE_CONSTANTS.IDS.RIGHT_TABS;
+        wrapper.insertBefore(rightTabs, wrapper.firstChild);
+        this.tabsView.render(rightTabs, tabsOptions);
+      }
 
-    return rightTabs;
+      return rightTabs;
+    });
   }
 
   public registerDefaultSlots(): void {
@@ -136,7 +143,12 @@ export class DOMRelocator {
       this.slots.set(slot.tabKey, {
         slot,
         element: null,
-        anchor: null
+        anchor: null,
+        sourceParent: null,
+        sourceNextSibling: null,
+        fallbackParent: null,
+        fallbackNextSibling: null,
+        recoveryRoot: null
       });
     }
 
@@ -145,18 +157,18 @@ export class DOMRelocator {
 
   public tryRelocateSlot(tabKey: TabKey): boolean {
     return this.runWithSilenceLock((): boolean => {
-      const slotState = this.slots.get(tabKey);
+      const slotState: ActiveSlotState | undefined = this.slots.get(tabKey);
       if (!slotState) {
         return false;
       }
 
-      const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+      const rightTabs: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
       if (!rightTabs) {
         return false;
       }
 
-      const { slot } = slotState;
-      const targetContainer = rightTabs.querySelector<HTMLElement>(slot.targetContainerSelector);
+      const slot: RelocationSlot = slotState.slot;
+      const targetContainer: HTMLElement | null = rightTabs.querySelector<HTMLElement>(slot.targetContainerSelector);
       if (!targetContainer) {
         return false;
       }
@@ -169,17 +181,17 @@ export class DOMRelocator {
         return true;
       }
 
-      const candidates = document.querySelectorAll<HTMLElement>(slot.sourceSelector);
+      const candidates: NodeListOf<HTMLElement> = document.querySelectorAll<HTMLElement>(slot.sourceSelector);
       let sourceElement: HTMLElement | null = null;
-      for (let i = 0; i < candidates.length; i++) {
-        const el = candidates[i];
+      for (let i: number = 0; i < candidates.length; i++) {
+        const el: HTMLElement = candidates[i];
         if (el.closest(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)) {
           continue;
         }
         if (slot.tabKey === "videos" && el.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)) {
           continue;
         }
-        const parentCandidate = el.parentElement?.closest<HTMLElement>(slot.sourceSelector);
+        const parentCandidate: HTMLElement | null = el.parentElement?.closest<HTMLElement>(slot.sourceSelector) ?? null;
         if (parentCandidate && !parentCandidate.closest(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)) {
           continue;
         }
@@ -191,18 +203,20 @@ export class DOMRelocator {
         return Boolean(slotState.element && targetContainer.contains(slotState.element));
       }
 
-      const parent = sourceElement.parentNode;
+      const parent: Node | null = sourceElement.parentNode;
       if (!parent) {
         return false;
       }
 
-      let anchor = slotState.anchor;
-      if (!anchor || !anchor.isConnected) {
-        anchor = document.createElement(PAGE_CONSTANTS.TAGS.PLACEHOLDER_ANCHOR);
-        anchor.className = `${PAGE_CONSTANTS.CLASSES.PLACEHOLDER_ANCHOR} ${slot.placeholderClass}`;
-        anchor.style.display = "none";
-        parent.insertBefore(anchor, sourceElement);
-        slotState.anchor = anchor;
+      if (slotState.element && slotState.element !== sourceElement) {
+        const restored: boolean = this.restoreSlotState(slotState);
+        if (!restored) {
+          return false;
+        }
+      }
+
+      if (!this.recordOriginalPosition(slotState, sourceElement)) {
+        return false;
       }
 
       targetContainer.replaceChildren(sourceElement);
@@ -211,28 +225,166 @@ export class DOMRelocator {
     });
   }
 
+  private recordOriginalPosition(slotState: ActiveSlotState, element: HTMLElement): boolean {
+    if (slotState.element === element && slotState.sourceParent) {
+      return true;
+    }
+
+    const sourceParent: Node | null = element.parentNode;
+    if (!sourceParent) {
+      return false;
+    }
+
+    const sourceNextSibling: Node | null = element.nextSibling;
+    const fallbackParent: Node | null = sourceParent.parentNode;
+    const fallbackNextSibling: Node | null = fallbackParent ? sourceParent.nextSibling : null;
+    const anchor: HTMLElement = document.createElement(PAGE_CONSTANTS.TAGS.PLACEHOLDER_ANCHOR);
+    anchor.className = `${PAGE_CONSTANTS.CLASSES.PLACEHOLDER_ANCHOR} ${slotState.slot.placeholderClass}`;
+    anchor.style.display = "none";
+    sourceParent.insertBefore(anchor, element);
+
+    slotState.element = element;
+    slotState.anchor = anchor;
+    slotState.sourceParent = sourceParent;
+    slotState.sourceNextSibling = sourceNextSibling;
+    slotState.fallbackParent = fallbackParent;
+    slotState.fallbackNextSibling = fallbackNextSibling;
+    slotState.recoveryRoot = this.findRecoveryRoot(sourceParent);
+    return true;
+  }
+
+  private findRecoveryRoot(sourceParent: Node): HTMLElement | null {
+    let current: Node | null = sourceParent;
+    let secondaryInner: HTMLElement | null = null;
+    while (current) {
+      if (current instanceof HTMLElement) {
+        if (current.matches(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER)) {
+          return current;
+        }
+        if (current.matches(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_EXACT)) {
+          secondaryInner = current;
+        }
+      }
+      current = current.parentNode;
+    }
+    return secondaryInner;
+  }
+
+  private insertAtOriginalPosition(parent: Node, nextSibling: Node | null, element: HTMLElement): void {
+    const insertionPoint: Node | null = nextSibling && nextSibling.parentNode === parent ? nextSibling : null;
+    parent.insertBefore(element, insertionPoint);
+  }
+
+  private clearSlotState(slotState: ActiveSlotState): void {
+    const anchor: HTMLElement | null = slotState.anchor;
+    if (anchor?.parentNode) {
+      anchor.remove();
+    }
+    slotState.element = null;
+    slotState.anchor = null;
+    slotState.sourceParent = null;
+    slotState.sourceNextSibling = null;
+    slotState.fallbackParent = null;
+    slotState.fallbackNextSibling = null;
+    slotState.recoveryRoot = null;
+  }
+
+  private restoreSlotState(slotState: ActiveSlotState): boolean {
+    const element: HTMLElement | null = slotState.element;
+    if (!element) {
+      this.clearSlotState(slotState);
+      return true;
+    }
+
+    const anchor: HTMLElement | null = slotState.anchor;
+    if (anchor && anchor.isConnected && anchor.parentNode) {
+      anchor.parentNode.insertBefore(element, anchor);
+      this.clearSlotState(slotState);
+      return true;
+    }
+
+    const sourceParent: Node | null = slotState.sourceParent;
+    if (sourceParent && sourceParent.isConnected) {
+      this.insertAtOriginalPosition(sourceParent, slotState.sourceNextSibling, element);
+      this.clearSlotState(slotState);
+      return true;
+    }
+
+    const fallbackParent: Node | null = slotState.fallbackParent;
+    if (fallbackParent && fallbackParent.isConnected) {
+      this.insertAtOriginalPosition(fallbackParent, slotState.fallbackNextSibling, element);
+      this.clearSlotState(slotState);
+      return true;
+    }
+
+    const recoveryRoot: HTMLElement | null = slotState.recoveryRoot;
+    if (recoveryRoot && recoveryRoot.isConnected) {
+      recoveryRoot.appendChild(element);
+      this.clearSlotState(slotState);
+      return true;
+    }
+
+    if (element.closest(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)) {
+      return false;
+    }
+
+    this.clearSlotState(slotState);
+    return true;
+  }
+
+  private preserveOwnedContentsOutsideTabs(): void {
+    this.runWithSilenceLock((): void => {
+      const insertionPoints: Map<HTMLElement, Node | null> = new Map<HTMLElement, Node | null>();
+      for (const slotState of this.slots.values()) {
+        const element: HTMLElement | null = slotState.element;
+        const rightTabs: HTMLElement | null = element?.closest<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS) ?? null;
+        const ownerParent: Node | null = rightTabs?.parentNode ?? null;
+        if (!element || !rightTabs || !ownerParent) {
+          continue;
+        }
+        const insertionPoint: Node | null = insertionPoints.has(rightTabs)
+          ? insertionPoints.get(rightTabs) ?? null
+          : rightTabs.nextSibling;
+        ownerParent.insertBefore(element, insertionPoint);
+        insertionPoints.set(rightTabs, element.nextSibling);
+        this.clearSlotState(slotState);
+      }
+    });
+  }
+
+  private hasOwnedContentsInTabs(): boolean {
+    for (const slotState of this.slots.values()) {
+      if (slotState.element?.closest(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public sweepSecondary(): void {
     this.runWithSilenceLock((): void => {
-      const tabVideos = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER);
-      const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+      const tabVideos: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER);
+      const rightTabs: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
       if (!tabVideos || !rightTabs) {
         return;
       }
 
-      const existingRelated = tabVideos.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION);
+      const existingRelated: HTMLElement | null = tabVideos.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION);
       if (existingRelated && !existingRelated.closest(PAGE_CONSTANTS.SELECTORS.SKELETON_CONTAINER)) {
         return;
       }
 
-      const secondaryInner = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_EXACT);
-      const wrapper = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
+      const secondaryInner: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_EXACT);
+      const wrapper: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
 
-      const containersToScan = [secondaryInner, wrapper].filter(Boolean) as HTMLElement[];
-      for (let cIdx = 0; cIdx < containersToScan.length; cIdx++) {
-        const container = containersToScan[cIdx];
-        const candidates = container.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION);
-        for (let i = 0; i < candidates.length; i++) {
-          const candidate = candidates[i];
+      const containersToScan: HTMLElement[] = [secondaryInner, wrapper].filter(
+        (container: HTMLElement | null): container is HTMLElement => container !== null
+      );
+      for (let cIdx: number = 0; cIdx < containersToScan.length; cIdx++) {
+        const container: HTMLElement = containersToScan[cIdx];
+        const candidates: NodeListOf<HTMLElement> = container.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RELATED_SECTION);
+        for (let i: number = 0; i < candidates.length; i++) {
+          const candidate: HTMLElement = candidates[i];
           if (rightTabs.contains(candidate)) {
             continue;
           }
@@ -253,12 +405,22 @@ export class DOMRelocator {
             continue;
           }
 
-          tabVideos.replaceChildren(directChild);
-          const videosSlot = this.slots.get("videos");
-          if (videosSlot) {
-            videosSlot.element = directChild;
+          const videosSlot: ActiveSlotState | undefined = this.slots.get("videos");
+          if (!videosSlot) {
+            continue;
           }
-          break;
+          if (videosSlot.element && videosSlot.element !== directChild) {
+            const restored: boolean = this.restoreSlotState(videosSlot);
+            if (!restored) {
+              continue;
+            }
+          }
+          if (!this.recordOriginalPosition(videosSlot, directChild)) {
+            continue;
+          }
+          tabVideos.replaceChildren(directChild);
+          videosSlot.element = directChild;
+          return;
         }
       }
     });
@@ -279,19 +441,11 @@ export class DOMRelocator {
 
   public restoreSlot(tabKey: TabKey): void {
     this.runWithSilenceLock((): void => {
-      const slotState = this.slots.get(tabKey);
+      const slotState: ActiveSlotState | undefined = this.slots.get(tabKey);
       if (!slotState) {
         return;
       }
-
-      const { element, anchor } = slotState;
-      if (element && anchor && anchor.isConnected && anchor.parentNode) {
-        anchor.parentNode.insertBefore(element, anchor);
-        anchor.remove();
-      }
-
-      slotState.element = null;
-      slotState.anchor = null;
+      this.restoreSlotState(slotState);
     });
   }
 
@@ -302,8 +456,12 @@ export class DOMRelocator {
         this.secondaryInnerObserver = null;
       }
       this.restoreAll();
-      const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
-      if (rightTabs) {
+      this.preserveOwnedContentsOutsideTabs();
+      const rightTabs: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+      if (!this.hasOwnedContentsInTabs()) {
+        this.runWithSilenceLock((): void => this.tabsView.destroy());
+      }
+      if (rightTabs && !this.hasOwnedContentsInTabs()) {
         rightTabs.remove();
       }
       this.currentGeneration = null;
@@ -339,23 +497,31 @@ export class DOMRelocator {
     }
     this.currentGeneration = null;
     this.restoreAll();
-    this.slots.clear();
-    this.tabsView.destroy();
+    this.preserveOwnedContentsOutsideTabs();
 
-    const rightTabs = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
-    if (rightTabs) {
-      rightTabs.remove();
+    if (this.hasOwnedContentsInTabs()) {
+      return;
     }
 
-    const wrapper = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
-    if (wrapper) {
-      const parent = wrapper.parentNode;
-      if (parent) {
-        while (wrapper.firstChild) {
-          parent.insertBefore(wrapper.firstChild, wrapper);
-        }
+    this.runWithSilenceLock((): void => {
+      this.slots.clear();
+      this.tabsView.destroy();
+
+      const rightTabs: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+      if (rightTabs) {
+        rightTabs.remove();
       }
-      wrapper.remove();
-    }
+
+      const wrapper: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.SECONDARY_INNER_WRAPPER);
+      if (wrapper) {
+        const parent: Node | null = wrapper.parentNode;
+        if (parent) {
+          while (wrapper.firstChild) {
+            parent.insertBefore(wrapper.firstChild, wrapper);
+          }
+        }
+        wrapper.remove();
+      }
+    });
   }
 }

@@ -15,8 +15,9 @@ describe("Tabview Session & Ownership Integration", () => {
       _target: HTMLElement,
       _tag: string,
       options: { textContent: string }
-    ) => {
+    ): HTMLScriptElement => {
       eval(options.textContent);
+      return document.createElement("script");
     };
   });
 

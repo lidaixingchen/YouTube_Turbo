@@ -10,6 +10,36 @@ import type {
   TabviewSessionNotice
 } from "../types";
 
+interface PageSessionOwner {
+  sessionId: string;
+}
+
+const PAGE_SESSION_OWNER_SYMBOL: symbol = Symbol.for(
+  TABVIEW_CONSTANTS.PAGE_SESSION_OWNER_KEY
+);
+
+function claimPageSession(sessionId: string): boolean {
+  const pageGlobal: Record<PropertyKey, unknown> = window as unknown as Record<PropertyKey, unknown>;
+  const currentOwner: PageSessionOwner | undefined = pageGlobal[PAGE_SESSION_OWNER_SYMBOL] as
+    | PageSessionOwner
+    | undefined;
+  if (currentOwner?.sessionId === sessionId) {
+    return false;
+  }
+  if (currentOwner) {
+    currentOwner.sessionId = sessionId;
+  } else {
+    const newOwner: PageSessionOwner = { sessionId };
+    Object.defineProperty(pageGlobal, PAGE_SESSION_OWNER_SYMBOL, {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: newOwner
+    });
+  }
+  return true;
+}
+
 function initTrustedTypesPolicy(): void {
   if (typeof window !== "undefined" && typeof window.trustedTypes !== "undefined" && window.trustedTypes.defaultPolicy === null) {
     try {
@@ -48,12 +78,29 @@ export function main(bootstrapInput: unknown): void {
     return;
   }
   const bootstrap = validationResult.value;
+  if (!claimPageSession(bootstrap.sessionId)) {
+    return;
+  }
 
   setupConfigHacks(window);
   initTrustedTypesPolicy();
 
   const coordinator: TabviewLifecycleCoordinator = TabviewLifecycleCoordinator.getInstance();
   let sessionClosed = false;
+  let coordinatorDestroyed = false;
+  const destroyCoordinator = (): boolean => {
+    if (coordinatorDestroyed) {
+      return true;
+    }
+    coordinatorDestroyed = true;
+    try {
+      coordinator.destroy();
+      return true;
+    } catch (err: unknown) {
+      console.error("[Tabview:Page] Coordinator destroy error:", err);
+      return false;
+    }
+  };
 
   const session: TabviewSession<"page"> = createTabviewSession({
     role: "page",
@@ -63,13 +110,7 @@ export function main(bootstrapInput: unknown): void {
         applyCommand(coordinator, notice.message);
       } else if (notice.kind === "control" && notice.action.type === "teardown-request") {
         sessionClosed = true;
-        let success: boolean = true;
-        try {
-          coordinator.destroy();
-        } catch (err: unknown) {
-          success = false;
-          console.error("[Tabview:Page] Coordinator destroy error:", err);
-        }
+        const success: boolean = destroyCoordinator();
         session.dispatchControl({
           type: "teardown-ack",
           success,
@@ -77,24 +118,18 @@ export function main(bootstrapInput: unknown): void {
         });
         session.close("feature-disabled");
       } else if (notice.kind === "closed") {
-        sessionClosed = true;
-        try {
-          coordinator.destroy();
-        } catch (err: unknown) {
-          console.error("[Tabview:Page] Coordinator destroy error on close:", err);
+        if (sessionClosed) {
+          return;
         }
+        sessionClosed = true;
+        destroyCoordinator();
       }
     }
   });
 
   const finishWithoutReady = (): void => {
-    let success: boolean = true;
-    try {
-      coordinator.destroy();
-    } catch (err: unknown) {
-      success = false;
-      console.error("[Tabview:Page] Coordinator cleanup error:", err);
-    }
+    sessionClosed = true;
+    const success: boolean = destroyCoordinator();
     session.dispatchControl({
       type: "teardown-ack",
       success,
