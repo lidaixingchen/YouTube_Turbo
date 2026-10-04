@@ -23,6 +23,12 @@ export const PAGE_MANAGER_ID = "page-manager";
 export const HIDDEN_ATTRIBUTE = "hidden";
 export const FEATURE_STATE_STORAGE_KEY = "yt/functionState_01";
 
+export const APPLICATION_STARTUP_CONSTANTS = {
+  SETTINGS_ACTION_ID: "setting",
+  SETTINGS_ACTION_ICON: "setting",
+  SETTINGS_ACTION_ORDER: 10
+} as const;
+
 export const DEFAULT_VIDEO_WIDTH = 1920;
 export const DEFAULT_VIDEO_HEIGHT = 1080;
 

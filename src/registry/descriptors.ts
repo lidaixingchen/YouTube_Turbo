@@ -12,6 +12,14 @@ import {
 } from "../features/player";
 import { MarkOrRemoveAd } from "../features/adblock";
 import { CaptionController, SUBTITLE_CONSTANTS } from "../features/caption";
+import { PlayerController } from "../features/player/controller";
+
+function setupPlayerFeature(setup: () => void): () => void {
+  return (): void => {
+    PlayerController.getInstance().init();
+    setup();
+  };
+}
 
 export const defaultFeatureDescriptors: FeatureDescriptor[] = [
   {
@@ -62,7 +70,7 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     descI18nKey: "feature_speed_control_desc",
     defaultValue: true,
     order: PLAYER_FEATURE_CONSTANTS.ORDERS.FEATURE_SPEED,
-    setup: (): void => PlayerSpeedFeature.enable(),
+    setup: setupPlayerFeature((): void => PlayerSpeedFeature.enable()),
     teardown: (): void => PlayerSpeedFeature.disable()
   },
   {
@@ -72,7 +80,7 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     descI18nKey: "feature_screenshot_desc",
     defaultValue: true,
     order: PLAYER_FEATURE_CONSTANTS.ORDERS.FEATURE_SCREENSHOT,
-    setup: (): void => PlayerScreenshotFeature.enable(),
+    setup: setupPlayerFeature((): void => PlayerScreenshotFeature.enable()),
     teardown: (): void => PlayerScreenshotFeature.disable()
   },
   {
@@ -82,7 +90,7 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     descI18nKey: "feature_pip_desc",
     defaultValue: true,
     order: PLAYER_FEATURE_CONSTANTS.ORDERS.FEATURE_PIP,
-    setup: (): void => PlayerPiPFeature.enable(),
+    setup: setupPlayerFeature((): void => PlayerPiPFeature.enable()),
     teardown: (): void => PlayerPiPFeature.disable()
   },
   {
@@ -112,7 +120,7 @@ export const defaultFeatureDescriptors: FeatureDescriptor[] = [
     descI18nKey: "feature_subtitle_offset_desc",
     defaultValue: true,
     order: 70,
-    setup: () => CaptionController.getInstance().init(),
+    setup: setupPlayerFeature((): void => CaptionController.getInstance().init()),
     teardown: () => CaptionController.getInstance().destroy(),
     extraFields: [
       {

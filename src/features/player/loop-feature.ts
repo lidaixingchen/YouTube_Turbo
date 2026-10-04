@@ -1,9 +1,12 @@
 import { TOOLBAR_CONSTANTS } from "../../ui/toolbar";
+import { StorageUtil } from "../../core/storage";
 import { PLAYER_FEATURE_CONSTANTS } from "./constants";
 import { PlayerController } from "./controller";
 import { createToolbarActionFeature, type FeatureFacade } from "./feature-factory";
 
-export const PlayerLoopFeature: FeatureFacade = createToolbarActionFeature({
+let ownsLoopState: boolean = false;
+
+const loopFeature: FeatureFacade = createToolbarActionFeature({
   name: "PlayerLoopFeature",
   shortcut: {
     key: PLAYER_FEATURE_CONSTANTS.SHORTCUTS.LOOP.KEY,
@@ -30,6 +33,46 @@ export const PlayerLoopFeature: FeatureFacade = createToolbarActionFeature({
     }
   },
   onDisable: (): void => {
+    if (!ownsLoopState) {
+      return;
+    }
+    ownsLoopState = false;
     PlayerController.getInstance().setLoop(false);
+  }
+});
+
+export const PlayerLoopFeature: FeatureFacade = Object.freeze({
+  enable(): void {
+    if (loopFeature.isActive()) {
+      return;
+    }
+
+    const savedLoop: boolean = Boolean(
+      StorageUtil.getValue(StorageUtil.keys.youtube.videoLoop, false)
+    );
+    const controller: PlayerController = PlayerController.getInstance();
+    controller.init();
+    const previousLoop: boolean = controller.isLoopEnabled();
+
+    try {
+      controller.restoreLoopState(savedLoop);
+      loopFeature.enable();
+      ownsLoopState = true;
+    } catch (error: unknown) {
+      try {
+        controller.restoreLoopState(previousLoop);
+      } catch (cleanupError: unknown) {
+        throw new AggregateError([error, cleanupError], "[PlayerLoopFeature] Setup and rollback failed");
+      }
+      throw error;
+    }
+  },
+
+  disable(): void {
+    loopFeature.disable();
+  },
+
+  isActive(): boolean {
+    return loopFeature.isActive();
   }
 });

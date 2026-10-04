@@ -194,44 +194,68 @@ export class PlayerController {
 
   public init(): void {
     if (this.isInitialized) return;
-    this.isInitialized = true;
     const savedSpeed = StorageUtil.getValue(StorageUtil.keys.youtube.videoPlaySpeed, DEFAULT_PLAYBACK_SPEED);
-    this.targetSpeed = typeof savedSpeed === "number" ? savedSpeed : parseFloat(String(savedSpeed)) || DEFAULT_PLAYBACK_SPEED;
+    const targetSpeed: number = typeof savedSpeed === "number"
+      ? savedSpeed
+      : parseFloat(String(savedSpeed)) || DEFAULT_PLAYBACK_SPEED;
+    let addedNavigateHandler: boolean = false;
+    let addedGlobalPlayHandler: boolean = false;
 
-    const functionStates = StorageUtil.getValue<Record<string, boolean>>(StorageUtil.keys.youtube.functionState, {});
-    const isLoopFeatureEnabled = functionStates["isOpenLoopPlayback"] !== false;
-    const rawSavedLoop = Boolean(StorageUtil.getValue(StorageUtil.keys.youtube.videoLoop, false));
-    if (isLoopFeatureEnabled) {
-      this.targetLoop = rawSavedLoop;
-    } else {
-      this.targetLoop = false;
-      if (rawSavedLoop) {
-        StorageUtil.setValue(StorageUtil.keys.youtube.videoLoop, false);
+    try {
+      if (!this.navigateHandler) {
+        const navigateHandler: () => void = (): void => {
+          this.syncVideoOnNavigate().catch((err: unknown) => {
+            console.error("[PlayerController] Navigation sync error:", err);
+          });
+        };
+        window.addEventListener("yt-navigate-finish", navigateHandler);
+        this.navigateHandler = navigateHandler;
+        addedNavigateHandler = true;
       }
+
+      if (!this.globalPlayHandler) {
+        const globalPlayHandler: (event: Event) => void = (event: Event): void => {
+          const target = event.target;
+          if (target instanceof HTMLVideoElement && target !== this.boundVideo && target.isConnected) {
+            this.bindVideoListeners(target);
+          }
+        };
+        document.addEventListener("play", globalPlayHandler, true);
+        this.globalPlayHandler = globalPlayHandler;
+        addedGlobalPlayHandler = true;
+      }
+
+      this.targetSpeed = targetSpeed;
+      this.isInitialized = true;
+    } catch (error: unknown) {
+      const cleanupErrors: unknown[] = [];
+      if (addedGlobalPlayHandler && this.globalPlayHandler) {
+        try {
+          document.removeEventListener("play", this.globalPlayHandler, true);
+          this.globalPlayHandler = null;
+        } catch (cleanupError: unknown) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      if (addedNavigateHandler && this.navigateHandler) {
+        try {
+          window.removeEventListener("yt-navigate-finish", this.navigateHandler);
+          this.navigateHandler = null;
+        } catch (cleanupError: unknown) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      this.isInitialized = false;
+      this.navigationToken++;
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError([error, ...cleanupErrors], "[PlayerController] Initialization and cleanup failed");
+      }
+      throw error;
     }
 
     this.syncVideoOnNavigate().catch((err: unknown) => {
       console.error("[PlayerController] Initial video sync error:", err);
     });
-
-    if (!this.navigateHandler) {
-      this.navigateHandler = () => {
-        this.syncVideoOnNavigate().catch((err: unknown) => {
-          console.error("[PlayerController] Navigation sync error:", err);
-        });
-      };
-      window.addEventListener("yt-navigate-finish", this.navigateHandler);
-    }
-
-    if (!this.globalPlayHandler) {
-      this.globalPlayHandler = (event: Event): void => {
-        const target = event.target;
-        if (target instanceof HTMLVideoElement && target !== this.boundVideo && target.isConnected) {
-          this.bindVideoListeners(target);
-        }
-      };
-      document.addEventListener("play", this.globalPlayHandler, true);
-    }
   }
 
   public onReady(callback: (state: PlayerState) => void): () => void {
@@ -313,6 +337,15 @@ export class PlayerController {
 
   public setLoop(enabled: boolean, showToast: boolean = false): void {
     this.toggleLoop(enabled, showToast);
+  }
+
+  public restoreLoopState(enabled: boolean): void {
+    this.targetLoop = enabled;
+    const video: HTMLVideoElement | null = this.ensureActiveVideo();
+    if (video) {
+      this.applyPlaybackSettings(video);
+    }
+    this.notifyStateChange();
   }
 
   public isLoopEnabled(): boolean {

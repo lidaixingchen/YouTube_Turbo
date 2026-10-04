@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { PlayerSpeedFeature } from "../speed-feature";
+import { PlayerController } from "../controller";
 import { SlotMountBus } from "../../../ui/toolbar/slot-mount-bus";
 import { PLAYER_CONSTANTS } from "../constants";
 import { TOOLBAR_CONSTANTS } from "../../../ui/toolbar/constants";
@@ -22,6 +23,7 @@ describe("PlayerSpeedFeature Integration", () => {
 
   afterEach(() => {
     PlayerSpeedFeature.disable();
+    PlayerController.getInstance().destroy();
   });
 
   it("should integrate with FeatureDescriptor smoothly", async () => {

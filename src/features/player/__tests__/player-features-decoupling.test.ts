@@ -6,7 +6,6 @@ import { PlayerController } from "../controller";
 import { PlayerScreenshotFeature } from "../screenshot-feature";
 import { PlayerPiPFeature } from "../pip-feature";
 import { PlayerLoopFeature } from "../loop-feature";
-import { ReactiveDOMRegistry } from "../../../core/dom-registry";
 import { createToolbarActionFeature } from "../feature-factory";
 
 describe("Player Features Decoupling and Lifecycle", () => {
@@ -143,25 +142,28 @@ describe("Player Features Decoupling and Lifecycle", () => {
     expect(PlayerScreenshotFeature.isActive()).toBe(false);
   });
 
-  it("should self-heal loop state on cold start when loop feature is disabled in stored state", async () => {
-    vi.spyOn(ReactiveDOMRegistry.getInstance(), "waitForVideoElement").mockResolvedValue(null);
-
-    // 模拟本地持久化存在 videoLoop: true，但 functionState 中禁用了 isOpenLoopPlayback
-    StorageUtil.setValue(StorageUtil.keys.youtube.videoLoop, true);
-    StorageUtil.setValue(StorageUtil.keys.youtube.functionState, {
-      isOpenLoopPlayback: false
+  it("does not restore the saved loop state during base player initialization", () => {
+    const getValue = vi.fn((key: string, defaultValue: unknown): unknown => {
+      if (key === StorageUtil.keys.youtube.videoLoop) {
+        return true;
+      }
+      if (key === StorageUtil.keys.youtube.functionState) {
+        return {};
+      }
+      return defaultValue;
     });
+    const setValue = vi.fn();
+    vi.stubGlobal("GM_getValue", getValue);
+    vi.stubGlobal("GM_setValue", setValue);
 
-    // 模拟冷启动重跑 init
     PlayerController.getInstance().destroy();
     PlayerController.getInstance().init();
 
-    // 验证冷启动自愈：targetLoop 必须强制为 false，且 storage 已清除
     expect(PlayerController.getInstance().isLoopEnabled()).toBe(false);
-    expect(StorageUtil.getValue(StorageUtil.keys.youtube.videoLoop, false)).toBe(false);
+    expect(getValue).not.toHaveBeenCalledWith(StorageUtil.keys.youtube.videoLoop, false);
+    expect(getValue).not.toHaveBeenCalledWith(StorageUtil.keys.youtube.functionState, {});
+    expect(setValue).not.toHaveBeenCalledWith(StorageUtil.keys.youtube.videoLoop, false);
 
-    // 清理测试数据并销毁控制器
-    StorageUtil.setValue(StorageUtil.keys.youtube.functionState, {});
     PlayerController.getInstance().destroy();
   });
 
