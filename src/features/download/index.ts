@@ -3,6 +3,7 @@ import { LangueUtil } from "../../i18n";
 import { StorageUtil } from "../../core/storage";
 import { Modal } from "../../ui/modal/modal";
 import { DOWNLOAD_CONSTANTS } from "./constants";
+import { resolveDownloadVideoUrl } from "./media-identity";
 
 function openInTab(
   url: string,
@@ -21,9 +22,11 @@ export class VideoDownloadService {
   private static unregisterFn: (() => void) | null = null;
 
   public static async downloadCurrentVideo(): Promise<void> {
-    const targetVideoUrl: string = window.location.href;
-    const language = LangueUtil.getLanguage();
-    const downloadingConfirm = StorageUtil.getValue(StorageUtil.keys.youtube.downloadingConfirm, false);
+    const targetVideoUrl: string | null = resolveDownloadVideoUrl(window.location.href);
+    if (!targetVideoUrl) return;
+
+    const language: ReturnType<typeof LangueUtil.getLanguage> = LangueUtil.getLanguage();
+    const downloadingConfirm: boolean = StorageUtil.getValue(StorageUtil.keys.youtube.downloadingConfirm, false);
     const executeDownload = (): void => {
       const serviceUrl: URL = new URL(
         `/${encodeURIComponent(LangueUtil.getLang())}/${DOWNLOAD_CONSTANTS.SERVICE_PATH}`,
@@ -37,7 +40,7 @@ export class VideoDownloadService {
     if (downloadingConfirm) {
       executeDownload();
     } else {
-      const confirmed = await Modal.confirm({
+      const confirmed: boolean = await Modal.confirm({
         title: language.content.function_setting_title,
         content: language.content.download_confirm_message,
         okText: language.content.download_enter_text,
@@ -63,6 +66,7 @@ export class VideoDownloadService {
         icon: "download",
         order: 60,
         dismissOnExecute: true,
+        isVisible: (): boolean => resolveDownloadVideoUrl(window.location.href) !== null,
         onClick: (): Promise<void> => this.downloadCurrentVideo()
       },
       {
@@ -72,6 +76,7 @@ export class VideoDownloadService {
         defaultTitle: "Download Shorts",
         icon: "shortDownload",
         order: 10,
+        isVisible: (): boolean => resolveDownloadVideoUrl(window.location.href) !== null,
         onClick: (): Promise<void> => this.downloadCurrentVideo()
       },
       {
@@ -81,6 +86,7 @@ export class VideoDownloadService {
         defaultTitle: "Download Video",
         icon: "download",
         order: 10,
+        isVisible: (): boolean => resolveDownloadVideoUrl(window.location.href) !== null,
         onClick: (): Promise<void> => this.downloadCurrentVideo()
       }
     ]);

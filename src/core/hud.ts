@@ -3,6 +3,7 @@ import { StyleEngine } from "./style-engine";
 
 export const HUD_CONSTANTS = {
   ELEMENT_ID: "youtube-extension-text-box",
+  ELEMENT_CLASS: "youtube-turbo-playback-hud",
   STYLE_ID: "playback-hud",
   DEFAULT_DURATION_MS: 1200,
   PEAK_OPACITY: 0.8,
@@ -16,13 +17,14 @@ export interface HUDShowOptions {
 
 export const PlaybackHUD = (() => {
   let activeAnimationId: number | null = null;
-  let cachedElement: HTMLElement | null = null;
+  let ownedElement: HTMLElement | null = null;
+  let ownedContainer: HTMLElement | null = null;
   let isStyleInjected = false;
 
   const ensureStyleInjected = (): void => {
     if (isStyleInjected) return;
     const hudStyle = `
-      #${HUD_CONSTANTS.ELEMENT_ID} {
+      .${HUD_CONSTANTS.ELEMENT_CLASS} {
         position: absolute !important;
         margin: auto !important;
         top: 0px !important;
@@ -56,42 +58,70 @@ export const PlaybackHUD = (() => {
     isStyleInjected = true;
   };
 
-  const getOrCreateElement = (): HTMLElement | null => {
-    ensureStyleInjected();
-    let element = document.getElementById(HUD_CONSTANTS.ELEMENT_ID);
-    if (!element) {
-      const container = ReactiveDOMRegistry.getInstance().getPlayerContainer();
-      if (container) {
-        element = document.createElement("div");
-        element.id = HUD_CONSTANTS.ELEMENT_ID;
-        container.appendChild(element);
-      }
+  const cancelActiveAnimation = (): void => {
+    if (activeAnimationId !== null) {
+      cancelAnimationFrame(activeAnimationId);
+      activeAnimationId = null;
     }
-    cachedElement = element;
+  };
+
+  const clearOwnedElement = (): void => {
+    cancelActiveAnimation();
+    if (ownedElement && ownedContainer?.contains(ownedElement)) {
+      ownedElement.style.display = "none";
+      ownedElement.remove();
+    }
+    ownedElement = null;
+    ownedContainer = null;
+  };
+
+  const getOrCreateElement = (container: HTMLElement): HTMLElement => {
+    if (ownedContainer !== container) {
+      clearOwnedElement();
+    }
+
+    if (ownedElement && ownedElement.isConnected && container.contains(ownedElement)) {
+      return ownedElement;
+    }
+
+    if (ownedElement) {
+      clearOwnedElement();
+    }
+
+    ensureStyleInjected();
+    const element: HTMLElement = document.createElement("div");
+    element.id = HUD_CONSTANTS.ELEMENT_ID;
+    element.className = HUD_CONSTANTS.ELEMENT_CLASS;
+    container.appendChild(element);
+    ownedElement = element;
+    ownedContainer = container;
     return element;
   };
 
   const show = (message: string, options: HUDShowOptions = {}): void => {
-    const duration = options.durationMs || HUD_CONSTANTS.DEFAULT_DURATION_MS;
-    const peakOpacity = options.peakOpacity ?? HUD_CONSTANTS.PEAK_OPACITY;
+    const container: HTMLElement | null = ReactiveDOMRegistry.getInstance().getPlayerContainer();
+    if (!container) {
+      clearOwnedElement();
+      return;
+    }
 
-    const element = getOrCreateElement();
-    if (!element) return;
+    const duration: number = options.durationMs || HUD_CONSTANTS.DEFAULT_DURATION_MS;
+    const peakOpacity: number = options.peakOpacity ?? HUD_CONSTANTS.PEAK_OPACITY;
+
+    const element: HTMLElement = getOrCreateElement(container);
+    cancelActiveAnimation();
 
     element.textContent = message;
     element.style.display = "inline-flex";
     element.style.opacity = String(peakOpacity);
 
-    if (activeAnimationId) {
-      cancelAnimationFrame(activeAnimationId);
-      activeAnimationId = null;
-    }
+    const startTime: number = performance.now();
+    const fadeStep: FrameRequestCallback = (timestamp: number): void => {
+      if (ownedElement !== element || ownedContainer !== container) return;
 
-    const startTime = performance.now();
-    const fadeStep = (timestamp: number) => {
-      const elapsed = timestamp - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const currentOpacity = peakOpacity * (1 - progress);
+      const elapsed: number = timestamp - startTime;
+      const progress: number = Math.min(elapsed / duration, 1);
+      const currentOpacity: number = peakOpacity * (1 - progress);
       element.style.opacity = String(currentOpacity);
 
       if (progress < 1) {
@@ -106,23 +136,14 @@ export const PlaybackHUD = (() => {
   };
 
   const hide = (): void => {
-    if (activeAnimationId) {
-      cancelAnimationFrame(activeAnimationId);
-      activeAnimationId = null;
-    }
-    const element = document.getElementById(HUD_CONSTANTS.ELEMENT_ID) || cachedElement;
-    if (element) {
-      element.style.display = "none";
+    cancelActiveAnimation();
+    if (ownedElement && ownedContainer?.contains(ownedElement)) {
+      ownedElement.style.display = "none";
     }
   };
 
   const destroy = (): void => {
-    hide();
-    const element = document.getElementById(HUD_CONSTANTS.ELEMENT_ID) || cachedElement;
-    if (element && element.parentNode) {
-      element.parentNode.removeChild(element);
-    }
-    cachedElement = null;
+    clearOwnedElement();
     StyleEngine.remove(HUD_CONSTANTS.STYLE_ID);
     isStyleInjected = false;
   };

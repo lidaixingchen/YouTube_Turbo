@@ -43,6 +43,23 @@ function createWatchHost(): HTMLElement {
   return page;
 }
 
+function createMiniplayerHost(videoHref: string | null): HTMLElement {
+  const miniplayer: HTMLElement = document.createElement("ytd-miniplayer");
+  const player: HTMLElement = document.createElement("div");
+  player.id = "movie_player";
+  const controls: HTMLElement = document.createElement("div");
+  controls.className = "ytp-right-controls";
+  player.appendChild(controls);
+  if (videoHref !== null) {
+    const link: HTMLAnchorElement = document.createElement("a");
+    link.href = videoHref;
+    player.appendChild(link);
+  }
+  miniplayer.appendChild(player);
+  document.body.appendChild(miniplayer);
+  return miniplayer;
+}
+
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -106,6 +123,82 @@ describe("VideoDownloadService actions", (): void => {
     expect(serviceUrl.searchParams.get(DOWNLOAD_CONSTANTS.VIDEO_URL_PARAMETER)).toBe(targetVideoUrl);
     expect(storedValues.get(StorageUtil.keys.youtube.downloadingConfirm)).toBe(true);
   });
+
+  it("captures the complete Shorts URL when the action starts", async (): Promise<void> => {
+    const targetVideoUrl: string = "https://www.youtube.com/shorts/short123?feature=share&t=90#details";
+    const confirmation: Deferred<boolean> = createDeferred<boolean>();
+    const openedUrls: string[] = [];
+    const confirmSpy = vi.spyOn(Modal, "confirm").mockReturnValue(confirmation.promise);
+
+    vi.stubGlobal("GM_openInTab", (url: string): void => {
+      openedUrls.push(url);
+    });
+    setLocation(targetVideoUrl);
+    const operation: Promise<void> = VideoDownloadService.downloadCurrentVideo();
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+
+    setLocation("https://www.youtube.com/feed/subscriptions");
+    confirmation.resolve(true);
+    await operation;
+
+    expect(openedUrls).toHaveLength(1);
+    const serviceUrl: URL = new URL(openedUrls[0]);
+    expect(serviceUrl.searchParams.get(DOWNLOAD_CONSTANTS.VIDEO_URL_PARAMETER)).toBe(targetVideoUrl);
+  });
+
+  const miniplayerCases: ReadonlyArray<{
+    readonly routeName: string;
+    readonly routeUrl: string;
+    readonly videoHref: string | null;
+  }> = [
+    {
+      routeName: "homepage without a link",
+      routeUrl: "https://www.youtube.com/",
+      videoHref: null
+    },
+    {
+      routeName: "homepage with an unverified link",
+      routeUrl: "https://www.youtube.com/",
+      videoHref: "https://www.youtube.com/watch?v=home-mini"
+    },
+    {
+      routeName: "subscriptions without a link",
+      routeUrl: "https://www.youtube.com/feed/subscriptions",
+      videoHref: null
+    },
+    {
+      routeName: "subscriptions with an unverified link",
+      routeUrl: "https://www.youtube.com/feed/subscriptions",
+      videoHref: "https://www.youtube.com/shorts/sub-mini"
+    }
+  ];
+
+  for (const miniplayerCase of miniplayerCases) {
+    it(`hides the miniplayer download and stops safely on ${miniplayerCase.routeName}`, async (): Promise<void> => {
+      host = createMiniplayerHost(miniplayerCase.videoHref);
+      setLocation(miniplayerCase.routeUrl);
+
+      const registerSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(Toolbar, "registerActions");
+      const confirmSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(Modal, "confirm");
+      const openedUrls: string[] = [];
+      vi.stubGlobal("GM_openInTab", (url: string): void => {
+        openedUrls.push(url);
+      });
+
+      VideoDownloadService.enable();
+
+      const actions: readonly ActionConfig[] = registerSpy.mock.calls[0][0];
+      const downloadAction: ActionConfig | undefined = actions.find(
+        (action: ActionConfig): boolean => action.id === "download"
+      );
+      expect(downloadAction?.isVisible?.()).toBe(false);
+
+      await VideoDownloadService.downloadCurrentVideo();
+
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(openedUrls).toHaveLength(0);
+    });
+  }
 
   it("returns the complete operation promise from all three registered actions", async (): Promise<void> => {
     const operation: Deferred<void> = createDeferred<void>();
