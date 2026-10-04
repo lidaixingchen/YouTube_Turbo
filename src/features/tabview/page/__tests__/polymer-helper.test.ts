@@ -1,11 +1,36 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PolymerHelper } from "../polymer-helper";
+import { PAGE_CONSTANTS } from "../constants";
 
-function createTestTag(suffix: string): string {
-  return `tyt-test-ce-${suffix}`;
+interface CeWaitRegistryStateForTest {
+  readonly entries: Map<string, unknown>;
 }
 
-afterEach(() => {
+let createdTags: Set<string> = new Set<string>();
+
+function createTestTag(suffix: string): string {
+  const tag: string = `tyt-test-ce-${suffix}`;
+  createdTags.add(tag);
+  return tag;
+}
+
+function getSharedWaitEntries(): Map<string, unknown> | undefined {
+  const registryState: Record<symbol, CeWaitRegistryStateForTest | undefined> =
+    customElements as unknown as Record<symbol, CeWaitRegistryStateForTest | undefined>;
+  return registryState[Symbol.for(PAGE_CONSTANTS.SYMBOLS.CE_WAIT_REGISTRY)]?.entries;
+}
+
+beforeEach(() => {
+  createdTags = new Set<string>();
+});
+
+afterEach(async () => {
+  for (const tag of createdTags) {
+    if (!customElements.get(tag)) {
+      customElements.define(tag, class extends HTMLElement {});
+    }
+  }
+  await Promise.resolve();
   vi.restoreAllMocks();
 });
 
@@ -96,6 +121,63 @@ describe("PolymerHelper.retrieveCE", () => {
 
     const fastPath = await PolymerHelper.retrieveCE(tag);
     expect(fastPath).toBe(LifecycleElement.prototype);
+    expect(whenDefinedSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares one pending wait across isolated helper modules and resolves active subscribers after definition", async () => {
+    const tag = createTestTag("shared-modules");
+    const whenDefinedSpy = vi.spyOn(customElements, "whenDefined");
+    const controller = new AbortController();
+
+    vi.resetModules();
+    const firstModule = await import("../polymer-helper");
+    const cancelled = firstModule.PolymerHelper.retrieveCE(tag, controller.signal);
+
+    vi.resetModules();
+    const secondModule = await import("../polymer-helper");
+    const active = secondModule.PolymerHelper.retrieveCE(tag);
+
+    expect(whenDefinedSpy).toHaveBeenCalledTimes(1);
+    expect(getSharedWaitEntries()?.has(tag)).toBe(true);
+
+    controller.abort();
+    await expect(cancelled).resolves.toBeNull();
+
+    class SharedModuleElement extends HTMLElement {}
+    customElements.define(tag, SharedModuleElement);
+    await expect(active).resolves.toBe(SharedModuleElement.prototype);
+    expect(getSharedWaitEntries()?.has(tag)).toBe(false);
+    await expect(secondModule.PolymerHelper.retrieveCE(tag)).resolves.toBe(SharedModuleElement.prototype);
+    expect(whenDefinedSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the shared wait after late definition when every module subscriber cancelled", async () => {
+    const tag = createTestTag("shared-all-cancelled");
+    const whenDefinedSpy = vi.spyOn(customElements, "whenDefined");
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+
+    vi.resetModules();
+    const firstModule = await import("../polymer-helper");
+    const first = firstModule.PolymerHelper.retrieveCE(tag, firstController.signal);
+
+    vi.resetModules();
+    const secondModule = await import("../polymer-helper");
+    const second = secondModule.PolymerHelper.retrieveCE(tag, secondController.signal);
+
+    expect(whenDefinedSpy).toHaveBeenCalledTimes(1);
+    firstController.abort();
+    secondController.abort();
+    await expect(first).resolves.toBeNull();
+    await expect(second).resolves.toBeNull();
+    expect(getSharedWaitEntries()?.has(tag)).toBe(true);
+
+    class AllCancelledElement extends HTMLElement {}
+    customElements.define(tag, AllCancelledElement);
+    await Promise.resolve();
+
+    expect(getSharedWaitEntries()?.has(tag)).toBe(false);
+    await expect(secondModule.PolymerHelper.retrieveCE(tag)).resolves.toBe(AllCancelledElement.prototype);
     expect(whenDefinedSpy).toHaveBeenCalledTimes(1);
   });
 

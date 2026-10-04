@@ -6,6 +6,7 @@ import { LinkedCommentAdapter } from "./linked-comment-adapter";
 import { ExpanderFixer } from "./expander-fixer";
 import { InfoMirrorEngine } from "./info-mirror-engine";
 import { ChannelHoverAdapter } from "./channel-hover-adapter";
+import { MinibrowserRouter } from "./minibrowser-router";
 import { TabviewPanelState } from "./panel-state";
 import type {
   NavigationState,
@@ -207,6 +208,12 @@ export class TabviewLifecycleCoordinator {
 
     try {
       this.polymerPatcher.restorePatches();
+    } catch (err: unknown) {
+      errors.push(err);
+    }
+
+    try {
+      MinibrowserRouter.getInstance().destroy();
     } catch (err: unknown) {
       errors.push(err);
     }

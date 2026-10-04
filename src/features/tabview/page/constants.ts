@@ -182,7 +182,8 @@ export const PAGE_CONSTANTS = {
     COMMENTS_DATA_CALLBACK: "_dataChanged498"
   },
   SYMBOLS: {
-    COMMENTS_DATA_ADAPTER: "youtube-turbo:tabview:comments-data-adapter"
+    COMMENTS_DATA_ADAPTER: "youtube-turbo:tabview:comments-data-adapter",
+    CE_WAIT_REGISTRY: "youtube-turbo:tabview:custom-element-wait-registry"
   },
   DIAGNOSTICS: {
     PATCH_PREFIX: "[Tabview:Patch]"

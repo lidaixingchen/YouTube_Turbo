@@ -3,17 +3,49 @@ import { PolymerHelper } from "./polymer-helper";
 import { fixInlineExpanderMethods } from "./expander-fixer";
 import type { PolymerElementInstance } from "./types";
 
+type PolymerDataSignal = NonNullable<
+  NonNullable<NonNullable<PolymerElementInstance["signalProxy"]>["signalCache"]>["data"]
+>;
+type PolymerDataSignalSetter = NonNullable<PolymerDataSignal["setWithPath"]>;
+
+interface DataReflectionBinding {
+  readonly mirrorEl: HTMLElement;
+  readonly observer: MutationObserver;
+  readonly dataSignal: PolymerDataSignal | null;
+  readonly lifecycleToken: object;
+}
+
+interface DataSignalPatchRecord {
+  readonly signal: PolymerDataSignal;
+  readonly originalSetWithPath: PolymerDataSignalSetter;
+  readonly wrappedSetWithPath: PolymerDataSignalSetter;
+  readonly previousPatched: boolean | undefined;
+  readonly sources: Set<HTMLElement>;
+}
+
+function incrementDataChangeCounter(sourceEl: HTMLElement): void {
+  const current: number = Number(sourceEl.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER) || "0") + 1;
+  sourceEl.setAttribute(
+    PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER,
+    String(current > PAGE_CONSTANTS.THRESHOLDS.MAX_CHANGE_COUNTER ? 1 : current)
+  );
+}
+
 export class InfoMirrorEngine {
   private static instance: InfoMirrorEngine | null = null;
   private mirrorNodeCache: WeakMap<HTMLElement, HTMLElement> = new WeakMap();
   private sourceNodeCache: WeakMap<HTMLElement, WeakRef<HTMLElement>> = new WeakMap();
   private lastSyncedDataMap: WeakMap<HTMLElement, unknown> = new WeakMap();
+  private dataReflectionBindings: Map<HTMLElement, DataReflectionBinding> = new Map();
+  private dataSignalPatchRecords: Map<PolymerDataSignal, DataSignalPatchRecord> = new Map();
   private templateContainer: HTMLElement | null = null;
   private aythlContainer: HTMLElement | null = null;
   private extraContentObserver: MutationObserver | null = null;
   private isFixing: boolean = false;
+  private pendingInfoFix: boolean = false;
   private pendingMicrotask: boolean = false;
   private pendingSyncQueue: Set<HTMLElement> = new Set();
+  private lifecycleToken: object = {};
 
   public static getInstance(): InfoMirrorEngine {
     if (!InfoMirrorEngine.instance) {
@@ -53,9 +85,21 @@ export class InfoMirrorEngine {
   }
 
   public destroy(): void {
+    this.lifecycleToken = {};
     this.disconnectExtraContent();
+    const bindings: Array<[HTMLElement, DataReflectionBinding]> = Array.from(this.dataReflectionBindings.entries());
+    for (let i = 0; i < bindings.length; i++) {
+      this.releaseDataReflection(bindings[i][0], bindings[i][1]);
+    }
     this.pendingSyncQueue.clear();
+    this.pendingInfoFix = false;
     this.pendingMicrotask = false;
+    this.isFixing = false;
+    this.mirrorNodeCache = new WeakMap();
+    this.sourceNodeCache = new WeakMap();
+    this.lastSyncedDataMap = new WeakMap();
+    this.templateContainer = null;
+    this.aythlContainer = null;
   }
 
   /**
@@ -174,14 +218,8 @@ export class InfoMirrorEngine {
    * 微任务批处理调度：聚合高频属性突变，避免单帧内重复执行镜像
    */
   public scheduleInfoFix(): void {
-    if (this.pendingMicrotask) {
-      return;
-    }
-    this.pendingMicrotask = true;
-    queueMicrotask(() => {
-      this.pendingMicrotask = false;
-      this.runInfoFix();
-    });
+    this.pendingInfoFix = true;
+    this.schedulePendingWork();
   }
 
   /**
@@ -189,19 +227,34 @@ export class InfoMirrorEngine {
    */
   private scheduleMirrorSync(sourceEl: HTMLElement, mirrorEl: HTMLElement): void {
     const currentSrcCnt = PolymerHelper.insp(sourceEl);
-    const lastData = this.lastSyncedDataMap.get(mirrorEl);
-    if (!currentSrcCnt?.data || currentSrcCnt.data === lastData) {
+    if (!currentSrcCnt?.data) {
       return;
     }
 
     this.pendingSyncQueue.add(mirrorEl);
+    this.schedulePendingWork();
+  }
+
+  private schedulePendingWork(): void {
     if (this.pendingMicrotask) {
       return;
     }
     this.pendingMicrotask = true;
+    const lifecycleToken: object = this.lifecycleToken;
     queueMicrotask(() => {
+      if (this.lifecycleToken !== lifecycleToken) {
+        return;
+      }
       this.pendingMicrotask = false;
-      this.flushPendingSyncs();
+      const shouldFixInfo: boolean = this.pendingInfoFix;
+      this.pendingInfoFix = false;
+      try {
+        if (shouldFixInfo) {
+          this.runInfoFix();
+        }
+      } finally {
+        this.flushPendingSyncs();
+      }
     });
   }
 
@@ -212,7 +265,7 @@ export class InfoMirrorEngine {
     if (this.pendingSyncQueue.size === 0) {
       return;
     }
-    const elements = Array.from(this.pendingSyncQueue);
+    const elements: HTMLElement[] = Array.from(this.pendingSyncQueue);
     this.pendingSyncQueue.clear();
 
     for (let i = 0; i < elements.length; i++) {
@@ -222,9 +275,12 @@ export class InfoMirrorEngine {
       if (!srcEl || !srcEl.isConnected) {
         continue;
       }
+      const binding: DataReflectionBinding | undefined = this.dataReflectionBindings.get(srcEl);
+      if (!binding || binding.mirrorEl !== mirrorEl || binding.lifecycleToken !== this.lifecycleToken) {
+        continue;
+      }
       const srcCnt = PolymerHelper.insp(srcEl);
-      const lastData = this.lastSyncedDataMap.get(mirrorEl);
-      if (srcCnt?.data && srcCnt.data !== lastData) {
+      if (srcCnt?.data) {
         this.syncElementData(mirrorEl, srcCnt.data);
       }
     }
@@ -275,21 +331,30 @@ export class InfoMirrorEngine {
       if (!mirrorEl || !mirrorEl.isConnected) {
         mirrorEl = document.createElement(tagName);
         sandbox.appendChild(mirrorEl);
-        this.bindDataReflection(srcEl, mirrorEl);
         this.mirrorNodeCache.set(srcEl, mirrorEl);
-        this.sourceNodeCache.set(mirrorEl, new WeakRef(srcEl));
-        if (srcCnt?.data) {
-          this.syncElementData(mirrorEl, srcCnt.data);
-        }
         isTopologyChanged = true;
-      } else {
-        const lastData = this.lastSyncedDataMap.get(mirrorEl);
-        if (srcCnt?.data && srcCnt.data !== lastData) {
-          this.syncElementData(mirrorEl, srcCnt.data);
-        }
+      }
+
+      this.bindDataReflection(srcEl, mirrorEl);
+      const lastData = this.lastSyncedDataMap.get(mirrorEl);
+      if (srcCnt?.data && srcCnt.data !== lastData) {
+        this.syncElementData(mirrorEl, srcCnt.data);
       }
 
       mirrorElements.push(mirrorEl);
+    }
+
+    const activeSources: Set<HTMLElement> = new Set(sourceElements);
+    if (mainInfoRenderer) {
+      const mainSource = this.sourceNodeCache.get(mainInfoRenderer)?.deref();
+      if (mainSource) {
+        activeSources.add(mainSource);
+      }
+    }
+    for (const [sourceEl, binding] of this.dataReflectionBindings) {
+      if (!activeSources.has(sourceEl)) {
+        this.releaseDataReflection(sourceEl, binding);
+      }
     }
 
     const expectedChildren = [mainInfoRenderer, ...mirrorElements].filter(Boolean) as HTMLElement[];
@@ -370,9 +435,26 @@ export class InfoMirrorEngine {
    * 建立原生与镜像节点间的数据变动监听通道
    */
   private bindDataReflection(sourceEl: HTMLElement, mirrorEl: HTMLElement): void {
-    sourceEl.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_OBSERVED, "1");
+    const srcCnt: PolymerElementInstance | null = PolymerHelper.insp(sourceEl);
+    const dataSignal: PolymerDataSignal | null = srcCnt?.signalProxy?.signalCache?.data ?? null;
+    const previousMirrorSource: HTMLElement | undefined = this.sourceNodeCache.get(mirrorEl)?.deref();
+    if (previousMirrorSource && previousMirrorSource !== sourceEl) {
+      const previousBinding: DataReflectionBinding | undefined = this.dataReflectionBindings.get(previousMirrorSource);
+      if (previousBinding?.mirrorEl === mirrorEl) {
+        this.releaseDataReflection(previousMirrorSource, previousBinding);
+      }
+    }
 
-    const srcCnt = PolymerHelper.insp(sourceEl);
+    const existingBinding: DataReflectionBinding | undefined = this.dataReflectionBindings.get(sourceEl);
+    if (existingBinding?.mirrorEl === mirrorEl && existingBinding.dataSignal === dataSignal) {
+      this.sourceNodeCache.set(mirrorEl, new WeakRef(sourceEl));
+      return;
+    }
+    if (existingBinding) {
+      this.releaseDataReflection(sourceEl, existingBinding);
+    }
+
+    sourceEl.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_OBSERVED, "1");
     const cProto = srcCnt ? Object.getPrototypeOf(srcCnt) : null;
 
     // 1. 传统 Polymer 属性观察器拦截
@@ -380,39 +462,23 @@ export class InfoMirrorEngine {
       cProto._dataChangedObserver = function (this: PolymerElementInstance): void {
         const node = this.hostElement || (this as unknown as HTMLElement);
         if (node instanceof HTMLElement && node.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_OBSERVED)) {
-          const current = Number(node.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER) || "0") + 1;
-          node.setAttribute(
-            PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER,
-            String(current > PAGE_CONSTANTS.THRESHOLDS.MAX_CHANGE_COUNTER ? 1 : current)
-          );
+          incrementDataChangeCounter(node);
         }
       };
       cProto._createPropertyObserver("data", "_dataChangedObserver", undefined);
     }
 
-    // 2. YouTube Polymer Signals 拦截
-    const dataSignal = srcCnt?.signalProxy?.signalCache?.data;
-    if (dataSignal && typeof dataSignal.setWithPath === "function" && !dataSignal.__patched) {
-      dataSignal.__patched = true;
-      const rawSetWithPath = dataSignal.setWithPath;
-      dataSignal.setWithPath = function (this: unknown, ...args: unknown[]): unknown {
-        const result = rawSetWithPath.apply(this, args);
-        if (sourceEl.isConnected) {
-          const current = Number(sourceEl.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER) || "0") + 1;
-          sourceEl.setAttribute(
-            PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER,
-            String(current > PAGE_CONSTANTS.THRESHOLDS.MAX_CHANGE_COUNTER ? 1 : current)
-          );
-        }
-        return result;
-      };
-    }
+    this.bindDataSignal(sourceEl, dataSignal);
 
-    // 3. MutationObserver 触发镜像数据刷新
-    const observer = new MutationObserver((mutations) => {
-      let shouldRefresh = false;
+    const lifecycleToken: object = this.lifecycleToken;
+    let binding: DataReflectionBinding;
+    const observer: MutationObserver = new MutationObserver((mutations: MutationRecord[]): void => {
+      if (this.lifecycleToken !== lifecycleToken || this.dataReflectionBindings.get(sourceEl) !== binding) {
+        return;
+      }
+      let shouldRefresh: boolean = false;
       for (let i = 0; i < mutations.length; i++) {
-        const m = mutations[i];
+        const m: MutationRecord = mutations[i];
         if (m.attributeName === PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER) {
           shouldRefresh = true;
           break;
@@ -424,12 +490,87 @@ export class InfoMirrorEngine {
       }
     });
 
+    binding = { mirrorEl, observer, dataSignal, lifecycleToken };
+    this.dataReflectionBindings.set(sourceEl, binding);
+    this.sourceNodeCache.set(mirrorEl, new WeakRef(sourceEl));
     observer.observe(sourceEl, {
       attributes: true,
       attributeFilter: [
         PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER
       ]
     });
+  }
+
+  private bindDataSignal(sourceEl: HTMLElement, dataSignal: PolymerDataSignal | null): void {
+    if (!dataSignal || typeof dataSignal.setWithPath !== "function") {
+      return;
+    }
+
+    let patchRecord: DataSignalPatchRecord | undefined = this.dataSignalPatchRecords.get(dataSignal);
+    if (!patchRecord) {
+      if (dataSignal.__patched) {
+        return;
+      }
+      const originalSetWithPath: PolymerDataSignalSetter = dataSignal.setWithPath;
+      const previousPatched: boolean | undefined = dataSignal.__patched;
+      const sources: Set<HTMLElement> = new Set();
+      const engine: InfoMirrorEngine = this;
+      const wrappedSetWithPath: PolymerDataSignalSetter = function (this: unknown, ...args: unknown[]): unknown {
+        const result = originalSetWithPath.apply(this, args);
+        for (const boundSource of sources) {
+          const binding: DataReflectionBinding | undefined = engine.dataReflectionBindings.get(boundSource);
+          if (binding?.dataSignal === dataSignal && boundSource.isConnected) {
+            incrementDataChangeCounter(boundSource);
+          }
+        }
+        return result;
+      };
+      patchRecord = {
+        signal: dataSignal,
+        originalSetWithPath,
+        wrappedSetWithPath,
+        previousPatched,
+        sources
+      };
+      dataSignal.setWithPath = wrappedSetWithPath;
+      dataSignal.__patched = true;
+      this.dataSignalPatchRecords.set(dataSignal, patchRecord);
+    }
+    patchRecord.sources.add(sourceEl);
+  }
+
+  private releaseDataReflection(sourceEl: HTMLElement, binding: DataReflectionBinding): void {
+    if (this.dataReflectionBindings.get(sourceEl) !== binding) {
+      return;
+    }
+
+    binding.observer.disconnect();
+    this.dataReflectionBindings.delete(sourceEl);
+    sourceEl.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_OBSERVED);
+    sourceEl.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_DATA_CHANGE_COUNTER);
+
+    if (binding.dataSignal) {
+      const patchRecord: DataSignalPatchRecord | undefined = this.dataSignalPatchRecords.get(binding.dataSignal);
+      if (patchRecord) {
+        patchRecord.sources.delete(sourceEl);
+        if (patchRecord.sources.size === 0) {
+          if (binding.dataSignal.setWithPath === patchRecord.wrappedSetWithPath) {
+            binding.dataSignal.setWithPath = patchRecord.originalSetWithPath;
+            if (patchRecord.previousPatched === undefined) {
+              delete binding.dataSignal.__patched;
+            } else {
+              binding.dataSignal.__patched = patchRecord.previousPatched;
+            }
+          }
+          this.dataSignalPatchRecords.delete(binding.dataSignal);
+        }
+      }
+    }
+
+    const mirrorSource: HTMLElement | undefined = this.sourceNodeCache.get(binding.mirrorEl)?.deref();
+    if (mirrorSource === sourceEl) {
+      this.sourceNodeCache.delete(binding.mirrorEl);
+    }
   }
 
   /**

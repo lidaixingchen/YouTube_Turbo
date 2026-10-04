@@ -14,6 +14,8 @@ export class MinibrowserRouter {
   private static instance: MinibrowserRouter | null = null;
   private navigationCounter: number = 0;
   private isLoadStartListened: boolean = false;
+  private aboutPopupTimer: number | null = null;
+  private aboutPopupNavigateListener: (() => void) | null = null;
 
   public static getInstance(): MinibrowserRouter {
     if (!MinibrowserRouter.instance) {
@@ -27,10 +29,8 @@ export class MinibrowserRouter {
 
     return function (this: unknown, ...args: unknown[]): unknown {
       const req = args[0] as AppNavigateRequest | undefined;
-      if (self.navigationCounter > PAGE_CONSTANTS.MASKS.TOKEN_MASK) {
-        self.navigationCounter = 0;
-      }
-      const token = ++self.navigationCounter;
+      self.cancelScheduledChannelAboutPopup();
+      const token = self.advanceNavigationToken();
 
       let targetEndpoint: NavigationEndpoint | null = null;
       if (req && self.isEligibleForMiniplayer(req)) {
@@ -51,6 +51,11 @@ export class MinibrowserRouter {
 
       return rawHandleNavigate.apply(this, args);
     };
+  }
+
+  public destroy(): void {
+    this.cancelScheduledChannelAboutPopup();
+    this.advanceNavigationToken();
   }
 
   private isChannelAboutUrl(url: string): boolean {
@@ -185,12 +190,21 @@ export class MinibrowserRouter {
 
   private scheduleChannelAboutPopup(token: number): void {
     const onNavigateFinish = (): void => {
-      document.removeEventListener(PAGE_CONSTANTS.DOM_EVENTS.YT_NAVIGATE_FINISH, onNavigateFinish);
+      if (this.aboutPopupNavigateListener === onNavigateFinish) {
+        this.aboutPopupNavigateListener = null;
+      }
       if (token !== this.navigationCounter) {
         return;
       }
 
-      window.setTimeout(() => {
+      const timer = window.setTimeout(() => {
+        if (this.aboutPopupTimer === timer) {
+          this.aboutPopupTimer = null;
+        }
+        if (token !== this.navigationCounter) {
+          return;
+        }
+
         const previewModels = Array.from(
           document.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.DESCRIPTION_PREVIEW_VIEW_MODEL)
         );
@@ -201,13 +215,37 @@ export class MinibrowserRouter {
           const aboutBtn = buttons.find(
             (b) => !b.closest(PAGE_CONSTANTS.SELECTORS.HIDDEN_CONTAINER) && (b.textContent || "").trim().length > 0
           );
-          if (aboutBtn) {
+          if (aboutBtn && token === this.navigationCounter) {
             aboutBtn.click();
           }
         }
       }, PAGE_CONSTANTS.TIMEOUTS.ABOUT_POPUP_TRIGGER_MS);
+      this.aboutPopupTimer = timer;
     };
 
+    this.aboutPopupNavigateListener = onNavigateFinish;
     document.addEventListener(PAGE_CONSTANTS.DOM_EVENTS.YT_NAVIGATE_FINISH, onNavigateFinish, { once: true });
+  }
+
+  private cancelScheduledChannelAboutPopup(): void {
+    if (this.aboutPopupTimer !== null) {
+      window.clearTimeout(this.aboutPopupTimer);
+      this.aboutPopupTimer = null;
+    }
+    if (this.aboutPopupNavigateListener !== null) {
+      document.removeEventListener(
+        PAGE_CONSTANTS.DOM_EVENTS.YT_NAVIGATE_FINISH,
+        this.aboutPopupNavigateListener
+      );
+      this.aboutPopupNavigateListener = null;
+    }
+  }
+
+  private advanceNavigationToken(): number {
+    if (this.navigationCounter >= PAGE_CONSTANTS.MASKS.TOKEN_MASK) {
+      this.navigationCounter = 0;
+    }
+    this.navigationCounter++;
+    return this.navigationCounter;
   }
 }

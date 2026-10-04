@@ -106,6 +106,40 @@ describe("ChannelHoverAdapter", () => {
     expect(metadata.classList.contains(PAGE_CONSTANTS.CLASSES.METADATA_HOVER_RESIZED)).toBe(false);
   });
 
+  it("removes resized state after the metadata row fits again", () => {
+    adapter.activateRoute(gen1);
+    const metadata = document.createElement("ytd-watch-metadata");
+    const uploadInfo = document.createElement("div");
+    uploadInfo.id = "upload-info";
+    metadata.appendChild(uploadInfo);
+    document.body.appendChild(metadata);
+
+    adapter.attachMetadata(metadata, gen1);
+    const ro = FakeResizeObserver.allInstances[0];
+    const clientWidth = 100;
+    uploadInfo.dispatchEvent(new Event("pointerenter"));
+
+    Object.defineProperty(uploadInfo, "scrollWidth", { value: clientWidth * 2, configurable: true });
+    Object.defineProperty(uploadInfo, "clientWidth", { value: clientWidth, configurable: true });
+    ro.trigger([
+      {
+        target: uploadInfo,
+        contentRect: { width: clientWidth, height: 20 } as DOMRectReadOnly
+      }
+    ]);
+    expect(metadata.classList.contains(PAGE_CONSTANTS.CLASSES.METADATA_HOVER_RESIZED)).toBe(true);
+
+    Object.defineProperty(uploadInfo, "scrollWidth", { value: clientWidth, configurable: true });
+    ro.trigger([
+      {
+        target: uploadInfo,
+        contentRect: { width: clientWidth, height: 20 } as DOMRectReadOnly
+      }
+    ]);
+
+    expect(metadata.classList.contains(PAGE_CONSTANTS.CLASSES.METADATA_HOVER_RESIZED)).toBe(false);
+  });
+
   it("handles target replacement idempotently", () => {
     adapter.activateRoute(gen1);
 

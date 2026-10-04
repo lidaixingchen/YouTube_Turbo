@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { TabviewLifecycleCoordinator } from "../coordinator";
 import { PolymerHelper } from "../polymer-helper";
+import { MinibrowserRouter } from "../minibrowser-router";
 import { PAGE_CONSTANTS } from "../constants";
 import type { LocaleSnapshot } from "../types";
 import {
@@ -140,9 +141,11 @@ describe("TabviewLifecycleCoordinator", () => {
     document.body.appendChild(flexy);
     document.body.appendChild(secondaryInner);
 
+    const routerDestroySpy = vi.spyOn(MinibrowserRouter.getInstance(), "destroy");
     coordinator.init(mockLocale);
     coordinator.destroy();
 
+    expect(routerDestroySpy).toHaveBeenCalledTimes(1);
     expect(document.querySelector(`#${PAGE_CONSTANTS.IDS.RIGHT_TABS}`)).toBeNull();
     expect(FakeMutationObserver.activeInstances.size).toBe(0);
     expect(FakeResizeObserver.activeInstances.size).toBe(0);

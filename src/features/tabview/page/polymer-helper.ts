@@ -12,7 +12,11 @@ interface CeWaitEntry {
   readonly subscriptions: Set<CeWaitSubscription>;
 }
 
-const ceWaitEntries: Map<string, CeWaitEntry> = new Map<string, CeWaitEntry>();
+interface CeWaitRegistryState {
+  readonly entries: Map<string, CeWaitEntry>;
+}
+
+const CE_WAIT_REGISTRY_SYMBOL: symbol = Symbol.for(PAGE_CONSTANTS.SYMBOLS.CE_WAIT_REGISTRY);
 
 function settleCeSubscription(
   entry: CeWaitEntry,
@@ -86,18 +90,20 @@ export class PolymerHelper {
   }
 
   private static ensureWaitEntry(tagName: string): CeWaitEntry {
-    const existing = ceWaitEntries.get(tagName);
+    const registry: CustomElementRegistry = customElements;
+    const entries: Map<string, CeWaitEntry> = PolymerHelper.getWaitEntries(registry);
+    const existing = entries.get(tagName);
     if (existing !== undefined) {
       return existing;
     }
 
     const created: CeWaitEntry = { subscriptions: new Set<CeWaitSubscription>() };
-    ceWaitEntries.set(tagName, created);
+    entries.set(tagName, created);
 
-    void customElements.whenDefined(tagName).then(
+    void registry.whenDefined(tagName).then(
       (): void => {
-        if (ceWaitEntries.get(tagName) === created) {
-          ceWaitEntries.delete(tagName);
+        if (entries.get(tagName) === created) {
+          entries.delete(tagName);
         }
         if (created.subscriptions.size === 0) {
           return;
@@ -108,8 +114,8 @@ export class PolymerHelper {
         }
       },
       (): void => {
-        if (ceWaitEntries.get(tagName) === created) {
-          ceWaitEntries.delete(tagName);
+        if (entries.get(tagName) === created) {
+          entries.delete(tagName);
         }
         for (const subscription of Array.from(created.subscriptions)) {
           settleCeSubscription(created, subscription, null);
@@ -118,6 +124,22 @@ export class PolymerHelper {
     );
 
     return created;
+  }
+
+  private static getWaitEntries(registry: CustomElementRegistry): Map<string, CeWaitEntry> {
+    const registryState: Record<symbol, CeWaitRegistryState | undefined> =
+      registry as unknown as Record<symbol, CeWaitRegistryState | undefined>;
+    let state: CeWaitRegistryState | undefined = registryState[CE_WAIT_REGISTRY_SYMBOL];
+    if (state === undefined) {
+      state = { entries: new Map<string, CeWaitEntry>() };
+      Object.defineProperty(registryState, CE_WAIT_REGISTRY_SYMBOL, {
+        configurable: false,
+        enumerable: false,
+        value: state,
+        writable: false
+      });
+    }
+    return state.entries;
   }
 
   private static resolveControllerPrototype(tagName: string): PolymerControllerPrototype | null {

@@ -81,9 +81,7 @@ export class ChannelHoverAdapter {
             if (targetMetadata && targetMetadata.classList.contains(PAGE_CONSTANTS.CLASSES.METADATA_HOVER)) {
               const isOverflowing =
                 target.scrollWidth > target.clientWidth + PAGE_CONSTANTS.HOVER.OVERFLOW_TOLERANCE_PX;
-              if (isOverflowing) {
-                targetMetadata.classList.add(PAGE_CONSTANTS.CLASSES.METADATA_HOVER_RESIZED);
-              }
+              targetMetadata.classList.toggle(PAGE_CONSTANTS.CLASSES.METADATA_HOVER_RESIZED, isOverflowing);
             }
             break;
           }

@@ -52,6 +52,9 @@ export class TabsView {
     container.replaceChildren(fragment);
 
     this.bindEvents();
+    for (const [tabKey, sizePx] of this.fontSizes) {
+      this.setFontSize(tabKey, sizePx);
+    }
     this.setActiveTab(this.activeTab);
   }
 
