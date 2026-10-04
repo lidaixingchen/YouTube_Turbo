@@ -23,10 +23,8 @@ export const PlayerScreenshotFeature: FeatureFacade = createToolbarActionFeature
     icon: PLAYER_FEATURE_CONSTANTS.ICONS.SCREENSHOT,
     order: PLAYER_FEATURE_CONSTANTS.ORDERS.SCREENSHOT,
     dismissOnExecute: true,
-    onClick: (): void => {
-      PlayerController.getInstance().captureScreenshot().catch((err: unknown) => {
-        console.error("[PlayerScreenshotFeature] Toolbar screenshot error:", err);
-      });
+    onClick: async (): Promise<void> => {
+      await PlayerController.getInstance().captureScreenshot();
     }
   }
 });

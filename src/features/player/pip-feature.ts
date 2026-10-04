@@ -23,10 +23,8 @@ export const PlayerPiPFeature: FeatureFacade = createToolbarActionFeature({
     icon: PLAYER_FEATURE_CONSTANTS.ICONS.PIP,
     order: PLAYER_FEATURE_CONSTANTS.ORDERS.PIP,
     dismissOnExecute: true,
-    onClick: (): void => {
-      PlayerController.getInstance().togglePictureInPicture().catch((err: unknown) => {
-        console.error("[PlayerPiPFeature] Toolbar PiP error:", err);
-      });
+    onClick: async (): Promise<void> => {
+      await PlayerController.getInstance().togglePictureInPicture();
     }
   }
 });

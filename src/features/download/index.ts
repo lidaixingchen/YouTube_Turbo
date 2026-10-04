@@ -2,6 +2,7 @@ import { Toolbar, TOOLBAR_CONSTANTS } from "../../ui/toolbar";
 import { LangueUtil } from "../../i18n";
 import { StorageUtil } from "../../core/storage";
 import { Modal } from "../../ui/modal/modal";
+import { DOWNLOAD_CONSTANTS } from "./constants";
 
 function openInTab(
   url: string,
@@ -20,11 +21,17 @@ export class VideoDownloadService {
   private static unregisterFn: (() => void) | null = null;
 
   public static async downloadCurrentVideo(): Promise<void> {
+    const targetVideoUrl: string = window.location.href;
     const language = LangueUtil.getLanguage();
     const downloadingConfirm = StorageUtil.getValue(StorageUtil.keys.youtube.downloadingConfirm, false);
     const executeDownload = (): void => {
-      const url = "https://www.grabshorts.com/" + LangueUtil.getLang() + "/yt?s=40&url=" + window.location.href;
-      openInTab(url);
+      const serviceUrl: URL = new URL(
+        `/${encodeURIComponent(LangueUtil.getLang())}/${DOWNLOAD_CONSTANTS.SERVICE_PATH}`,
+        DOWNLOAD_CONSTANTS.SERVICE_ORIGIN
+      );
+      serviceUrl.searchParams.set(DOWNLOAD_CONSTANTS.SOURCE_PARAMETER, DOWNLOAD_CONSTANTS.SOURCE_VALUE);
+      serviceUrl.searchParams.set(DOWNLOAD_CONSTANTS.VIDEO_URL_PARAMETER, targetVideoUrl);
+      openInTab(serviceUrl.toString());
     };
 
     if (downloadingConfirm) {
@@ -56,9 +63,7 @@ export class VideoDownloadService {
         icon: "download",
         order: 60,
         dismissOnExecute: true,
-        onClick: () => {
-          this.downloadCurrentVideo();
-        }
+        onClick: (): Promise<void> => this.downloadCurrentVideo()
       },
       {
         id: "shorts_download",
@@ -67,9 +72,7 @@ export class VideoDownloadService {
         defaultTitle: "Download Shorts",
         icon: "shortDownload",
         order: 10,
-        onClick: () => {
-          this.downloadCurrentVideo();
-        }
+        onClick: (): Promise<void> => this.downloadCurrentVideo()
       },
       {
         id: "watch_download",
@@ -78,9 +81,7 @@ export class VideoDownloadService {
         defaultTitle: "Download Video",
         icon: "download",
         order: 10,
-        onClick: () => {
-          this.downloadCurrentVideo();
-        }
+        onClick: (): Promise<void> => this.downloadCurrentVideo()
       }
     ]);
   }

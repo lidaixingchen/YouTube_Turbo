@@ -130,7 +130,7 @@ export const Modal = {
   },
 
   confirm(options: ModalInstanceOptions = {}): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
+    return new Promise<boolean>((resolve, reject) => {
       const container = document.createElement("div");
 
       if (options.content) {
@@ -162,47 +162,72 @@ export const Modal = {
       actionsEl.appendChild(okBtn);
       container.appendChild(actionsEl);
 
-      let isSettled = false;
+      let isSettled: boolean = false;
       let instance: ModalInstance;
 
-      cancelBtn.onclick = () => {
-        if (!isSettled) {
-          isSettled = true;
-          if (instance) instance.close();
-          if (options.onCancel) options.onCancel();
-          resolve(false);
+      const settle = (confirmed: boolean, closeInstance: boolean): void => {
+        if (isSettled) {
+          return;
         }
+        isSettled = true;
+
+        let firstError: unknown;
+        let hasError: boolean = false;
+        const captureError = (error: unknown): void => {
+          if (!hasError) {
+            firstError = error;
+            hasError = true;
+          }
+        };
+
+        if (closeInstance && instance) {
+          try {
+            instance.close();
+          } catch (error: unknown) {
+            captureError(error);
+          }
+        }
+
+        const actionCallback: (() => void) | undefined = confirmed ? options.onConfirm : options.onCancel;
+        if (actionCallback) {
+          try {
+            actionCallback();
+          } catch (error: unknown) {
+            captureError(error);
+          }
+        }
+
+        if (options.onClose) {
+          try {
+            options.onClose();
+          } catch (error: unknown) {
+            captureError(error);
+          }
+        }
+
+        if (hasError) {
+          reject(firstError);
+          return;
+        }
+        resolve(confirmed);
       };
 
-      okBtn.onclick = () => {
-        if (!isSettled) {
-          isSettled = true;
-          if (instance) instance.close();
-          if (options.onConfirm) options.onConfirm();
-          resolve(true);
-        }
-      };
+      cancelBtn.onclick = (): void => settle(false, true);
+      okBtn.onclick = (): void => settle(true, true);
 
       instance = new ModalInstance({
         size: "small",
         ...options,
         content: container,
-        onClose: () => {
-          if (!isSettled) {
-            isSettled = true;
-            if (options.onCancel) options.onCancel();
-            resolve(false);
-          }
-          if (options.onClose) {
-            options.onClose();
-          }
+        onClose: (): void => {
+          settle(false, false);
         }
       });
     });
   },
 
   alert(options: ModalInstanceOptions = {}): Promise<void> {
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
       const container = document.createElement("div");
 
       if (options.content) {
@@ -237,10 +262,14 @@ export const Modal = {
         size: "small",
         ...options,
         content: container,
-        onClose: () => {
-          resolve();
-          if (options.onClose) {
-            options.onClose();
+        onClose: (): void => {
+          try {
+            if (options.onClose) {
+              options.onClose();
+            }
+            resolve();
+          } catch (error: unknown) {
+            reject(error);
           }
         }
       });
