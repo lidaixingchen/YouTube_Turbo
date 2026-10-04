@@ -2,6 +2,10 @@
 
 全能型 YouTube 体验增强油猴脚本（Userscript），基于 **Vite + TypeScript + vite-plugin-monkey** 现代工程化架构构建。
 
+## 安装与版本
+
+当前版本：**1.1.6**。安装 Tampermonkey 或 Violentmonkey 后，打开 [用户脚本安装文件](https://github.com/lidaixingchen/YouTube_Turbo/releases/download/v1.1.6/youtube-turbo.user.js)，按管理器提示安装或更新。更新内容见 [1.1.6 发布说明](docs/release-1.1.6.md)。
+
 ## 功能特性
 
 - 📑 **视频详情页布局优化 (Tabview)**：将相关视频、评论区、播放列表与视频元数据/简介重构为标签页切换布局，大幅提升大屏与桌面端浏览效率。
