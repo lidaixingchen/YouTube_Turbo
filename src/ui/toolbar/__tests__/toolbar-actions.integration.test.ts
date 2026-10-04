@@ -17,6 +17,16 @@ function createPlayerHost(): HTMLElement {
   return watchPage;
 }
 
+function dispatchKey(target: HTMLElement, key: string): KeyboardEvent {
+  const event: KeyboardEvent = new KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
 describe("Toolbar Actions Integration Tests", (): void => {
   beforeEach((): void => {
     Object.defineProperty(window, "location", {
@@ -88,6 +98,131 @@ describe("Toolbar Actions Integration Tests", (): void => {
 
     playerContainer.remove();
     metadataContainer.remove();
+  });
+
+  it("uses native menu buttons with keyboard navigation and focus dismissal", (): void => {
+    const watchPage: HTMLElement = createPlayerHost();
+    const outsideButton: HTMLButtonElement = document.createElement("button");
+    outsideButton.type = "button";
+    document.body.appendChild(outsideButton);
+
+    let actionExecutions: number = 0;
+    const disposer: () => void = Toolbar.registerActions([
+      {
+        id: "keyboard-first-action",
+        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+        titleKey: "first",
+        defaultTitle: "First",
+        icon: "first",
+        dismissOnExecute: false,
+        onClick: (): void => {
+          actionExecutions += 1;
+        }
+      },
+      {
+        id: "keyboard-disabled-action",
+        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+        titleKey: "disabled",
+        defaultTitle: "Disabled",
+        icon: "disabled",
+        dismissOnExecute: false,
+        onClick: (): void => {
+          actionExecutions += 1;
+        }
+      },
+      {
+        id: "keyboard-last-action",
+        slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+        titleKey: "last",
+        defaultTitle: "Last",
+        icon: "last",
+        dismissOnExecute: false,
+        onClick: (): void => {
+          actionExecutions += 1;
+        }
+      }
+    ]);
+
+    Toolbar.init();
+
+    const triggerElement: HTMLElement | null = document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID);
+    expect(triggerElement).toBeInstanceOf(HTMLButtonElement);
+    if (!(triggerElement instanceof HTMLButtonElement)) {
+      throw new Error("The toolbox trigger must be a native button");
+    }
+
+    const menuElement: HTMLElement | null = document.getElementById(TOOLBAR_CONSTANTS.TOOLBOX_CONTAINER_ID);
+    expect(menuElement).not.toBeNull();
+    if (!menuElement) {
+      throw new Error("The toolbox menu must be mounted");
+    }
+
+    const actionButtons: HTMLButtonElement[] = Array.from(
+      menuElement.querySelectorAll<HTMLButtonElement>(".toolbox_extension_tool_btn")
+    );
+    const firstButton: HTMLButtonElement | undefined = actionButtons[0];
+    const disabledButton: HTMLButtonElement | undefined = actionButtons[1];
+    const lastButton: HTMLButtonElement | undefined = actionButtons[2];
+    if (!firstButton || !disabledButton || !lastButton) {
+      throw new Error("The toolbox must contain all registered actions");
+    }
+
+    expect(triggerElement.type).toBe("button");
+    expect(triggerElement.getAttribute("aria-haspopup")).toBe("menu");
+    expect(triggerElement.getAttribute("aria-expanded")).toBe("false");
+    expect(triggerElement.getAttribute("aria-controls")).toBe(menuElement.id);
+    expect(menuElement.getAttribute("role")).toBe("menu");
+    actionButtons.forEach((button: HTMLButtonElement): void => {
+      expect(button).toBeInstanceOf(HTMLButtonElement);
+      expect(button.type).toBe("button");
+      expect(button.getAttribute("role")).toBe("menuitem");
+      expect(button.tabIndex).toBe(TOOLBAR_CONSTANTS.POPOVER_MENU_ITEM_TAB_INDEX);
+    });
+
+    disabledButton.disabled = true;
+    triggerElement.click();
+    expect(triggerElement.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(firstButton);
+
+    let bodyKeydownCount: number = 0;
+    const bodyKeydownListener: (event: KeyboardEvent) => void = (_event: KeyboardEvent): void => {
+      bodyKeydownCount += 1;
+    };
+    document.body.addEventListener("keydown", bodyKeydownListener);
+    const downEvent: KeyboardEvent = dispatchKey(firstButton, TOOLBAR_CONSTANTS.POPOVER_KEY_ARROW_DOWN);
+    expect(downEvent.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(lastButton);
+    expect(bodyKeydownCount).toBe(0);
+    dispatchKey(lastButton, TOOLBAR_CONSTANTS.POPOVER_KEY_HOME);
+    expect(document.activeElement).toBe(firstButton);
+    dispatchKey(firstButton, TOOLBAR_CONSTANTS.POPOVER_KEY_END);
+    expect(document.activeElement).toBe(lastButton);
+
+    const enterEvent: KeyboardEvent = dispatchKey(lastButton, "Enter");
+    expect(enterEvent.defaultPrevented).toBe(false);
+    expect(actionExecutions).toBe(0);
+    lastButton.click();
+    expect(actionExecutions).toBe(1);
+
+    const escapeEvent: KeyboardEvent = dispatchKey(lastButton, TOOLBAR_CONSTANTS.POPOVER_KEY_ESCAPE);
+    expect(escapeEvent.defaultPrevented).toBe(true);
+    expect(triggerElement.getAttribute("aria-expanded")).toBe("false");
+    expect(menuElement.style.display).toBe("none");
+    expect(document.activeElement).toBe(triggerElement);
+
+    triggerElement.click();
+    expect(document.activeElement).toBe(firstButton);
+    const tabEvent: KeyboardEvent = dispatchKey(firstButton, TOOLBAR_CONSTANTS.POPOVER_KEY_TAB);
+    expect(tabEvent.defaultPrevented).toBe(false);
+    outsideButton.focus();
+    expect(triggerElement.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(outsideButton);
+    expect(actionExecutions).toBe(1);
+
+    document.body.removeEventListener("keydown", bodyKeydownListener);
+    disposer();
+    watchPage.remove();
+    outsideButton.remove();
   });
 
   it("should mount and unmount shorts actions slot when on /shorts route", async (): Promise<void> => {

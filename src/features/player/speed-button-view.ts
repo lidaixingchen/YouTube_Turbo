@@ -7,10 +7,11 @@ import { TOOLBAR_CONSTANTS } from "../../ui/toolbar/constants";
 import { PLAYBACK_RATE_EPSILON } from "../../core/constants";
 import { ReactiveDOMRegistry } from "../../core/dom-registry";
 import type { PopoverController, SlotDefinition, SlotMountContext } from "../../ui/toolbar/types";
+import { Locale } from "../../i18n";
 
 export class PlayerSpeedButtonView {
   private static instance: PlayerSpeedButtonView | null = null;
-  private buttonEl: HTMLElement | null = null;
+  private buttonEl: HTMLButtonElement | null = null;
   private menuEl: HTMLElement | null = null;
   private popoverController: PopoverController | null = null;
   private stateUnbind: (() => void) | null = null;
@@ -133,12 +134,17 @@ export class PlayerSpeedButtonView {
     this.menuEl.className = PLAYER_CONSTANTS.CLASSES.SPEED_OPTIONS_MENU;
 
     PLAYER_CONSTANTS.PRESET_SPEEDS.forEach((speedNum: number): void => {
-      const option: HTMLDivElement = document.createElement("div");
+      const option: HTMLButtonElement = document.createElement("button");
+      option.type = "button";
+      option.setAttribute("role", "menuitemradio");
+      option.tabIndex = TOOLBAR_CONSTANTS.POPOVER_MENU_ITEM_TAB_INDEX;
       option.className = PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM;
       option.textContent = `${speedNum}×`;
       option.dataset.speed = String(speedNum);
 
-      if (Math.abs(speedNum - effectiveSpeed) < PLAYBACK_RATE_EPSILON) {
+      const isActive: boolean = Math.abs(speedNum - effectiveSpeed) < PLAYBACK_RATE_EPSILON;
+      option.setAttribute("aria-checked", String(isActive));
+      if (isActive) {
         option.classList.add(PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM_ACTIVE);
       }
 
@@ -170,12 +176,11 @@ export class PlayerSpeedButtonView {
 
     const currentSpeed: number = PlayerController.getInstance().getSpeed();
 
-    this.buttonEl = document.createElement("div");
+    this.buttonEl = document.createElement("button");
+    this.buttonEl.type = "button";
     this.buttonEl.id = PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON_ID;
     this.buttonEl.className = PLAYER_CONSTANTS.CLASSES.SPEED_BUTTON;
-    this.buttonEl.tabIndex = 0;
-    this.buttonEl.setAttribute("role", "button");
-    this.buttonEl.setAttribute("aria-haspopup", "true");
+    this.buttonEl.setAttribute("aria-label", this.getSpeedControlLabel(currentSpeed));
 
     const speedText: HTMLSpanElement = document.createElement("span");
     speedText.textContent = `${currentSpeed}×`;
@@ -207,18 +212,27 @@ export class PlayerSpeedButtonView {
     if (this.buttonEl) {
       const span: HTMLSpanElement | null = this.buttonEl.querySelector("span");
       if (span) span.textContent = `${speed}×`;
+      this.buttonEl.setAttribute("aria-label", this.getSpeedControlLabel(speed));
     }
     if (this.menuEl) {
-      const options: NodeListOf<HTMLElement> = this.menuEl.querySelectorAll<HTMLElement>(`.${PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM}`);
-      options.forEach((opt: HTMLElement): void => {
+      const options: NodeListOf<HTMLButtonElement> = this.menuEl.querySelectorAll<HTMLButtonElement>(
+        `.${PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM}`
+      );
+      options.forEach((opt: HTMLButtonElement): void => {
         const optSpeed: number = parseFloat(opt.dataset.speed || "0");
-        if (Math.abs(optSpeed - speed) < PLAYBACK_RATE_EPSILON) {
+        const isActive: boolean = Math.abs(optSpeed - speed) < PLAYBACK_RATE_EPSILON;
+        opt.setAttribute("aria-checked", String(isActive));
+        if (isActive) {
           opt.classList.add(PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM_ACTIVE);
         } else {
           opt.classList.remove(PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM_ACTIVE);
         }
       });
     }
+  }
+
+  private getSpeedControlLabel(speed: number): string {
+    return `${Locale.t(PLAYER_CONSTANTS.I18N_KEYS.SPEED_CONTROL_TITLE)} ${speed}×`;
   }
 
   private cleanupViewDOM(): void {

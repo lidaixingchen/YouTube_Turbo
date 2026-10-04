@@ -10,6 +10,9 @@ export const PLAYER_CONSTANTS = {
     SPEED_BUTTON: ".yt-turbo-speed-btn",
     SPEED_OPTIONS_MENU: "#yt-turbo-speed-options"
   },
+  I18N_KEYS: {
+    SPEED_CONTROL_TITLE: "feature_speed_control_title"
+  },
   CLASSES: {
     SPEED_BUTTON: "ytp-button yt-turbo-speed-btn",
     SPEED_BUTTON_CLASS: "yt-turbo-speed-btn",
@@ -21,12 +24,17 @@ export const PLAYER_CONSTANTS = {
     SPEED_CONTROL_STYLE_ID: "yt-turbo-speed-control",
     SPEED_BTN_CSS: `
       .yt-turbo-speed-btn {
+        appearance: none !important;
         width: 4em !important;
         float: left;
         text-align: center !important;
         display: flex !important;
         justify-content: center !important;
         align-items: center !important;
+        border: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+        color: inherit !important;
         border-radius: 0.5em !important;
         font-size: 14px !important;
         font-weight: bold !important;
@@ -36,6 +44,10 @@ export const PLAYER_CONSTANTS = {
       .yt-turbo-speed-btn:hover {
         color: #ff0000 !important;
         font-weight: bold;
+      }
+      .yt-turbo-speed-btn:focus-visible {
+        outline: ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_WIDTH_PX}px solid ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_COLOR} !important;
+        outline-offset: ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_OFFSET_PX}px !important;
       }
     `,
     SPEED_OPTIONS_CSS: `
@@ -62,6 +74,14 @@ export const PLAYER_CONSTANTS = {
         transition: opacity 0.15s ease !important;
       }
       .yt-turbo-speed-options-menu > .yt-turbo-speed-option-item {
+        appearance: none !important;
+        display: block !important;
+        width: 100% !important;
+        border: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+        color: inherit !important;
+        font: inherit !important;
         cursor: pointer !important;
         height: 26px !important;
         line-height: 26px !important;
@@ -72,9 +92,14 @@ export const PLAYER_CONSTANTS = {
         user-select: none !important;
       }
       .yt-turbo-speed-options-menu > .yt-turbo-speed-option-item-active,
-      .yt-turbo-speed-options-menu > .yt-turbo-speed-option-item:hover {
+      .yt-turbo-speed-options-menu > .yt-turbo-speed-option-item:hover,
+      .yt-turbo-speed-options-menu > .yt-turbo-speed-option-item:focus-visible {
         color: #ff0000 !important;
         background: rgba(255, 255, 255, 0.15) !important;
+      }
+      .yt-turbo-speed-options-menu > .yt-turbo-speed-option-item:focus-visible {
+        outline: ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_WIDTH_PX}px solid ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_COLOR} !important;
+        outline-offset: ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_OFFSET_PX}px !important;
       }
     `
   },

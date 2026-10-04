@@ -39,6 +39,8 @@ export class ToolbarRenderers {
     actions.forEach((action: ActionConfig): void => {
       const btn: HTMLButtonElement = document.createElement("button");
       btn.type = "button";
+      btn.setAttribute("role", "menuitem");
+      btn.tabIndex = TOOLBAR_CONSTANTS.POPOVER_MENU_ITEM_TAB_INDEX;
       btn.className = "toolbox_extension_tool_btn";
       btn.id = "action_" + action.id;
 
@@ -113,10 +115,12 @@ export class ToolbarRenderers {
       return existingBox;
     }
 
-    const boxContainer: HTMLDivElement = document.createElement("div");
+    const boxContainer: HTMLButtonElement = document.createElement("button");
+    boxContainer.type = "button";
     boxContainer.id = TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID;
     boxContainer.className = "ytp-button";
     boxContainer.style.cssText = "display: flex; justify-content: center; align-items: center; cursor: pointer;";
+    boxContainer.setAttribute("aria-label", TOOLBAR_CONSTANTS.TOOLTIP_DEFAULT_TEXT);
 
     const iconSvg: Element = IconRegistry.createSvg("toolbox", { size: TOOLBAR_CONSTANTS.ICON_SIZE_PX });
     boxContainer.appendChild(iconSvg);
@@ -135,10 +139,12 @@ export class ToolbarRenderers {
     const tooltipEl: HTMLDivElement = document.createElement("div");
     tooltipEl.className = "toolbox_extension_tooltip";
     tooltipEl.textContent = TOOLBAR_CONSTANTS.TOOLTIP_DEFAULT_TEXT;
+    tooltipEl.setAttribute("aria-hidden", "true");
     toolBoxContainer.appendChild(tooltipEl);
 
     const toolsGrid: HTMLDivElement = document.createElement("div");
     toolsGrid.className = "toolbox_extension_tools";
+    toolsGrid.setAttribute("role", "group");
     ToolbarRenderers.renderToolboxGrid(toolsGrid, tooltipEl, actions, executeAction);
     toolBoxContainer.appendChild(toolsGrid);
 

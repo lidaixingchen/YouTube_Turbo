@@ -58,6 +58,7 @@ describe("Speed Popover Hover Diagnosis", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     PlayerSpeedFeature.disable();
     SlotMountBus.getInstance().destroy();
     PlayerController.getInstance().destroy();
@@ -121,5 +122,78 @@ describe("Speed Popover Hover Diagnosis", () => {
     expect(restoredMenu?.style.display).toBe("flex");
 
     vi.useRealTimers();
+  });
+
+  it("uses native speed buttons, skips disabled presets, and returns focus after selection", (): void => {
+    createPlayerFixture();
+    PlayerController.getInstance().init();
+    PlayerSpeedFeature.enable();
+
+    const speedButtonElement: HTMLElement | null = document.getElementById(PLAYER_CONSTANTS.SELECTORS.SPEED_BUTTON_ID);
+    expect(speedButtonElement).toBeInstanceOf(HTMLButtonElement);
+    if (!(speedButtonElement instanceof HTMLButtonElement)) {
+      throw new Error("The speed trigger must be a native button");
+    }
+
+    const menuElement: HTMLElement | null = document.getElementById(PLAYER_CONSTANTS.SELECTORS.SPEED_OPTIONS_MENU_ID);
+    expect(menuElement).not.toBeNull();
+    if (!menuElement) {
+      throw new Error("The speed menu must be mounted");
+    }
+
+    const options: HTMLButtonElement[] = Array.from(
+      menuElement.querySelectorAll<HTMLButtonElement>(`.${PLAYER_CONSTANTS.CLASSES.SPEED_OPTION_ITEM}`)
+    );
+    expect(options).toHaveLength(PLAYER_CONSTANTS.PRESET_SPEEDS.length);
+    options.forEach((option: HTMLButtonElement): void => {
+      expect(option).toBeInstanceOf(HTMLButtonElement);
+      expect(option.type).toBe("button");
+      expect(option.getAttribute("role")).toBe("menuitemradio");
+      expect(option.tabIndex).toBe(TOOLBAR_CONSTANTS.POPOVER_MENU_ITEM_TAB_INDEX);
+      expect(option.hasAttribute("aria-checked")).toBe(true);
+    });
+    expect(menuElement.getAttribute("role")).toBe("menu");
+    expect(speedButtonElement.getAttribute("aria-haspopup")).toBe("menu");
+
+    const firstOption: HTMLButtonElement | undefined = options[0];
+    const disabledOption: HTMLButtonElement | undefined = options[1];
+    const nextEnabledOption: HTMLButtonElement | undefined = options[2];
+    if (!firstOption || !disabledOption || !nextEnabledOption) {
+      throw new Error("The speed preset list must contain the expected entries");
+    }
+
+    disabledOption.disabled = true;
+    const speedBeforeActivation: number = PlayerController.getInstance().getSpeed();
+
+    speedButtonElement.click();
+    expect(speedButtonElement.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(firstOption);
+
+    const arrowEvent: KeyboardEvent = new KeyboardEvent("keydown", {
+      key: TOOLBAR_CONSTANTS.POPOVER_KEY_ARROW_DOWN,
+      bubbles: true,
+      cancelable: true
+    });
+    firstOption.dispatchEvent(arrowEvent);
+    expect(arrowEvent.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(nextEnabledOption);
+
+    const enterEvent: KeyboardEvent = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true
+    });
+    nextEnabledOption.dispatchEvent(enterEvent);
+    expect(enterEvent.defaultPrevented).toBe(false);
+    expect(PlayerController.getInstance().getSpeed()).toBe(speedBeforeActivation);
+
+    firstOption.click();
+
+    expect(PlayerController.getInstance().getSpeed()).toBe(PLAYER_CONSTANTS.PRESET_SPEEDS[0]);
+    expect(firstOption.getAttribute("aria-checked")).toBe("true");
+    expect(nextEnabledOption.getAttribute("aria-checked")).toBe("false");
+    expect(speedButtonElement.getAttribute("aria-expanded")).toBe("false");
+    expect(menuElement.style.display).toBe("none");
+    expect(document.activeElement).toBe(speedButtonElement);
   });
 });

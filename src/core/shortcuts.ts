@@ -30,7 +30,7 @@ export const ShortcutDispatcher = (() => {
     }
   };
 
-  const isTypingContext = (event: KeyboardEvent): boolean => {
+  const isShortcutSuppressedContext = (event: KeyboardEvent): boolean => {
     const target = event.target;
     if (target instanceof HTMLElement) {
       const tagName = target.tagName.toLowerCase();
@@ -51,6 +51,8 @@ export const ShortcutDispatcher = (() => {
       if (!(node instanceof HTMLElement)) continue;
       const tagName = node.tagName.toLowerCase();
       if (
+        node.getAttribute("role") === "menu" ||
+        node.getAttribute("aria-haspopup") === "menu" ||
         tagName === "input" ||
         tagName === "textarea" ||
         node.isContentEditable ||
@@ -88,7 +90,7 @@ export const ShortcutDispatcher = (() => {
       return;
     }
 
-    if (isTypingContext(event)) {
+    if (isShortcutSuppressedContext(event)) {
       return;
     }
 

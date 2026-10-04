@@ -604,6 +604,19 @@ export class ToolbarController {
         will-change: transform, opacity !important;
         transition: opacity 0.15s ease !important;
       }
+      #${TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID} {
+        appearance: none !important;
+        -webkit-appearance: none !important;
+        border: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+        color: inherit !important;
+        font: inherit !important;
+      }
+      #${TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID}:focus-visible {
+        outline: ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_WIDTH_PX}px solid ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_COLOR} !important;
+        outline-offset: ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_OFFSET_PX}px !important;
+      }
       .toolbox_extension_tooltip {
         height: 18px !important;
         line-height: 18px !important;
@@ -643,6 +656,10 @@ export class ToolbarController {
         background: rgba(255, 255, 255, 0.18) !important;
         border-color: rgba(255, 255, 255, 0.2) !important;
         transform: scale(1.04) !important;
+      }
+      .toolbox_extension_tool_btn:focus-visible {
+        outline: ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_WIDTH_PX}px solid ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_COLOR} !important;
+        outline-offset: ${TOOLBAR_CONSTANTS.POPOVER_FOCUS_OUTLINE_OFFSET_PX}px !important;
       }
       .toolbox_extension_tool_btn:active {
         transform: scale(0.96) !important;
