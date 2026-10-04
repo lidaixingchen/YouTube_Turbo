@@ -2,6 +2,7 @@ import { SUBTITLE_CONSTANTS } from "./constants";
 import { TimedTextInterceptor } from "./interceptor";
 import { SubtitleTimeline } from "./timeline";
 import { CaptionOverlayRenderer } from "./renderer";
+import { resolveCaptionVideoId } from "./video-identity";
 import { ShortcutDispatcher } from "../../core/shortcuts";
 import { PlaybackHUD } from "../../core/hud";
 import { StorageUtil } from "../../core/storage";
@@ -37,11 +38,23 @@ export class CaptionController {
 
     this.interceptor = new TimedTextInterceptor(
       () => this.globalDefaultOffsetMs,
-      (key: string, rawText: string) => {
-        this.timeline.ingest(key, rawText);
-        if (this.sessionOffsetMs !== 0) {
+      (
+        key: string,
+        rawText: string,
+        videoId: string,
+        isLatestRequest: boolean,
+        requestSequence: number
+      ): void => {
+        const currentVideoId: string | null = resolveCaptionVideoId(window.location.href);
+        const shouldActivateTrack: boolean =
+          isLatestRequest && videoId !== "" && videoId === currentVideoId;
+        this.timeline.ingest(key, rawText, shouldActivateTrack, requestSequence);
+        if (shouldActivateTrack && this.sessionOffsetMs !== 0) {
           this.renderer.renderCurrentFrame(true);
         }
+      },
+      (key: string, videoId: string, requestSequence: number): void => {
+        this.timeline.noteTrackRequest(videoId, key, requestSequence);
       }
     );
   }

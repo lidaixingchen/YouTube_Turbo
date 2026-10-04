@@ -14,7 +14,7 @@ export class CaptionOverlayRenderer {
 
   private isCCActive: boolean = false;
   private isPlaying: boolean = false;
-  private isNativeCaptionsHidden: boolean = false;
+  private nativeCaptionsContainerEl: HTMLElement | null = null;
   private lastRenderedText: string = "";
   private lastEffectiveOffsetMs: number = 0;
 
@@ -74,6 +74,10 @@ export class CaptionOverlayRenderer {
 
     if (this.videoEl === video && this.containerEl === resolvedContainer && isButtonValid && isContainerValid) {
       return;
+    }
+
+    if (this.nativeCaptionsContainerEl && this.nativeCaptionsContainerEl !== resolvedContainer) {
+      this.restoreNativeCaptions();
     }
 
     this.detachVideoListeners();
@@ -252,21 +256,17 @@ export class CaptionOverlayRenderer {
   }
 
   private hideNativeCaptions(): void {
-    if (this.isNativeCaptionsHidden) return;
     const container = (this.containerEl && this.containerEl.isConnected ? this.containerEl : null) || ReactiveDOMRegistry.getInstance().getPlayerContainer();
-    if (container) {
-      container.classList.add(SUBTITLE_CONSTANTS.CLASS_NATIVE_CAPTIONS_HIDDEN);
-      this.isNativeCaptionsHidden = true;
-    }
+    if (!container || this.nativeCaptionsContainerEl === container) return;
+    this.restoreNativeCaptions();
+    container.classList.add(SUBTITLE_CONSTANTS.CLASS_NATIVE_CAPTIONS_HIDDEN);
+    this.nativeCaptionsContainerEl = container;
   }
 
   private restoreNativeCaptions(): void {
-    if (!this.isNativeCaptionsHidden) return;
-    const container = (this.containerEl && this.containerEl.isConnected ? this.containerEl : null) || ReactiveDOMRegistry.getInstance().getPlayerContainer();
-    if (container) {
-      container.classList.remove(SUBTITLE_CONSTANTS.CLASS_NATIVE_CAPTIONS_HIDDEN);
-      this.isNativeCaptionsHidden = false;
-    }
+    if (!this.nativeCaptionsContainerEl) return;
+    this.nativeCaptionsContainerEl.classList.remove(SUBTITLE_CONSTANTS.CLASS_NATIVE_CAPTIONS_HIDDEN);
+    this.nativeCaptionsContainerEl = null;
   }
 
   private clearOverlayText(): void {
@@ -422,7 +422,7 @@ export class CaptionOverlayRenderer {
     this.lastEffectiveOffsetMs = 0;
     this.isCCActive = false;
     this.isPlaying = false;
-    this.isNativeCaptionsHidden = false;
+    this.nativeCaptionsContainerEl = null;
 
     StyleEngine.remove(SUBTITLE_CONSTANTS.STYLE_ID);
   }

@@ -115,6 +115,25 @@ describe("SubtitleTimeline Piecewise Interval Gate", () => {
     expect(timeline.getActiveCueText(7500)).toBe("");
   });
 
+  it("keeps long cues active behind expired short cues through seeks", () => {
+    const longCuePayload = JSON.stringify({
+      events: [
+        { tStartMs: 1000, dDurationMs: 50000, segs: [{ utf8: "Long cue" }] },
+        { tStartMs: 20000, dDurationMs: 1000, segs: [{ utf8: "Short cue" }] }
+      ]
+    });
+    timeline.ingest("track-long-overlap", longCuePayload);
+
+    expect(timeline.getActiveCueText(37000)).toBe("Long cue");
+    expect(timeline.getActiveCueText(20000)).toBe("Long cue\nShort cue");
+    expect(timeline.getActiveCueText(22000)).toBe("Long cue");
+    expect(timeline.getActiveCueText(10000)).toBe("Long cue");
+
+    timeline.resetPointer();
+    expect(timeline.getActiveCueText(37000)).toBe("Long cue");
+    expect(timeline.getActiveCueText(51000)).toBe("");
+  });
+
   it("resets interval cache on resetPointer and clear", () => {
     timeline.ingest("track-reset", TEST_PAYLOAD_SIMPLE);
 

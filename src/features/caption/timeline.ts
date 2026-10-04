@@ -1,5 +1,6 @@
 import type { SubtitleCue, YouTubeTimedTextJson3 } from "./types";
 import { SUBTITLE_CONSTANTS } from "./constants";
+import { resolveCaptionVideoId } from "./video-identity";
 
 interface SubtitleIntervalSnapshot {
   readonly startMs: number;
@@ -7,10 +8,21 @@ interface SubtitleIntervalSnapshot {
   readonly text: string;
 }
 
+interface CachedSubtitleTrack {
+  readonly cues: SubtitleCue[];
+  readonly requestSequence?: number;
+}
+
+interface RequestedSubtitleTrack {
+  readonly key: string;
+  readonly requestSequence: number;
+}
+
 export class SubtitleTimeline {
-  private cuesCache: Map<string, SubtitleCue[]> = new Map();
+  private cuesCache: Map<string, CachedSubtitleTrack> = new Map();
+  private requestedTrackByVideo: Map<string, RequestedSubtitleTrack> = new Map();
   private currentCues: SubtitleCue[] = [];
-  private currentKey: string = "";
+  private currentPrefixMaxEndMs: number[] = [];
   private cursorIndex: number = -1;
   private lastQueryMs: number = -1;
   private lastHistoricalEndMs: number = SUBTITLE_CONSTANTS.INTERVAL_START_MIN_MS;
@@ -108,24 +120,61 @@ export class SubtitleTimeline {
     return [];
   }
 
-  public ingest(key: string, rawText: string, activate: boolean = true): SubtitleCue[] {
+  public ingest(
+    key: string,
+    rawText: string,
+    activate: boolean = true,
+    requestSequence?: number
+  ): SubtitleCue[] {
     if (!key || !rawText) return [];
     const cues = this.parsePayload(rawText);
     if (cues.length > 0) {
-      if (this.cuesCache.size >= SUBTITLE_CONSTANTS.MAX_CACHE_TRACKS && !this.cuesCache.has(key)) {
-        const oldestKey = this.cuesCache.keys().next().value;
+      const cachedTrack: CachedSubtitleTrack | undefined = this.cuesCache.get(key);
+      const isOlderThanCachedTrack: boolean =
+        requestSequence !== undefined &&
+        cachedTrack?.requestSequence !== undefined &&
+        requestSequence < cachedTrack.requestSequence;
+      if (!isOlderThanCachedTrack && this.cuesCache.size >= SUBTITLE_CONSTANTS.MAX_CACHE_TRACKS && !this.cuesCache.has(key)) {
+        const oldestKey: string | undefined = this.cuesCache.keys().next().value;
         if (oldestKey) {
           this.cuesCache.delete(oldestKey);
         }
       }
-      this.cuesCache.set(key, cues);
-      if (activate || !this.currentKey) {
+      if (!isOlderThanCachedTrack) {
+        this.cuesCache.set(key, { cues, requestSequence });
+      }
+      if (activate && !isOlderThanCachedTrack) {
         this.currentCues = cues;
-        this.currentKey = key;
+        this.currentPrefixMaxEndMs = this.buildPrefixMaxEndIndex(cues);
         this.resetPointer();
       }
     }
     return cues;
+  }
+
+  public noteTrackRequest(videoId: string, key: string, requestSequence: number): void {
+    if (!videoId || !key) {
+      return;
+    }
+    const currentRequest: RequestedSubtitleTrack | undefined = this.requestedTrackByVideo.get(videoId);
+    if (currentRequest && currentRequest.requestSequence > requestSequence) {
+      return;
+    }
+    this.requestedTrackByVideo.delete(videoId);
+    this.requestedTrackByVideo.set(videoId, { key, requestSequence });
+    if (this.requestedTrackByVideo.size > SUBTITLE_CONSTANTS.MAX_CACHE_TRACKS) {
+      const oldestVideoId: string | undefined = this.requestedTrackByVideo.keys().next().value;
+      if (oldestVideoId) {
+        this.requestedTrackByVideo.delete(oldestVideoId);
+        const oldestVideoPrefix: string = `${oldestVideoId}_`;
+        const cachedKeys: IterableIterator<string> = this.cuesCache.keys();
+        for (const cachedKey of cachedKeys) {
+          if (cachedKey.startsWith(oldestVideoPrefix)) {
+            this.cuesCache.delete(cachedKey);
+          }
+        }
+      }
+    }
   }
 
   public resetPointer(): void {
@@ -137,18 +186,40 @@ export class SubtitleTimeline {
     this.intervalSnapshot = null;
   }
 
+  private buildPrefixMaxEndIndex(cues: readonly SubtitleCue[]): number[] {
+    const prefixMaxEndMs: number[] = [];
+    let maxEndMs: number = SUBTITLE_CONSTANTS.INTERVAL_START_MIN_MS;
+    for (let i = 0; i < cues.length; i++) {
+      maxEndMs = Math.max(maxEndMs, cues[i].endMs);
+      prefixMaxEndMs.push(maxEndMs);
+    }
+    return prefixMaxEndMs;
+  }
+
   public findActiveCues(effectiveMs: number): readonly SubtitleCue[] {
     let cues = this.currentCues;
     if (cues.length === 0 && this.cuesCache.size > 0 && typeof window !== "undefined") {
-      const currentVideoId = new URLSearchParams(window.location.search).get("v");
+      const currentVideoId: string | null = resolveCaptionVideoId(window.location.href);
       if (currentVideoId) {
-        for (const [key, cachedCues] of this.cuesCache.entries()) {
-          if (key.startsWith(currentVideoId)) {
-            this.currentCues = cachedCues;
-            this.currentKey = key;
-            cues = cachedCues;
+        const requestedTrack: RequestedSubtitleTrack | undefined = this.requestedTrackByVideo.get(currentVideoId);
+        if (requestedTrack) {
+          const cachedTrack: CachedSubtitleTrack | undefined = this.cuesCache.get(requestedTrack.key);
+          if (cachedTrack && cachedTrack.requestSequence === requestedTrack.requestSequence) {
+            this.currentCues = cachedTrack.cues;
+            this.currentPrefixMaxEndMs = this.buildPrefixMaxEndIndex(cachedTrack.cues);
+            cues = cachedTrack.cues;
             this.resetPointer();
-            break;
+          }
+        } else {
+          const cachedEntries: IterableIterator<[string, CachedSubtitleTrack]> = this.cuesCache.entries();
+          for (const [key, cachedTrack] of cachedEntries) {
+            if (key.startsWith(`${currentVideoId}_`)) {
+              this.currentCues = cachedTrack.cues;
+              this.currentPrefixMaxEndMs = this.buildPrefixMaxEndIndex(cachedTrack.cues);
+              cues = cachedTrack.cues;
+              this.resetPointer();
+              break;
+            }
           }
         }
       }
@@ -209,14 +280,16 @@ export class SubtitleTimeline {
     let maxHistoricalEndMs: number = SUBTITLE_CONSTANTS.INTERVAL_START_MIN_MS;
 
     for (let i = targetIndex; i >= 0; i--) {
+      const prefixMaxEndMs = this.currentPrefixMaxEndMs[i];
+      if (prefixMaxEndMs <= effectiveMs) {
+        maxHistoricalEndMs = Math.max(maxHistoricalEndMs, prefixMaxEndMs);
+        break;
+      }
       const cue = cues[i];
       if (cue.endMs > effectiveMs && cue.startMs <= effectiveMs) {
         this.matchedBuffer.push(cue);
       } else if (cue.endMs <= effectiveMs && cue.endMs > maxHistoricalEndMs) {
         maxHistoricalEndMs = cue.endMs;
-      }
-      if (cue.startMs + SUBTITLE_CONSTANTS.MAX_CUE_WINDOW_LOOKBACK_MS < effectiveMs) {
-        break;
       }
     }
 
@@ -313,14 +386,15 @@ export class SubtitleTimeline {
 
   public clearCurrent(): void {
     this.currentCues = [];
-    this.currentKey = "";
+    this.currentPrefixMaxEndMs = [];
     this.resetPointer();
   }
 
   public clear(): void {
     this.cuesCache.clear();
+    this.requestedTrackByVideo.clear();
     this.currentCues = [];
-    this.currentKey = "";
+    this.currentPrefixMaxEndMs = [];
     this.resetPointer();
   }
 }
