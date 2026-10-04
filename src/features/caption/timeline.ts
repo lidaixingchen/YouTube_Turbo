@@ -13,14 +13,17 @@ interface CachedSubtitleTrack {
   readonly requestSequence?: number;
 }
 
-interface RequestedSubtitleTrack {
+type SubtitleTrackRequestStatus = "pending" | "succeeded" | "failed";
+
+interface SubtitleTrackRequestOwner {
   readonly key: string;
   readonly requestSequence: number;
+  readonly status: SubtitleTrackRequestStatus;
 }
 
 export class SubtitleTimeline {
   private cuesCache: Map<string, CachedSubtitleTrack> = new Map();
-  private requestedTrackByVideo: Map<string, RequestedSubtitleTrack> = new Map();
+  private requestOwnerByVideo: Map<string, SubtitleTrackRequestOwner> = new Map();
   private currentCues: SubtitleCue[] = [];
   private currentPrefixMaxEndMs: number[] = [];
   private cursorIndex: number = -1;
@@ -124,9 +127,20 @@ export class SubtitleTimeline {
     key: string,
     rawText: string,
     activate: boolean = true,
-    requestSequence?: number
+    requestSequence?: number,
+    videoId?: string
   ): SubtitleCue[] {
-    if (!key || !rawText) return [];
+    if (!key) return [];
+    const requestVideoId: string = videoId ?? this.extractVideoIdFromTrackKey(key);
+    const requestOwner: SubtitleTrackRequestOwner | undefined = this.requestOwnerByVideo.get(requestVideoId);
+    const ownsRequest: boolean =
+      requestSequence !== undefined &&
+      requestOwner?.key === key &&
+      requestOwner.requestSequence === requestSequence;
+    if (ownsRequest && requestOwner?.status === "pending") {
+      this.requestOwnerByVideo.set(requestVideoId, { ...requestOwner, status: "succeeded" });
+    }
+    if (!rawText) return [];
     const cues = this.parsePayload(rawText);
     if (cues.length > 0) {
       const cachedTrack: CachedSubtitleTrack | undefined = this.cuesCache.get(key);
@@ -143,7 +157,11 @@ export class SubtitleTimeline {
       if (!isOlderThanCachedTrack) {
         this.cuesCache.set(key, { cues, requestSequence });
       }
-      if (activate && !isOlderThanCachedTrack) {
+      const latestOwnerAllowsActivation: boolean =
+        requestSequence === undefined ||
+        requestOwner === undefined ||
+        (ownsRequest && requestOwner?.status !== "failed");
+      if (activate && latestOwnerAllowsActivation && !isOlderThanCachedTrack) {
         this.currentCues = cues;
         this.currentPrefixMaxEndMs = this.buildPrefixMaxEndIndex(cues);
         this.resetPointer();
@@ -156,17 +174,18 @@ export class SubtitleTimeline {
     if (!videoId || !key) {
       return;
     }
-    const currentRequest: RequestedSubtitleTrack | undefined = this.requestedTrackByVideo.get(videoId);
-    if (currentRequest && currentRequest.requestSequence > requestSequence) {
+    const currentOwner: SubtitleTrackRequestOwner | undefined = this.requestOwnerByVideo.get(videoId);
+    if (currentOwner && currentOwner.requestSequence >= requestSequence) {
       return;
     }
-    this.requestedTrackByVideo.delete(videoId);
-    this.requestedTrackByVideo.set(videoId, { key, requestSequence });
-    if (this.requestedTrackByVideo.size > SUBTITLE_CONSTANTS.MAX_CACHE_TRACKS) {
-      const oldestVideoId: string | undefined = this.requestedTrackByVideo.keys().next().value;
+    this.requestOwnerByVideo.delete(videoId);
+    this.requestOwnerByVideo.set(videoId, { key, requestSequence, status: "pending" });
+    this.resetPointer();
+    if (this.requestOwnerByVideo.size > SUBTITLE_CONSTANTS.MAX_CACHE_TRACKS) {
+      const oldestVideoId: string | undefined = this.requestOwnerByVideo.keys().next().value;
       if (oldestVideoId) {
-        this.requestedTrackByVideo.delete(oldestVideoId);
-        const oldestVideoPrefix: string = `${oldestVideoId}_`;
+        this.requestOwnerByVideo.delete(oldestVideoId);
+        const oldestVideoPrefix: string = `${oldestVideoId}${SUBTITLE_CONSTANTS.TRACK_KEY_SEPARATOR}`;
         const cachedKeys: IterableIterator<string> = this.cuesCache.keys();
         for (const cachedKey of cachedKeys) {
           if (cachedKey.startsWith(oldestVideoPrefix)) {
@@ -175,6 +194,58 @@ export class SubtitleTimeline {
         }
       }
     }
+  }
+
+  public settleTrackRequestFailure(key: string, videoId: string, requestSequence: number): boolean {
+    const currentOwner: SubtitleTrackRequestOwner | undefined = this.requestOwnerByVideo.get(videoId);
+    if (
+      !currentOwner ||
+      currentOwner.key !== key ||
+      currentOwner.requestSequence !== requestSequence ||
+      currentOwner.status !== "pending"
+    ) {
+      return false;
+    }
+    this.requestOwnerByVideo.set(videoId, { ...currentOwner, status: "failed" });
+    this.resetPointer();
+    return true;
+  }
+
+  private extractVideoIdFromTrackKey(key: string): string {
+    const separatorIndex: number = key.indexOf(SUBTITLE_CONSTANTS.TRACK_KEY_SEPARATOR);
+    return separatorIndex < 0 ? "" : key.slice(0, separatorIndex);
+  }
+
+  private findMostRecentCachedTrack(videoId: string, beforeSequence?: number): CachedSubtitleTrack | null {
+    const trackPrefix: string = `${videoId}${SUBTITLE_CONSTANTS.TRACK_KEY_SEPARATOR}`;
+    let mostRecentTrack: CachedSubtitleTrack | null = null;
+    for (const [key, cachedTrack] of this.cuesCache) {
+      if (!key.startsWith(trackPrefix)) {
+        continue;
+      }
+      if (
+        beforeSequence !== undefined &&
+        cachedTrack.requestSequence !== undefined &&
+        cachedTrack.requestSequence >= beforeSequence
+      ) {
+        continue;
+      }
+      if (
+        mostRecentTrack === null ||
+        (cachedTrack.requestSequence !== undefined &&
+          (mostRecentTrack.requestSequence === undefined ||
+            cachedTrack.requestSequence > mostRecentTrack.requestSequence))
+      ) {
+        mostRecentTrack = cachedTrack;
+      }
+    }
+    return mostRecentTrack;
+  }
+
+  private activateCachedTrack(cachedTrack: CachedSubtitleTrack): void {
+    this.currentCues = cachedTrack.cues;
+    this.currentPrefixMaxEndMs = this.buildPrefixMaxEndIndex(cachedTrack.cues);
+    this.resetPointer();
   }
 
   public resetPointer(): void {
@@ -201,26 +272,22 @@ export class SubtitleTimeline {
     if (cues.length === 0 && this.cuesCache.size > 0 && typeof window !== "undefined") {
       const currentVideoId: string | null = resolveCaptionVideoId(window.location.href);
       if (currentVideoId) {
-        const requestedTrack: RequestedSubtitleTrack | undefined = this.requestedTrackByVideo.get(currentVideoId);
-        if (requestedTrack) {
-          const cachedTrack: CachedSubtitleTrack | undefined = this.cuesCache.get(requestedTrack.key);
-          if (cachedTrack && cachedTrack.requestSequence === requestedTrack.requestSequence) {
-            this.currentCues = cachedTrack.cues;
-            this.currentPrefixMaxEndMs = this.buildPrefixMaxEndIndex(cachedTrack.cues);
-            cues = cachedTrack.cues;
-            this.resetPointer();
+        const requestOwner: SubtitleTrackRequestOwner | undefined = this.requestOwnerByVideo.get(currentVideoId);
+        let cachedTrack: CachedSubtitleTrack | null = null;
+        if (!requestOwner || requestOwner.status === "failed") {
+          cachedTrack = this.findMostRecentCachedTrack(
+            currentVideoId,
+            requestOwner?.status === "failed" ? requestOwner.requestSequence : undefined
+          );
+        } else if (requestOwner.status === "succeeded") {
+          const latestTrack: CachedSubtitleTrack | undefined = this.cuesCache.get(requestOwner.key);
+          if (latestTrack?.requestSequence === requestOwner.requestSequence) {
+            cachedTrack = latestTrack;
           }
-        } else {
-          const cachedEntries: IterableIterator<[string, CachedSubtitleTrack]> = this.cuesCache.entries();
-          for (const [key, cachedTrack] of cachedEntries) {
-            if (key.startsWith(`${currentVideoId}_`)) {
-              this.currentCues = cachedTrack.cues;
-              this.currentPrefixMaxEndMs = this.buildPrefixMaxEndIndex(cachedTrack.cues);
-              cues = cachedTrack.cues;
-              this.resetPointer();
-              break;
-            }
-          }
+        }
+        if (cachedTrack) {
+          this.activateCachedTrack(cachedTrack);
+          cues = cachedTrack.cues;
         }
       }
     }
@@ -392,7 +459,7 @@ export class SubtitleTimeline {
 
   public clear(): void {
     this.cuesCache.clear();
-    this.requestedTrackByVideo.clear();
+    this.requestOwnerByVideo.clear();
     this.currentCues = [];
     this.currentPrefixMaxEndMs = [];
     this.resetPointer();

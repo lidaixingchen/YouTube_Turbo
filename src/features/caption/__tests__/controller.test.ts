@@ -5,21 +5,25 @@ import { resolveCaptionVideoId } from "../video-identity";
 
 type TrackCallback = (key: string, text: string, videoId: string, isLatestRequest: boolean, requestSequence: number) => void;
 type TrackRequestCallback = (key: string, videoId: string, requestSequence: number) => void;
+type TrackRequestFailureCallback = (key: string, videoId: string, requestSequence: number) => void;
 
 const callbacks = vi.hoisted((): {
   track: TrackCallback | null;
   requestStarted: TrackRequestCallback | null;
-} => ({ track: null, requestStarted: null }));
+  requestFailed: TrackRequestFailureCallback | null;
+} => ({ track: null, requestStarted: null, requestFailed: null }));
 
 vi.mock("../interceptor", (): { TimedTextInterceptor: unknown } => ({
   TimedTextInterceptor: class {
     public constructor(
       _provider: () => number,
       callback: TrackCallback,
-      requestStarted: TrackRequestCallback
+      requestStarted: TrackRequestCallback,
+      requestFailed: TrackRequestFailureCallback
     ) {
       callbacks.track = callback;
       callbacks.requestStarted = requestStarted;
+      callbacks.requestFailed = requestFailed;
     }
     public destroy(): void {}
   }
@@ -27,6 +31,8 @@ vi.mock("../interceptor", (): { TimedTextInterceptor: unknown } => ({
 
 const CUE_DURATION_MS: number = 5000;
 const QUERY_TIME_MS: number = 1000;
+const FIRST_REQUEST_SEQUENCE: number = 1;
+const SECOND_REQUEST_SEQUENCE: number = 2;
 
 function setLocation(path: string): void {
   Object.defineProperty(window, "location", {
@@ -39,6 +45,12 @@ function setLocation(path: string): void {
 function startRequest(key: string, videoId: string, requestSequence: number): void {
   const callback: TrackRequestCallback | null = callbacks.requestStarted;
   if (!callback) throw new Error("Caption request callback is unavailable");
+  callback(key, videoId, requestSequence);
+}
+
+function failRequest(key: string, videoId: string, requestSequence: number): void {
+  const callback: TrackRequestFailureCallback | null = callbacks.requestFailed;
+  if (!callback) throw new Error("Caption request failure callback is unavailable");
   callback(key, videoId, requestSequence);
 }
 
@@ -136,6 +148,23 @@ describe("CaptionController video ownership", (): void => {
     expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Latest offset response");
     timeline.clearCurrent();
     expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Latest offset response");
+  });
+
+  it("restores the last successful track after the current request fails", (): void => {
+    setLocation("/watch?v=current-video");
+    CaptionController.getInstance();
+    const ingestion: MockInstance<SubtitleTimeline["ingest"]> = vi.spyOn(SubtitleTimeline.prototype, "ingest");
+    const trackKey: string = "current-video_en_";
+
+    startRequest(trackKey, "current-video", FIRST_REQUEST_SEQUENCE);
+    ingest("Cached caption", "current-video", true, FIRST_REQUEST_SEQUENCE);
+    const timeline: SubtitleTimeline = ingestion.mock.contexts[0] as SubtitleTimeline;
+    timeline.clearCurrent();
+    startRequest(trackKey, "current-video", SECOND_REQUEST_SEQUENCE);
+
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
+    failRequest(trackKey, "current-video", SECOND_REQUEST_SEQUENCE);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Cached caption");
   });
 
   it("restores a cached Shorts track after clearing current cues", (): void => {

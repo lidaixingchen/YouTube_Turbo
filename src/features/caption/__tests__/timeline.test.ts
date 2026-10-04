@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { SubtitleTimeline } from "../timeline";
 
 describe("SubtitleTimeline Piecewise Interval Gate", () => {
@@ -18,8 +18,38 @@ describe("SubtitleTimeline Piecewise Interval Gate", () => {
     ]
   });
 
-  beforeEach(() => {
+  const CACHED_CUE_DURATION_MS: number = 5000;
+  const CACHED_CUE_START_TIME_MS: number = 0;
+  const QUERY_TIME_MS: number = 1000;
+  const FIRST_REQUEST_SEQUENCE: number = 1;
+  const SECOND_REQUEST_SEQUENCE: number = 2;
+  const THIRD_REQUEST_SEQUENCE: number = 3;
+  let originalLocationDescriptor: PropertyDescriptor | undefined;
+
+  const makeTrackPayload = (text: string): string =>
+    JSON.stringify({
+      events: [{ tStartMs: CACHED_CUE_START_TIME_MS, dDurationMs: CACHED_CUE_DURATION_MS, segs: [{ utf8: text }] }]
+    });
+
+  const setCurrentVideo = (): void => {
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=current-video"),
+      configurable: true,
+      writable: true
+    });
+  };
+
+  beforeEach((): void => {
     timeline = new SubtitleTimeline();
+    originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, "location");
+    setCurrentVideo();
+  });
+
+  afterEach((): void => {
+    if (originalLocationDescriptor) {
+      Object.defineProperty(window, "location", originalLocationDescriptor);
+    }
+    originalLocationDescriptor = undefined;
   });
 
   it("returns empty string when no subtitles ingested", () => {
@@ -182,5 +212,69 @@ describe("SubtitleTimeline Piecewise Interval Gate", () => {
     expect(timeline.getActiveCueText(4999)).toBe("Solo");
     expect(timeline.getActiveCueText(5000)).toBe("");
     expect(timeline.getActiveCueText(100000)).toBe("");
+  });
+
+  it("restores a successful same-track cache after the latest duplicate request fails", (): void => {
+    const key: string = "current-video_en_";
+    timeline.noteTrackRequest("current-video", key, FIRST_REQUEST_SEQUENCE);
+    timeline.ingest(key, makeTrackPayload("Cached English"), true, FIRST_REQUEST_SEQUENCE, "current-video");
+    timeline.clearCurrent();
+    timeline.noteTrackRequest("current-video", key, SECOND_REQUEST_SEQUENCE);
+
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
+    expect(timeline.settleTrackRequestFailure(key, "current-video", SECOND_REQUEST_SEQUENCE)).toBe(true);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Cached English");
+    expect(timeline.settleTrackRequestFailure(key, "current-video", FIRST_REQUEST_SEQUENCE)).toBe(false);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Cached English");
+  });
+
+  it("keeps old track data inactive while pending and recovers it after the latest failure", (): void => {
+    const englishKey: string = "current-video_en_";
+    const frenchKey: string = "current-video_fr_";
+    const spanishKey: string = "current-video_es_";
+    timeline.noteTrackRequest("current-video", englishKey, FIRST_REQUEST_SEQUENCE);
+    timeline.ingest(englishKey, makeTrackPayload("English"), true, FIRST_REQUEST_SEQUENCE, "current-video");
+    timeline.noteTrackRequest("current-video", frenchKey, SECOND_REQUEST_SEQUENCE);
+    timeline.noteTrackRequest("current-video", spanishKey, THIRD_REQUEST_SEQUENCE);
+    timeline.ingest(frenchKey, makeTrackPayload("French"), false, SECOND_REQUEST_SEQUENCE, "current-video");
+    timeline.clearCurrent();
+
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
+    expect(timeline.settleTrackRequestFailure(spanishKey, "current-video", THIRD_REQUEST_SEQUENCE)).toBe(true);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("French");
+  });
+
+  it("restores a failed video's own cache without selecting another video's track", (): void => {
+    const currentEnglishKey: string = "current-video_en_";
+    const currentFrenchKey: string = "current-video_fr_";
+    const otherEnglishKey: string = "other-video_en_";
+    timeline.noteTrackRequest("current-video", currentEnglishKey, FIRST_REQUEST_SEQUENCE);
+    timeline.ingest(currentEnglishKey, makeTrackPayload("Current English"), true, FIRST_REQUEST_SEQUENCE, "current-video");
+    timeline.noteTrackRequest("other-video", otherEnglishKey, SECOND_REQUEST_SEQUENCE);
+    timeline.ingest(otherEnglishKey, makeTrackPayload("Other video"), false, SECOND_REQUEST_SEQUENCE, "other-video");
+    timeline.noteTrackRequest("current-video", currentFrenchKey, THIRD_REQUEST_SEQUENCE);
+    timeline.clearCurrent();
+
+    expect(timeline.settleTrackRequestFailure(currentFrenchKey, "current-video", THIRD_REQUEST_SEQUENCE)).toBe(true);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Current English");
+  });
+
+  it("does not let an older failure change a newer pending or successful request", (): void => {
+    const englishKey: string = "current-video_en_";
+    const frenchKey: string = "current-video_fr_";
+    timeline.noteTrackRequest("current-video", englishKey, FIRST_REQUEST_SEQUENCE);
+    timeline.ingest(englishKey, makeTrackPayload("English"), true, FIRST_REQUEST_SEQUENCE, "current-video");
+    timeline.noteTrackRequest("current-video", frenchKey, SECOND_REQUEST_SEQUENCE);
+    timeline.noteTrackRequest("current-video", frenchKey, THIRD_REQUEST_SEQUENCE);
+
+    expect(timeline.settleTrackRequestFailure(englishKey, "current-video", FIRST_REQUEST_SEQUENCE)).toBe(false);
+    expect(timeline.settleTrackRequestFailure(frenchKey, "current-video", SECOND_REQUEST_SEQUENCE)).toBe(false);
+    timeline.clearCurrent();
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
+
+    timeline.ingest(frenchKey, makeTrackPayload("Latest French"), true, THIRD_REQUEST_SEQUENCE, "current-video");
+    expect(timeline.settleTrackRequestFailure(frenchKey, "current-video", THIRD_REQUEST_SEQUENCE)).toBe(false);
+    timeline.clearCurrent();
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Latest French");
   });
 });

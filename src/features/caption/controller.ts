@@ -48,13 +48,16 @@ export class CaptionController {
         const currentVideoId: string | null = resolveCaptionVideoId(window.location.href);
         const shouldActivateTrack: boolean =
           isLatestRequest && videoId !== "" && videoId === currentVideoId;
-        this.timeline.ingest(key, rawText, shouldActivateTrack, requestSequence);
+        this.timeline.ingest(key, rawText, shouldActivateTrack, requestSequence, videoId);
         if (shouldActivateTrack && this.sessionOffsetMs !== 0) {
           this.renderer.renderCurrentFrame(true);
         }
       },
       (key: string, videoId: string, requestSequence: number): void => {
         this.timeline.noteTrackRequest(videoId, key, requestSequence);
+      },
+      (key: string, videoId: string, requestSequence: number): void => {
+        this.timeline.settleTrackRequestFailure(key, videoId, requestSequence);
       }
     );
   }

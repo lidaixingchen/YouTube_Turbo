@@ -6,11 +6,19 @@ interface TimedTextRequestIdentity {
   videoId: string;
 }
 
+interface ActiveXhrRequest {
+  readonly xhr: XMLHttpRequest;
+  readonly settleFailure: () => void;
+  readonly cleanup: () => void;
+}
+
 export class TimedTextInterceptor {
   private isInstalled: boolean = false;
   private lifecycleToken: object = {};
   private requestSequence: number = 0;
   private latestRequestSequenceByVideo: Map<string, number> = new Map();
+  private readonly activeXhrRequests: Set<ActiveXhrRequest> = new Set();
+  private readonly xhrRequestByInstance: WeakMap<XMLHttpRequest, ActiveXhrRequest> = new WeakMap();
   private originalFetch: typeof window.fetch | null = null;
   private originalXHROpen: typeof XMLHttpRequest.prototype.open | null = null;
   private originalXHRSend: typeof XMLHttpRequest.prototype.send | null = null;
@@ -25,6 +33,8 @@ export class TimedTextInterceptor {
       requestSequence: number
     ) => void,
     private readonly onTrackRequestStarted: (key: string, videoId: string, requestSequence: number) => void =
+      (): void => {},
+    private readonly onTrackRequestFailed: (key: string, videoId: string, requestSequence: number) => void =
       (): void => {}
   ) {}
 
@@ -34,7 +44,6 @@ export class TimedTextInterceptor {
     }
     this.isInstalled = true;
     this.lifecycleToken = {};
-    this.requestSequence = 0;
     this.latestRequestSequenceByVideo.clear();
 
     const targetWindow = typeof unsafeWindow !== "undefined" ? (unsafeWindow as unknown as Window) : window;
@@ -71,7 +80,8 @@ export class TimedTextInterceptor {
       const videoId: string = parsed.searchParams.get(SUBTITLE_CONSTANTS.VIDEO_ID_PARAMETER) || "";
       const lang = parsed.searchParams.get("lang") || "default";
       const tlang = parsed.searchParams.get("tlang") || "";
-      return { key: `${videoId}_${lang}_${tlang}`, videoId };
+      const separator: string = SUBTITLE_CONSTANTS.TRACK_KEY_SEPARATOR;
+      return { key: `${videoId}${separator}${lang}${separator}${tlang}`, videoId };
     } catch {
       return { key: `unknown_${Date.now()}`, videoId: "" };
     }
@@ -205,20 +215,39 @@ export class TimedTextInterceptor {
         ? self.extractRequestIdentityFromUrl(rawUrl)
         : null;
       const requestSequence: number | null = identity ? self.registerRequest(identity) : null;
-      const response = await originalFetch.apply(this || targetWindow, [input, init]);
+      let response: Response;
+      try {
+        response = await originalFetch.apply(this || targetWindow, [input, init]);
+      } catch (error: unknown) {
+        if (identity && requestSequence !== null) {
+          self.settleTrackRequestFailure(lifecycleToken, identity, requestSequence);
+        }
+        throw error;
+      }
       if (!self.isCurrentLifecycle(lifecycleToken) || !identity || requestSequence === null) {
         return response;
       }
+      if (!response.ok) {
+        self.settleTrackRequestFailure(lifecycleToken, identity, requestSequence);
+        return response;
+      }
+
+      let originalText: string;
+      try {
+        originalText = await response.text();
+      } catch {
+        self.settleTrackRequestFailure(lifecycleToken, identity, requestSequence);
+        return response;
+      }
+      if (!self.isCurrentLifecycle(lifecycleToken)) {
+        return new Response(originalText, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers
+        });
+      }
 
       try {
-        const originalText = await response.text();
-        if (!self.isCurrentLifecycle(lifecycleToken)) {
-          return new Response(originalText, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers
-          });
-        }
         const isLatestRequest: boolean = self.isLatestRequest(identity.videoId, requestSequence);
         self.onTrackIngested(identity.key, originalText, identity.videoId, isLatestRequest, requestSequence);
 
@@ -238,8 +267,9 @@ export class TimedTextInterceptor {
           statusText: response.statusText,
           headers: response.headers
         });
-      } catch (err) {
-        console.error("[TimedTextInterceptor] Fetch intercept error:", err);
+      } catch (error: unknown) {
+        self.settleTrackRequestFailure(lifecycleToken, identity, requestSequence);
+        console.error("[TimedTextInterceptor] Fetch intercept error:", error);
         return response;
       }
     };
@@ -266,6 +296,8 @@ export class TimedTextInterceptor {
       url: string | URL,
       ...rest: [boolean?, string?, string?]
     ): void {
+      const activeRequest: ActiveXhrRequest | undefined = self.xhrRequestByInstance.get(this);
+      activeRequest?.settleFailure();
       this.__isTimedText = self.isTimedTextUrl(url);
       this.__timedTextRequestSequence = undefined;
       if (this.__isTimedText) {
@@ -286,14 +318,28 @@ export class TimedTextInterceptor {
     ): void {
       if (this.__isTimedText && self.isCurrentLifecycle(lifecycleToken)) {
         const xhr = this;
+        const previousRequest: ActiveXhrRequest | undefined = self.xhrRequestByInstance.get(xhr);
+        previousRequest?.settleFailure();
         const requestUrl: string = xhr.__timedTextUrl || window.location.href;
         const identity: TimedTextRequestIdentity = self.extractRequestIdentityFromUrl(requestUrl);
         const requestSequence: number = self.registerRequest(identity);
         xhr.__timedTextRequestSequence = requestSequence;
         let modifiedResponseText: string | null = null;
-        let isIngested = false;
+        let hasSettled: boolean = false;
+        let listenersAttached: boolean = false;
+        let requestLifecycle: ActiveXhrRequest | null = null;
+        let readystatechangeListener: EventListener = (): void => {};
+        let failureListener: EventListener = (): void => {};
+        let cleanupListeners: () => void = (): void => {};
+        const settleFailure = (): void => {
+          if (hasSettled) {
+            return;
+          }
+          hasSettled = true;
+          cleanupListeners();
+          self.settleTrackRequestFailure(lifecycleToken, identity, requestSequence);
+        };
 
-        // 同步懒解析方法：无论在何处被首次调用，保证当 readyState === 4 时即可同步获取修改后内容
         const resolveModifiedPayload = (): string | null => {
           if (!self.isCurrentLifecycle(lifecycleToken) || xhr.__timedTextRequestSequence !== requestSequence) {
             return null;
@@ -301,54 +347,116 @@ export class TimedTextInterceptor {
           if (modifiedResponseText !== null) {
             return modifiedResponseText;
           }
-          if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status < 300) {
-            const raw = Object.getOwnPropertyDescriptor(xhrProto, "responseText")?.get?.call(xhr);
-            if (typeof raw === "string") {
-              const isLatestRequest: boolean = self.isLatestRequest(identity.videoId, requestSequence);
-              if (!isIngested) {
-                self.onTrackIngested(identity.key, raw, identity.videoId, isLatestRequest, requestSequence);
-                isIngested = true;
-              }
-              const offsetMs = isLatestRequest ? self.offsetProvider() : 0;
-              if (offsetMs !== 0) {
-                modifiedResponseText = self.modifyPayload(raw, offsetMs);
-              } else {
-                modifiedResponseText = raw;
-              }
-              return modifiedResponseText;
-            }
+          if (hasSettled) {
+            return null;
           }
-          return null;
+          if (xhr.readyState !== SUBTITLE_CONSTANTS.XHR_READY_STATE_DONE) {
+            return null;
+          }
+          if (
+            xhr.status < SUBTITLE_CONSTANTS.HTTP_SUCCESS_STATUS_MIN ||
+            xhr.status >= SUBTITLE_CONSTANTS.HTTP_SUCCESS_STATUS_MAX_EXCLUSIVE ||
+            (xhr.responseType !== "" && xhr.responseType !== "text")
+          ) {
+            settleFailure();
+            return null;
+          }
+
+          let raw: unknown;
+          try {
+            raw = Object.getOwnPropertyDescriptor(xhrProto, "responseText")?.get?.call(xhr);
+          } catch {
+            settleFailure();
+            return null;
+          }
+          if (typeof raw !== "string") {
+            settleFailure();
+            return null;
+          }
+
+          const isLatestRequest: boolean = self.isLatestRequest(identity.videoId, requestSequence);
+          try {
+            self.onTrackIngested(identity.key, raw, identity.videoId, isLatestRequest, requestSequence);
+          } catch {
+            settleFailure();
+            return null;
+          }
+          hasSettled = true;
+          cleanupListeners();
+          const offsetMs: number = isLatestRequest ? self.offsetProvider() : 0;
+          if (offsetMs !== 0) {
+            modifiedResponseText = self.modifyPayload(raw, offsetMs);
+          } else {
+            modifiedResponseText = raw;
+          }
+          return modifiedResponseText;
         };
 
-        xhr.addEventListener("readystatechange", function () {
-          if (xhr.readyState === 4) {
+        readystatechangeListener = (): void => {
+          if (xhr.readyState === SUBTITLE_CONSTANTS.XHR_READY_STATE_DONE) {
             resolveModifiedPayload();
           }
-        });
+        };
+        failureListener = (): void => settleFailure();
+        cleanupListeners = (): void => {
+          if (!listenersAttached) {
+            return;
+          }
+          listenersAttached = false;
+          xhr.removeEventListener("readystatechange", readystatechangeListener);
+          xhr.removeEventListener("abort", failureListener);
+          xhr.removeEventListener("error", failureListener);
+          xhr.removeEventListener("timeout", failureListener);
+          if (requestLifecycle) {
+            self.activeXhrRequests.delete(requestLifecycle);
+            if (self.xhrRequestByInstance.get(xhr) === requestLifecycle) {
+              self.xhrRequestByInstance.delete(xhr);
+            }
+          }
+        };
+        requestLifecycle = {
+          xhr,
+          settleFailure,
+          cleanup: cleanupListeners
+        };
+        self.activeXhrRequests.add(requestLifecycle);
+        self.xhrRequestByInstance.set(xhr, requestLifecycle);
 
-        Object.defineProperty(xhr, "responseText", {
-          get() {
-            const resolved = resolveModifiedPayload();
-            return resolved !== null
-              ? resolved
-              : Object.getOwnPropertyDescriptor(xhrProto, "responseText")?.get?.call(xhr);
-          },
-          configurable: true
-        });
+        try {
+          listenersAttached = true;
+          xhr.addEventListener("readystatechange", readystatechangeListener);
+          xhr.addEventListener("abort", failureListener);
+          xhr.addEventListener("error", failureListener);
+          xhr.addEventListener("timeout", failureListener);
 
-        Object.defineProperty(xhr, "response", {
-          get() {
-            if (xhr.responseType === "" || xhr.responseType === "text") {
-              const resolved = resolveModifiedPayload();
+          Object.defineProperty(xhr, "responseText", {
+            get(): string | null {
+              const resolved: string | null = resolveModifiedPayload();
               return resolved !== null
                 ? resolved
                 : Object.getOwnPropertyDescriptor(xhrProto, "responseText")?.get?.call(xhr);
-            }
-            return Object.getOwnPropertyDescriptor(xhrProto, "response")?.get?.call(xhr);
-          },
-          configurable: true
-        });
+            },
+            configurable: true
+          });
+
+          Object.defineProperty(xhr, "response", {
+            get(): unknown {
+              if (xhr.responseType === "" || xhr.responseType === "text") {
+                const resolved: string | null = resolveModifiedPayload();
+                return resolved !== null
+                  ? resolved
+                  : Object.getOwnPropertyDescriptor(xhrProto, "responseText")?.get?.call(xhr);
+              }
+              return Object.getOwnPropertyDescriptor(xhrProto, "response")?.get?.call(xhr);
+            },
+            configurable: true
+          });
+
+          return rawSend.apply(this, [body]);
+        } catch (error: unknown) {
+          settleFailure();
+          throw error;
+        }
       }
 
       return rawSend.apply(this, [body]);
@@ -359,7 +467,10 @@ export class TimedTextInterceptor {
     this.isInstalled = false;
     this.lifecycleToken = {};
     this.latestRequestSequenceByVideo.clear();
-    this.requestSequence = 0;
+    for (const request of this.activeXhrRequests) {
+      request.cleanup();
+    }
+    this.activeXhrRequests.clear();
     const targetWindow = typeof unsafeWindow !== "undefined" ? (unsafeWindow as unknown as Window) : window;
     if (this.originalFetch) {
       targetWindow.fetch = this.originalFetch;
@@ -376,5 +487,16 @@ export class TimedTextInterceptor {
 
   private isCurrentLifecycle(token: object): boolean {
     return this.isInstalled && this.lifecycleToken === token;
+  }
+
+  private settleTrackRequestFailure(
+    token: object,
+    identity: TimedTextRequestIdentity,
+    requestSequence: number
+  ): void {
+    if (!this.isCurrentLifecycle(token)) {
+      return;
+    }
+    this.onTrackRequestFailed(identity.key, identity.videoId, requestSequence);
   }
 }
