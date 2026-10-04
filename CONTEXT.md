@@ -5,7 +5,7 @@
 ## Language
 
 **FeatureRegistry**:
-特性配置与本页运行状态的统管模块，将用户的功能开关选择协调为各特性的启用、停用及可观察的执行结果。
+特性配置与本页运行状态的统管模块，将用户的功能开关选择协调为各特性的启用、停用及可观察的执行结果。每个功能使用独立存储键，旧整对象仅作为缺失值的兼容来源；远端通知触发快照重读，读取失败的同步工作在页面恢复可见或显式刷新时重试。
 _Avoid_: FeatureManager, SettingsStore, ToggleService
 
 **SubtitleOffset**:
@@ -61,7 +61,7 @@ _Avoid_: PiPCoordinator, PictureInPictureManager, PlayerShortcuts
 _Avoid_: LoopManager, RepeatCoordinator, PlayerShortcuts
 
 **CaptionController**:
-字幕偏移校准与同步深模块，统管 `/api/timedtext` 网络拦截、Cue 缓存解析与覆盖层实时渲染。
+字幕偏移校准与同步深模块，统管 `/api/timedtext` 网络拦截、Cue 缓存解析与覆盖层实时渲染。响应依据 watch 查询参数或 Shorts 路径匹配当前视频，在途请求同时受特性启用周期约束。
 _Avoid_: SubtitleOffset, SubtitleManager, CaptionProxy
 
 **CaptionOverlayRenderer**:
@@ -105,7 +105,7 @@ _Avoid_: RuntimeBridge, BridgeInstance, GlobalEventBus
 _Avoid_: ObserverRegistry, PanelObserverManager, LayoutState
 
 **ReactiveDOMRegistry**:
-DOM 核心句柄缓存深模块，持有高频核心元素（播放器容器、视频节点、元数据标题等）的高速引用，与 `yt-navigate-finish` 路由生命周期对齐自动失效。
+DOM 核心句柄缓存深模块，以 WeakRef 缓存当前可见路由根中的播放器、视频和标题句柄；Shorts 查询收敛至活跃 reel，迷你播放器提供局部回退。缓存关联根节点和当前 URL，并随 `yt-navigate-finish`、`yt-page-type-changed` 及节点断开失效。
 _Avoid_: DOMHelper, DOMProxy, DOMWrapper
 
 **SlotMountBus**:

@@ -36,11 +36,16 @@ pnpm install
 # 类型检查
 pnpm run check
 
+# 行为回归测试
+pnpm test
+
 # 构建打包
 pnpm run build
 ```
 
 打包产物将输出至 `dist/youtube-turbo.user.js`。
+
+功能开关分别保存在独立存储键中，旧配置作为尚未设置功能的兼容来源。跨标签页修改不同功能不会互相覆盖；同一功能以最后持久化值为准。存储契约见 [功能状态持久化决策](docs/adr/0007-feature-state-storage.md)，当前缺陷修复及验证结果见 [全项目修复报告](docs/project-bug-audit-report.md)。
 
 ## 致谢 (Acknowledgements)
 
