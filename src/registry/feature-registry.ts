@@ -1,6 +1,6 @@
 import { StorageUtil, type StorageListenerId } from "../core/storage";
 import type { FeatureDescriptor } from "../types";
-import { DEFAULT_FEATURE_ORDER } from "./constants";
+import { DEFAULT_FEATURE_ORDER, FEATURE_REGISTRY_CONSTANTS } from "./constants";
 import type {
   FeatureFailure,
   FeatureRuntimeStatus,
@@ -42,7 +42,9 @@ export class FeatureRegistry {
 
   private isInitialized = false;
   private initPromise: Promise<void> | null = null;
-  private storageListenerId: StorageListenerId | null = null;
+  private readonly storageListenerIds = new Map<string, StorageListenerId | null>();
+  private visibilityChangeHandler: (() => void) | null = null;
+  private hasPendingStorageSync = false;
   private cachedStates: Record<string, boolean> | null = null;
 
   private isReconcileScheduled = false;
@@ -239,15 +241,7 @@ export class FeatureRegistry {
     }
 
     this.enterAdmission(() => {
-      let raw: unknown;
-      try {
-        raw = this.storage.getValue<unknown>(this.storage.keys.youtube.functionState, {});
-      } catch (err: unknown) {
-        console.error("[FeatureRegistry] Failed to re-read storage in invalidateCache:", err);
-        return;
-      }
-
-      this.applyStorageSnapshot(raw);
+      this.refreshStorageSnapshot("invalidateCache");
     });
   }
 
@@ -305,6 +299,7 @@ export class FeatureRegistry {
     let baseRaw: unknown;
     try {
       baseRaw = this.readStorageRaw();
+      this.hasPendingStorageSync = false;
     } catch (err: unknown) {
       record.error = { stage: "storage", retryable: true, error: err };
       this.notifySubscribers(id);
@@ -315,13 +310,8 @@ export class FeatureRegistry {
     const needStorageWrite = this.persistenceMode === "persistent" && baseDict[id] !== enabled;
 
     if (needStorageWrite) {
-      const nextDict: Record<string, boolean> = {
-        ...baseDict,
-        [id]: enabled
-      };
-
       try {
-        this.storage.setValue(this.storage.keys.youtube.functionState, nextDict);
+        this.storage.setValue(this.storage.keys.youtube.functionStateForFeature(id), enabled);
       } catch (err: unknown) {
         this.applyStorageSnapshot(baseDict);
         record.error = { stage: "storage", retryable: true, error: err };
@@ -375,16 +365,12 @@ export class FeatureRegistry {
     }
 
     const runInit = async (): Promise<void> => {
-      this.setupStorageListener();
-
       let raw: unknown;
       try {
+        this.setupStorageListener();
         raw = this.readStorageRaw();
       } catch (err: unknown) {
-        if (this.storageListenerId !== null) {
-          this.storage.removeChangeListener(this.storageListenerId);
-          this.storageListenerId = null;
-        }
+        this.removeStorageListeners();
         throw err;
       }
 
@@ -428,39 +414,106 @@ export class FeatureRegistry {
   }
 
   private setupStorageListener(): void {
-    if (this.storageListenerId !== null || this.persistenceMode !== "persistent") {
+    if (this.storageListenerIds.size > 0 || this.persistenceMode !== "persistent") {
       return;
     }
 
-    this.storageListenerId = this.storage.addChangeListener<unknown>(
+    const keys: string[] = [
       this.storage.keys.youtube.functionState,
-      (_key: string, _oldVal: unknown, _newVal: unknown, remote: boolean): void => {
-        if (remote) {
-          this.handleRemoteChange();
-        }
+      ...Array.from(this.descriptors.keys(), (id: string): string =>
+        this.storage.keys.youtube.functionStateForFeature(id)
+      )
+    ];
+
+    try {
+      for (const key of new Set(keys)) {
+        const listenerId: StorageListenerId | null = this.storage.addChangeListener<unknown>(
+          key,
+          (_key: string, _oldVal: unknown, _newVal: unknown, remote: boolean): void => {
+            if (remote) {
+              this.handleRemoteChange();
+            }
+          }
+        );
+        this.storageListenerIds.set(key, listenerId);
       }
-    );
+
+      if (typeof document !== "undefined" && this.visibilityChangeHandler === null) {
+        const handler = (): void => {
+          if (
+            this.hasPendingStorageSync &&
+            document.visibilityState === FEATURE_REGISTRY_CONSTANTS.VISIBILITY.VISIBLE_STATE
+          ) {
+            this.invalidateCache();
+          }
+        };
+        document.addEventListener(FEATURE_REGISTRY_CONSTANTS.VISIBILITY.CHANGE_EVENT, handler);
+        this.visibilityChangeHandler = handler;
+      }
+    } catch (err: unknown) {
+      this.removeStorageListeners();
+      throw err;
+    }
+  }
+
+  private removeStorageListeners(): void {
+    for (const listenerId of this.storageListenerIds.values()) {
+      try {
+        this.storage.removeChangeListener(listenerId);
+      } catch (err: unknown) {
+        console.error("[FeatureRegistry] Failed to remove storage listener:", err);
+      }
+    }
+    this.storageListenerIds.clear();
+
+    if (this.visibilityChangeHandler !== null && typeof document !== "undefined") {
+      const handler: () => void = this.visibilityChangeHandler;
+      this.visibilityChangeHandler = null;
+      try {
+        document.removeEventListener(FEATURE_REGISTRY_CONSTANTS.VISIBILITY.CHANGE_EVENT, handler);
+      } catch (err: unknown) {
+        console.error("[FeatureRegistry] Failed to remove visibility listener:", err);
+      }
+    }
   }
 
   private handleRemoteChange(): void {
+    this.hasPendingStorageSync = true;
     this.enterAdmission((): void => {
-      let raw: unknown;
-      try {
-        raw = this.readStorageRaw();
-      } catch (err: unknown) {
-        console.error("[FeatureRegistry] Remote read failed, retaining current snapshot:", err);
-        return;
-      }
-
-      this.applyStorageSnapshot(raw);
+      this.refreshStorageSnapshot("remote notification");
     });
+  }
+
+  private refreshStorageSnapshot(source: string): void {
+    this.hasPendingStorageSync = true;
+    try {
+      const raw: unknown = this.readStorageRaw();
+      this.applyStorageSnapshot(raw);
+      this.hasPendingStorageSync = false;
+    } catch (err: unknown) {
+      console.error(`[FeatureRegistry] Failed to re-read storage in ${source}:`, err);
+    }
   }
 
   private readStorageRaw(): unknown {
     if (this.persistenceMode === "session") {
-      return this.cachedStates ?? this.storage.getValue<unknown>(this.storage.keys.youtube.functionState, {});
+      if (this.cachedStates !== null) {
+        return this.cachedStates;
+      }
     }
-    return this.storage.getValue<unknown>(this.storage.keys.youtube.functionState, {});
+
+    const legacyRaw: unknown = this.storage.getValue<unknown>(this.storage.keys.youtube.functionState, {});
+    const states: Record<string, boolean> = this.normalizeDictionary(legacyRaw);
+    for (const [id, descriptor] of this.descriptors.entries()) {
+      const featureRaw: unknown = this.storage.getValue<unknown>(
+        this.storage.keys.youtube.functionStateForFeature(id),
+        undefined
+      );
+      if (featureRaw !== undefined) {
+        states[id] = typeof featureRaw === "boolean" ? featureRaw : descriptor.defaultValue;
+      }
+    }
+    return states;
   }
 
   private normalizeDictionary(raw: unknown): Record<string, boolean> {

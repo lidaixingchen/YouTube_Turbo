@@ -2,7 +2,13 @@ import {
   DEFAULT_VIDEO_WIDTH,
   DEFAULT_VIDEO_HEIGHT,
   HIDDEN_ATTRIBUTE,
-  PAGE_MANAGER_ID
+  MINIPLAYER_HOST_SELECTOR,
+  PAGE_MANAGER_ID,
+  RETAINED_PAGE_EXCLUSION,
+  SHORTS_ACTIVE_REEL_ATTRIBUTE,
+  SHORTS_ACTIVE_REEL_SELECTOR,
+  SHORTS_PAGE_CONTAINER_SELECTOR,
+  WATCH_PAGE_CONTAINER_SELECTOR
 } from "./constants";
 import {
   detectRouteKind,
@@ -12,22 +18,31 @@ import {
 import type { VideoResolution } from "../types";
 
 type DiscoveryRootKind = "route-page" | "miniplayer" | "page-manager";
+type MediaScopeKind = Exclude<DiscoveryRootKind, "page-manager">;
+
+interface MediaQueryScope {
+  readonly root: HTMLElement;
+  readonly kind: MediaScopeKind;
+}
+
+interface ScopedNodeCache<T extends HTMLElement> {
+  readonly nodeRef: WeakRef<T>;
+  readonly scopeRef: WeakRef<HTMLElement>;
+  readonly mediaRootRef: WeakRef<HTMLElement>;
+  readonly scopeKind: MediaScopeKind;
+  readonly href: string;
+}
 
 export class ReactiveDOMRegistry {
   private static instance: ReactiveDOMRegistry | null = null;
 
-  private videoRef: WeakRef<HTMLVideoElement> | null = null;
-  private playerRef: WeakRef<HTMLElement> | null = null;
-  private titleRef: WeakRef<HTMLElement> | null = null;
+  private videoCache: ScopedNodeCache<HTMLVideoElement> | null = null;
+  private playerCache: ScopedNodeCache<HTMLElement> | null = null;
+  private titleCache: ScopedNodeCache<HTMLElement> | null = null;
   private isNavigationBound: boolean = false;
 
   private static readonly SELECTORS = {
-    VIDEO_ALTERNATIVES: [
-      "ytd-reel-video-renderer[is-active] video",
-      "#movie_player video",
-      "video.video-stream",
-      "video"
-    ],
+    VIDEO_ALTERNATIVES: ["#movie_player video", "video.video-stream", "video"],
     PLAYER_CONTAINER: "#movie_player, #player-container-outer .html5-video-player, ytd-player, #player",
     VIDEO_TITLE: "h1.title.ytd-video-primary-info-renderer, h1.ytd-watch-metadata, #title h1, h1.watch-title-container"
   } as const;
@@ -57,9 +72,9 @@ export class ReactiveDOMRegistry {
   }
 
   public invalidateCache(): void {
-    this.videoRef = null;
-    this.playerRef = null;
-    this.titleRef = null;
+    this.videoCache = null;
+    this.playerCache = null;
+    this.titleCache = null;
   }
 
   private queryVideoElement(root: ParentNode): HTMLVideoElement | null {
@@ -73,67 +88,156 @@ export class ReactiveDOMRegistry {
   }
 
   public getVideoElement(): HTMLVideoElement | null {
-    const cached = this.videoRef?.deref();
-    if (cached && cached.isConnected) {
+    const cached = this.getCachedNode(this.videoCache);
+    if (cached) {
       return cached;
     }
 
-    const queried = this.queryVideoElement(document);
-    if (queried) {
-      this.videoRef = new WeakRef(queried);
+    this.videoCache = null;
+    const scope: MediaQueryScope | null = this.resolveMediaScope();
+    const mediaRoot: HTMLElement | null = scope ? this.resolveMediaContentRoot(scope.root) : null;
+    const queried: HTMLVideoElement | null = mediaRoot ? this.queryVideoElement(mediaRoot) : null;
+    if (scope && mediaRoot && queried && queried.isConnected && mediaRoot.contains(queried)) {
+      this.videoCache = this.createScopedCache(queried, scope, mediaRoot);
       return queried;
     }
 
-    this.videoRef = null;
     return null;
   }
 
   public getPlayerContainer(scope?: HTMLElement): HTMLElement | null {
-    if (!scope) {
-      const cached = this.playerRef?.deref();
-      if (cached && cached.isConnected) {
-        return cached;
-      }
-
-      const queried =
-        document.getElementById("movie_player") ||
-        document.querySelector<HTMLElement>(ReactiveDOMRegistry.SELECTORS.PLAYER_CONTAINER);
-
-      if (queried) {
-        this.playerRef = new WeakRef(queried);
-        return queried;
-      }
-
-      this.playerRef = null;
-      return null;
+    if (scope) {
+      const mediaRoot: HTMLElement | null = this.resolveMediaContentRoot(scope);
+      const queried: HTMLElement | null = mediaRoot ? this.queryPlayerContainer(mediaRoot) : null;
+      return queried && queried.isConnected && mediaRoot?.contains(queried) ? queried : null;
     }
 
-    const cached = this.playerRef?.deref();
-    if (cached && cached.isConnected && (cached === scope || scope.contains(cached))) {
+    const cached = this.getCachedNode(this.playerCache);
+    if (cached) {
       return cached;
     }
 
-    const queried = scope.matches(ReactiveDOMRegistry.SELECTORS.PLAYER_CONTAINER)
-      ? scope
-      : scope.querySelector<HTMLElement>(ReactiveDOMRegistry.SELECTORS.PLAYER_CONTAINER);
-
-    return queried && queried.isConnected ? queried : null;
-  }
-
-  public getVideoTitleElement(): HTMLElement | null {
-    const cached = this.titleRef?.deref();
-    if (cached && cached.isConnected) {
-      return cached;
-    }
-
-    const queried = document.querySelector<HTMLElement>(ReactiveDOMRegistry.SELECTORS.VIDEO_TITLE);
-    if (queried) {
-      this.titleRef = new WeakRef(queried);
+    this.playerCache = null;
+    const mediaScope: MediaQueryScope | null = this.resolveMediaScope();
+    const mediaRoot: HTMLElement | null = mediaScope
+      ? this.resolveMediaContentRoot(mediaScope.root)
+      : null;
+    const queried: HTMLElement | null = mediaRoot ? this.queryPlayerContainer(mediaRoot) : null;
+    if (mediaScope && mediaRoot && queried && queried.isConnected && mediaRoot.contains(queried)) {
+      this.playerCache = this.createScopedCache(queried, mediaScope, mediaRoot);
       return queried;
     }
 
-    this.titleRef = null;
     return null;
+  }
+
+  public getVideoTitleElement(): HTMLElement | null {
+    const cached = this.getCachedNode(this.titleCache);
+    if (cached) {
+      return cached;
+    }
+
+    this.titleCache = null;
+    const scope: MediaQueryScope | null = this.resolveMediaScope();
+    const mediaRoot: HTMLElement | null = scope ? this.resolveMediaContentRoot(scope.root) : null;
+    const queried: HTMLElement | null = mediaRoot
+      ? mediaRoot.querySelector<HTMLElement>(ReactiveDOMRegistry.SELECTORS.VIDEO_TITLE)
+      : null;
+    if (scope && mediaRoot && queried && queried.isConnected && mediaRoot.contains(queried)) {
+      this.titleCache = this.createScopedCache(queried, scope, mediaRoot);
+      return queried;
+    }
+
+    return null;
+  }
+
+  private resolveMediaScope(): MediaQueryScope | null {
+    const pageRoot: HTMLElement | null = resolveRoutePageRoot();
+    if (pageRoot) {
+      return { root: pageRoot, kind: "route-page" };
+    }
+    const miniplayerHost: HTMLElement | null = resolveActiveMiniplayerHost();
+    return miniplayerHost ? { root: miniplayerHost, kind: "miniplayer" } : null;
+  }
+
+  private queryPlayerContainer(mediaRoot: HTMLElement): HTMLElement | null {
+    return mediaRoot.matches(ReactiveDOMRegistry.SELECTORS.PLAYER_CONTAINER)
+      ? mediaRoot
+      : mediaRoot.querySelector<HTMLElement>(ReactiveDOMRegistry.SELECTORS.PLAYER_CONTAINER);
+  }
+
+  private resolveMediaContentRoot(scope: HTMLElement): HTMLElement | null {
+    return scope.matches(SHORTS_PAGE_CONTAINER_SELECTOR)
+      ? scope.querySelector<HTMLElement>(SHORTS_ACTIVE_REEL_SELECTOR)
+      : scope;
+  }
+
+  private createScopedCache<T extends HTMLElement>(
+    node: T,
+    scope: MediaQueryScope,
+    mediaRoot: HTMLElement
+  ): ScopedNodeCache<T> {
+    return {
+      nodeRef: new WeakRef(node),
+      scopeRef: new WeakRef(scope.root),
+      mediaRootRef: new WeakRef(mediaRoot),
+      scopeKind: scope.kind,
+      href: this.getCurrentHref()
+    };
+  }
+
+  private getCachedNode<T extends HTMLElement>(cache: ScopedNodeCache<T> | null): T | null {
+    if (!cache || cache.href !== this.getCurrentHref()) {
+      return null;
+    }
+
+    const node: T | undefined = cache.nodeRef.deref();
+    const scope: HTMLElement | undefined = cache.scopeRef.deref();
+    const mediaRoot: HTMLElement | undefined = cache.mediaRootRef.deref();
+    if (
+      !node ||
+      !scope ||
+      !mediaRoot ||
+      !node.isConnected ||
+      !scope.isConnected ||
+      !this.isCurrentScope(scope, cache.scopeKind) ||
+      !this.isCurrentMediaRoot(scope, mediaRoot) ||
+      !scope.contains(mediaRoot) ||
+      !mediaRoot.contains(node)
+    ) {
+      return null;
+    }
+    return node;
+  }
+
+  private getCurrentHref(): string {
+    return typeof window === "undefined" ? "" : window.location.href;
+  }
+
+  private isCurrentScope(scope: HTMLElement, kind: MediaScopeKind): boolean {
+    if (scope.hasAttribute(HIDDEN_ATTRIBUTE)) {
+      return false;
+    }
+    if (kind === "miniplayer") {
+      return scope.matches(`${MINIPLAYER_HOST_SELECTOR}${RETAINED_PAGE_EXCLUSION}`);
+    }
+
+    const routeKind: ReturnType<typeof detectRouteKind> = detectRouteKind(
+      typeof window === "undefined" ? "" : window.location.pathname
+    );
+    const pageSelector: string | null =
+      routeKind === "watch"
+        ? WATCH_PAGE_CONTAINER_SELECTOR
+        : routeKind === "shorts"
+          ? SHORTS_PAGE_CONTAINER_SELECTOR
+          : null;
+    return pageSelector !== null && scope.matches(`${pageSelector}${RETAINED_PAGE_EXCLUSION}`);
+  }
+
+  private isCurrentMediaRoot(scope: HTMLElement, mediaRoot: HTMLElement): boolean {
+    return scope.matches(SHORTS_PAGE_CONTAINER_SELECTOR)
+      ? mediaRoot.matches(SHORTS_ACTIVE_REEL_SELECTOR)
+      : mediaRoot === scope;
   }
 
   public getVideoTitle(): string {
@@ -198,10 +302,11 @@ export class ReactiveDOMRegistry {
         currentRootKind = null;
       };
 
-      const scopedHit = (root: HTMLElement): HTMLVideoElement | null => {
-        const video: HTMLVideoElement | null = this.queryVideoElement(root);
-        if (video && video.isConnected) {
-          this.videoRef = new WeakRef(video);
+      const scopedHit = (root: HTMLElement, kind: MediaScopeKind): HTMLVideoElement | null => {
+        const mediaRoot: HTMLElement | null = this.resolveMediaContentRoot(root);
+        const video: HTMLVideoElement | null = mediaRoot ? this.queryVideoElement(mediaRoot) : null;
+        if (mediaRoot && video && video.isConnected && mediaRoot.contains(video)) {
+          this.videoCache = this.createScopedCache(video, { root, kind }, mediaRoot);
           return video;
         }
         return null;
@@ -218,10 +323,19 @@ export class ReactiveDOMRegistry {
         } else {
           observer.disconnect();
         }
+        const isShortsRoot: boolean =
+          kind === "route-page" && node.matches(SHORTS_PAGE_CONTAINER_SELECTOR);
         const init: MutationObserverInit =
           kind === "page-manager"
             ? { childList: true, subtree: false, attributes: true, attributeFilter: [HIDDEN_ATTRIBUTE] }
-            : { childList: true, subtree: true };
+            : isShortsRoot
+              ? {
+                  childList: true,
+                  subtree: true,
+                  attributes: true,
+                  attributeFilter: [SHORTS_ACTIVE_REEL_ATTRIBUTE]
+                }
+              : { childList: true, subtree: true };
         observer.observe(node, init);
         currentRoot = node;
         currentRootKind = kind;
@@ -230,7 +344,7 @@ export class ReactiveDOMRegistry {
       const advance = (): void => {
         const pageRoot: HTMLElement | null = resolveRoutePageRoot();
         if (pageRoot) {
-          const video: HTMLVideoElement | null = scopedHit(pageRoot);
+          const video: HTMLVideoElement | null = scopedHit(pageRoot, "route-page");
           if (video) {
             cleanup();
             resolve(video);
@@ -241,7 +355,7 @@ export class ReactiveDOMRegistry {
         }
         const miniplayerHost: HTMLElement | null = resolveActiveMiniplayerHost();
         if (miniplayerHost) {
-          const video: HTMLVideoElement | null = scopedHit(miniplayerHost);
+          const video: HTMLVideoElement | null = scopedHit(miniplayerHost, "miniplayer");
           if (video) {
             cleanup();
             resolve(video);

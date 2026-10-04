@@ -1,10 +1,27 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { PlayerController } from "../controller";
+import { ReactiveDOMRegistry } from "../../../core/dom-registry";
+import { WATCH_PAGE_CONTAINER_SELECTOR } from "../../../core/constants";
 
 describe("PlayerController Core State Machine", () => {
+  let routeRoot: HTMLElement;
+
   beforeEach(() => {
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=controller-fixture"),
+      configurable: true,
+      writable: true
+    });
+    routeRoot = document.createElement(WATCH_PAGE_CONTAINER_SELECTOR);
+    document.body.appendChild(routeRoot);
+    ReactiveDOMRegistry.getInstance().invalidateCache();
     PlayerController.getInstance().resetSpeed(false);
     PlayerController.getInstance().setLoop(false, false);
+  });
+
+  afterEach((): void => {
+    PlayerController.getInstance().destroy();
+    ReactiveDOMRegistry.getInstance().invalidateCache();
   });
 
   it("should initialize with default playback settings", () => {
@@ -45,7 +62,7 @@ describe("PlayerController Core State Machine", () => {
 
     // 模拟第一个 video 节点
     const oldVideo = document.createElement("video");
-    document.body.appendChild(oldVideo);
+    routeRoot.appendChild(oldVideo);
 
     // 触发绑定
     controller.setSpeed(1.5, false);
@@ -55,7 +72,7 @@ describe("PlayerController Core State Machine", () => {
     // 模拟 YouTube 移除旧节点并插入新节点
     oldVideo.remove();
     const newVideo = document.createElement("video");
-    document.body.appendChild(newVideo);
+    routeRoot.appendChild(newVideo);
 
     // JIT 自愈：调用操作时感知旧节点已脱落，重新绑定新节点
     controller.setSpeed(1.75, false);
@@ -71,7 +88,7 @@ describe("PlayerController Core State Machine", () => {
 
   it("should auto-heal and apply speed settings when receiving global play capture event", () => {
     const initialVideo = document.createElement("video");
-    document.body.appendChild(initialVideo);
+    routeRoot.appendChild(initialVideo);
 
     const controller = PlayerController.getInstance();
     controller.init();
@@ -79,7 +96,7 @@ describe("PlayerController Core State Machine", () => {
     expect(initialVideo.playbackRate).toBe(1.25);
 
     const nextVideo = document.createElement("video");
-    document.body.appendChild(nextVideo);
+    routeRoot.appendChild(nextVideo);
 
     // 模拟外部异步挂载后启动播放，派发原生 play 事件
     nextVideo.dispatchEvent(new Event("play", { bubbles: false }));

@@ -3,6 +3,10 @@ export const DEFAULT_FEATURE_ORDER = 100;
 export const FEATURE_REGISTRY_CONSTANTS = {
   DEFAULT_ORDER: DEFAULT_FEATURE_ORDER,
   STORAGE_RETRY_LIMIT: 1,
+  VISIBILITY: {
+    CHANGE_EVENT: "visibilitychange",
+    VISIBLE_STATE: "visible"
+  },
   I18N_KEYS: {
     STATUS_STARTING: "status_starting",
     STATUS_STOPPING: "status_stopping",

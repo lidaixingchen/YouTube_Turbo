@@ -1,7 +1,10 @@
+import { FEATURE_STATE_STORAGE_KEY } from "./constants";
+
 export const StorageKeys = {
   youtube: {
     videoPlaySpeed: "yt/videoPlaySpeed",
-    functionState: "yt/functionState_01",
+    functionState: FEATURE_STATE_STORAGE_KEY,
+    functionStateForFeature: (featureId: string): string => `${FEATURE_STATE_STORAGE_KEY}/${featureId}`,
     videoLoop: "py/videoLoop",
     theme: "yt/theme",
     downloadingConfirm: "yt/downloadingConfirm",

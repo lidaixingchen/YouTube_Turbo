@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { StorageUtil } from "../storage";
+import { StorageKeys, StorageUtil } from "../storage";
 
 describe("StorageUtil GM Wrapper and Fallback", () => {
   beforeEach(() => {
@@ -9,6 +9,10 @@ describe("StorageUtil GM Wrapper and Fallback", () => {
   it("should return default value when GM_getValue is undefined", () => {
     const val = StorageUtil.getValue("test-key", 42);
     expect(val).toBe(42);
+  });
+
+  it("creates a stable per-feature function state key", () => {
+    expect(StorageKeys.youtube.functionStateForFeature("featA")).toBe("yt/functionState_01/featA");
   });
 
   it("should safely no-op when GM_setValue and GM_deleteValue are undefined", () => {

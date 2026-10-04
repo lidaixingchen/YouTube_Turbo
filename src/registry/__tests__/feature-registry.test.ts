@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { FeatureRegistry } from "../feature-registry";
 import type { FeatureDescriptor } from "../../types";
 import type { FeatureStateSnapshot } from "../types";
+import { StorageKeys } from "../../core/storage";
+
+type MockStorageListener = (key: string, oldValue: unknown, newValue: unknown, remote: boolean) => void;
+type MockStorageListenerRecord = { readonly key: string; readonly callback: MockStorageListener };
 
 function createMockStorage(options?: {
   initialState?: Record<string, unknown>;
@@ -9,8 +13,9 @@ function createMockStorage(options?: {
 }) {
   let state: Record<string, unknown> = options?.initialState ? { ...options.initialState } : {};
   let persistenceAvailable = options?.persistenceAvailable ?? true;
-  const listeners = new Map<number, (k: string, oldVal: unknown, newVal: unknown, remote: boolean) => void>();
+  const listeners = new Map<number | string, MockStorageListenerRecord>();
   let nextListenerId = 1;
+  let beforeNextWrite: ((key: string, value: unknown) => void) | null = null;
 
   const readFail = { value: false };
   const writeFail = { value: false };
@@ -20,14 +25,13 @@ function createMockStorage(options?: {
     writeFail,
     state,
     listeners,
+    setBeforeNextWrite(callback: (key: string, value: unknown) => void): void {
+      beforeNextWrite = callback;
+    },
     setPersistenceAvailable(available: boolean): void {
       persistenceAvailable = available;
     },
-    keys: {
-      youtube: {
-        functionState: "yt/functionState_01"
-      }
-    } as any,
+    keys: StorageKeys,
     isPersistenceAvailable(): boolean {
       return persistenceAvailable;
     },
@@ -44,22 +48,33 @@ function createMockStorage(options?: {
       if (writeFail.value) {
         throw new Error("Storage write error");
       }
+      const writeHook = beforeNextWrite;
+      beforeNextWrite = null;
+      writeHook?.(key, value);
       state[key] = value;
     },
     deleteValue(key: string): void {
       delete state[key];
     },
-    addChangeListener(_key: string, cb: any): number {
+    addChangeListener<T = unknown>(key: string, cb: (key: string, oldValue: T, newValue: T, remote: boolean) => void): number {
       const id = nextListenerId++;
-      listeners.set(id, cb);
+      const callback: MockStorageListener = (listenerKey: string, oldValue: unknown, newValue: unknown, remote: boolean): void => {
+        cb(listenerKey, oldValue as T, newValue as T, remote);
+      };
+      listeners.set(id, { key, callback });
       return id;
     },
-    removeChangeListener(id: any): void {
+    removeChangeListener(id: number | string | null): void {
+      if (id === null) {
+        return;
+      }
       listeners.delete(id);
     },
-    emitRemoteChange(oldVal: unknown, newVal: unknown): void {
-      for (const cb of listeners.values()) {
-        cb("yt/functionState_01", oldVal, newVal, true);
+    emitRemoteChange(key: string, oldVal: unknown, newVal: unknown): void {
+      for (const listener of listeners.values()) {
+        if (listener.key === key) {
+          listener.callback(key, oldVal, newVal, true);
+        }
       }
     }
   };
@@ -112,6 +127,7 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
         }
       }
     });
+    const setValueSpy = vi.spyOn(mockStorage, "setValue");
     const registry = new FeatureRegistry(mockStorage as any);
     registry.register({
       id: "featA",
@@ -131,17 +147,80 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
     });
 
     await registry.initAll();
+    expect(setValueSpy).not.toHaveBeenCalled();
 
     // featA 的非法字符串应退回默认值 false
     expect(registry.isEnabled("featA")).toBe(false);
     // featB 的合法布尔值应保留 true
     expect(registry.isEnabled("featB")).toBe(true);
-    // 检查未知字段在本地写入时是否保留有效布尔值 unknownFeatureX 并清洗非法 unknownFeatureY
+    // 未知字段保留在内存兼容视图中，独立功能写入不修改旧整对象
     await registry.setEnabled("featA", true);
     const saved = mockStorage.state["yt/functionState_01"] as Record<string, unknown>;
     expect(saved.unknownFeatureX).toBe(true);
-    expect(saved.unknownFeatureY).toBeUndefined();
+    expect(saved.unknownFeatureY).toBe("invalid");
+    expect(mockStorage.state[StorageKeys.youtube.functionStateForFeature("featA")]).toBe(true);
+    expect(setValueSpy).toHaveBeenCalledWith(StorageKeys.youtube.functionStateForFeature("featA"), true);
     expect(registry.getAllStates().unknownFeatureX).toBe(true);
+  });
+
+  it("uses legacy values as fallback and gives per-feature values precedence", async () => {
+    const mockStorage = createMockStorage({
+      initialState: {
+        [StorageKeys.youtube.functionState]: { featA: true, featB: false },
+        [StorageKeys.youtube.functionStateForFeature("featA")]: false
+      }
+    });
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    registry.registerAll([
+      { id: "featA", i18nKey: "Feature A", defaultValue: false, setup: vi.fn().mockResolvedValue(undefined) },
+      { id: "featB", i18nKey: "Feature B", defaultValue: true, setup: vi.fn().mockResolvedValue(undefined) }
+    ]);
+
+    await registry.initAll();
+    expect(registry.isEnabled("featA")).toBe(false);
+    expect(registry.isEnabled("featB")).toBe(false);
+
+    mockStorage.state[StorageKeys.youtube.functionState] = { featA: true, featB: true };
+    mockStorage.emitRemoteChange(StorageKeys.youtube.functionState, { featA: true, featB: false }, { featA: true, featB: true });
+
+    await vi.waitFor(() => {
+      expect(registry.isEnabled("featA")).toBe(false);
+      expect(registry.isEnabled("featB")).toBe(true);
+    });
+  });
+
+  it("preserves interleaved changes to different features across registry instances", async () => {
+    const mockStorage = createMockStorage();
+    const registryA = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    const registryB = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    registryA.registerAll([
+      { id: "featA", i18nKey: "Feature A", defaultValue: false, setup: vi.fn().mockResolvedValue(undefined) },
+      { id: "featB", i18nKey: "Feature B", defaultValue: false, setup: vi.fn().mockResolvedValue(undefined) }
+    ]);
+    registryB.registerAll([
+      { id: "featA", i18nKey: "Feature A", defaultValue: false, setup: vi.fn().mockResolvedValue(undefined) },
+      { id: "featB", i18nKey: "Feature B", defaultValue: false, setup: vi.fn().mockResolvedValue(undefined) }
+    ]);
+    await Promise.all([registryA.initAll(), registryB.initAll()]);
+
+    let requestB: Promise<void> | null = null;
+    const featureAKey: string = StorageKeys.youtube.functionStateForFeature("featA");
+    const featureBKey: string = StorageKeys.youtube.functionStateForFeature("featB");
+    mockStorage.setBeforeNextWrite((key: string): void => {
+      expect(key).toBe(featureAKey);
+      requestB = registryB.setEnabled("featB", true);
+    });
+
+    const requestA: Promise<void> = registryA.setEnabled("featA", true);
+    expect(requestB).toBeInstanceOf(Promise);
+    if (requestB === null) {
+      throw new Error("The interleaved feature request was not submitted");
+    }
+    await Promise.all([requestA, requestB]);
+
+    expect(mockStorage.state[featureAKey]).toBe(true);
+    expect(mockStorage.state[featureBKey]).toBe(true);
+    expect(mockStorage.state[StorageKeys.youtube.functionState]).toBeUndefined();
   });
 
   it("does not treat inherited storage fields as saved feature choices", async () => {
@@ -210,9 +289,8 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
     // 尚未 initAll，直接 setEnabled 为 false
     await registry.setEnabled("featA", false);
 
-    expect(mockStorage.state["yt/functionState_01"]).toEqual(
-      expect.objectContaining({ featA: false })
-    );
+    expect(mockStorage.state[StorageKeys.youtube.functionState]).toEqual({ featA: true });
+    expect(mockStorage.state[StorageKeys.youtube.functionStateForFeature("featA")]).toBe(false);
     expect(setupSpy).not.toHaveBeenCalled();
     expect(teardownSpy).not.toHaveBeenCalled();
   });
@@ -457,6 +535,8 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
     const mockStorage = createMockStorage();
     mockStorage.readFail.value = true;
     const registry = new FeatureRegistry(mockStorage as any);
+    const visibilityAddSpy = vi.spyOn(document, "addEventListener");
+    const visibilityRemoveSpy = vi.spyOn(document, "removeEventListener");
 
     registry.register({
       id: "featA",
@@ -469,11 +549,23 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
 
     await expect(registry.initAll()).rejects.toThrow("Storage read error");
     expect(mockStorage.listeners.size).toBe(0);
+    const addedVisibilityHandlers = visibilityAddSpy.mock.calls.filter(
+      ([eventName]: [string | symbol, ...unknown[]]): boolean => eventName === "visibilitychange"
+    );
+    const removedVisibilityHandlers = visibilityRemoveSpy.mock.calls.filter(
+      ([eventName]: [string | symbol, ...unknown[]]): boolean => eventName === "visibilitychange"
+    );
+    expect(addedVisibilityHandlers).toHaveLength(1);
+    expect(removedVisibilityHandlers).toHaveLength(1);
+    expect(removedVisibilityHandlers[0][1]).toBe(addedVisibilityHandlers[0][1]);
 
     // 修复存储读取后重新 initAll 应成功
     mockStorage.readFail.value = false;
     await expect(registry.initAll()).resolves.toBeUndefined();
-    expect(mockStorage.listeners.size).toBe(1);
+    expect(mockStorage.listeners.size).toBe(2);
+    expect(visibilityAddSpy.mock.calls.filter(
+      ([eventName]: [string | symbol, ...unknown[]]): boolean => eventName === "visibilitychange"
+    )).toHaveLength(2);
   });
 
   it("should preserve Feature B state and lifecycle when Feature A setup fails", async () => {
@@ -529,10 +621,10 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
     await registry.initAll();
 
     // 远程存储被其他标签页修改为 false
-    mockStorage.state["yt/functionState_01"] = { featA: false };
+    mockStorage.state[StorageKeys.youtube.functionState] = { featA: false };
     const setValueSpy = vi.spyOn(mockStorage, "setValue");
 
-    mockStorage.emitRemoteChange({ featA: true }, { featA: false });
+    mockStorage.emitRemoteChange(StorageKeys.youtube.functionState, { featA: true }, { featA: false });
 
     await vi.waitFor(() => {
       expect(registry.isEnabled("featA")).toBe(false);
@@ -541,6 +633,31 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
 
     // 远程通知不应产生回声写回
     expect(setValueSpy).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed remote snapshot read when the page becomes visible", async () => {
+    const mockStorage = createMockStorage();
+    const registry = new FeatureRegistry(mockStorage as typeof import("../../core/storage").StorageUtil);
+    const setup = vi.fn().mockResolvedValue(undefined);
+    registry.register({ id: "featA", i18nKey: "Feature A", defaultValue: false, setup });
+    await registry.initAll();
+
+    vi.spyOn(console, "error").mockImplementation((): void => undefined);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const featureKey: string = StorageKeys.youtube.functionStateForFeature("featA");
+    mockStorage.state[featureKey] = true;
+    mockStorage.readFail.value = true;
+    mockStorage.emitRemoteChange(featureKey, false, true);
+    expect(registry.isEnabled("featA")).toBe(false);
+
+    mockStorage.readFail.value = false;
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await vi.waitFor(() => {
+      expect(registry.isEnabled("featA")).toBe(true);
+      expect(registry.getState("featA").applied).toBe(true);
+    });
+    expect(setup).toHaveBeenCalledTimes(1);
   });
 
   it("should enter session mode when persistence is not available", async () => {
@@ -694,7 +811,11 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
 
     await expect(registry.setEnabled("featA", true)).rejects.toThrow("Setup failed");
     expect(registry.getState("featA").runtime).toBe("error");
-    mockStorage.emitRemoteChange({}, mockStorage.state[mockStorage.keys.youtube.functionState]);
+    mockStorage.emitRemoteChange(
+      StorageKeys.youtube.functionStateForFeature("featA"),
+      false,
+      true
+    );
     await Promise.resolve();
 
     expect(setup).toHaveBeenCalledTimes(1);
@@ -747,7 +868,7 @@ describe("FeatureRegistry Kernel & State Transitions", () => {
     ]);
     await registry.initAll();
 
-    mockStorage.state[mockStorage.keys.youtube.functionState] = { featA: false, featB: true };
+    mockStorage.state[StorageKeys.youtube.functionStateForFeature("featB")] = true;
     await registry.setEnabled("featA", true);
     await Promise.resolve();
     await Promise.resolve();

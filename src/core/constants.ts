@@ -15,10 +15,13 @@ export const SHORTS_ROUTE_PREFIX = "/shorts";
 export const WATCH_ROUTE_PREFIX = "/watch";
 export const WATCH_PAGE_CONTAINER_SELECTOR = "ytd-watch-flexy";
 export const SHORTS_PAGE_CONTAINER_SELECTOR = "ytd-shorts";
+export const SHORTS_ACTIVE_REEL_ATTRIBUTE = "is-active";
+export const SHORTS_ACTIVE_REEL_SELECTOR = `ytd-reel-video-renderer[${SHORTS_ACTIVE_REEL_ATTRIBUTE}]`;
 export const MINIPLAYER_HOST_SELECTOR = "ytd-miniplayer";
 export const RETAINED_PAGE_EXCLUSION = ":not([hidden])";
 export const PAGE_MANAGER_ID = "page-manager";
 export const HIDDEN_ATTRIBUTE = "hidden";
+export const FEATURE_STATE_STORAGE_KEY = "yt/functionState_01";
 
 export const DEFAULT_VIDEO_WIDTH = 1920;
 export const DEFAULT_VIDEO_HEIGHT = 1080;
