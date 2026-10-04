@@ -2,11 +2,36 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { GridCoordinator } from "../coordinator";
 import { GRID_CONSTANTS } from "../constants";
 
+const GRID_TEST_MIDDLE_INSERTION_ITEM_COUNT: number = 6;
+
 describe("GridCoordinator", () => {
   let coordinator: GridCoordinator;
   let container: HTMLElement;
+  let matchMediaDescriptor: PropertyDescriptor | undefined;
+
+  const installMatchMediaStub = (): void => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: (media: string): MediaQueryList =>
+        ({
+          matches: false,
+          media,
+          onchange: null,
+          addEventListener: (): void => undefined,
+          removeEventListener: (): void => undefined,
+          addListener: (): void => undefined,
+          removeListener: (): void => undefined,
+          dispatchEvent: (): boolean => false
+        } as unknown as MediaQueryList)
+    });
+  };
+
+  const flushMicrotasks = async (): Promise<void> => {
+    await new Promise<void>((resolve: () => void) => queueMicrotask(resolve));
+  };
 
   beforeEach(() => {
+    matchMediaDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
     document.body.innerHTML = "";
     container = document.createElement("ytd-rich-grid-renderer");
     const contents = document.createElement("div");
@@ -28,17 +53,23 @@ describe("GridCoordinator", () => {
   afterEach(() => {
     coordinator.destroy();
     document.body.innerHTML = "";
+    if (matchMediaDescriptor) {
+      Object.defineProperty(window, "matchMedia", matchMediaDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "matchMedia");
+    }
+    matchMediaDescriptor = undefined;
     vi.restoreAllMocks();
   });
 
   const createItem = (id: string): HTMLElement => {
-    const el = document.createElement("ytd-rich-item-renderer");
+    const el: HTMLElement = document.createElement("ytd-rich-item-renderer");
     el.id = id;
     return el;
   };
 
   const createSection = (id: string): HTMLElement => {
-    const el = document.createElement("ytd-rich-section-renderer");
+    const el: HTMLElement = document.createElement("ytd-rich-section-renderer");
     el.id = id;
     return el;
   };
@@ -189,14 +220,19 @@ describe("GridCoordinator", () => {
     contents.appendChild(i4);
 
     // Trigger incremental rebalance with added nodes
+    const fullRebalanceSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(
+      coordinator as unknown as { rebalanceFull: () => void },
+      "rebalanceFull"
+    );
     coordinator.scheduleRebalance(false, [i3, i4]);
 
-    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+    await flushMicrotasks();
 
     // Tail remainder should be (2 + 2) % 4 = 0
     expect(coordinator.getTailState().tailRemainder).toBe(0);
     // Zero anchors created, no DOM relocation performed
     expect(coordinator.getAnchorCount()).toBe(0);
+    expect(fullRebalanceSpy).not.toHaveBeenCalled();
   });
 
   it("heals pending section alignment when subsequent items arrive", async () => {
@@ -222,7 +258,7 @@ describe("GridCoordinator", () => {
     contents.appendChild(i5);
 
     coordinator.scheduleRebalance(false, [i4, i5]);
-    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+    await flushMicrotasks();
 
     // Pending section should be healed and cleared
     expect(coordinator.getTailState().pendingSection).toBeNull();
@@ -261,7 +297,7 @@ describe("GridCoordinator", () => {
 
     // Schedule rebalance with forceFull = true
     coordinator.scheduleRebalance(true);
-    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+    await flushMicrotasks();
 
     // Now 3 items were left before s1 -> needs i5 to fill row
     expect(coordinator.getAnchorCount()).toBe(1);
@@ -351,10 +387,166 @@ describe("GridCoordinator", () => {
     contents.appendChild(i6);
 
     coordinator.scheduleRebalance(false, [i2, s2, i3, i4, i5, i6]);
-    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+    await flushMicrotasks();
 
     // Should have safely recovered and cleared s1 pending state via full rebalance fallback
     expect(coordinator.getTailState().pendingSection).toBeNull();
+  });
+
+  it("does not rebalance after destroy when work is already queued", async () => {
+    const contents: HTMLElement = getContents();
+    const i1: HTMLElement = createItem("i1");
+    const i2: HTMLElement = createItem("i2");
+    const i3: HTMLElement = createItem("i3");
+    const section: HTMLElement = createSection("s1");
+    const i4: HTMLElement = createItem("i4");
+    contents.append(i1, i2, i3, section, i4);
+    installMatchMediaStub();
+
+    coordinator.init();
+    await flushMicrotasks();
+    expect(coordinator.getAnchorCount()).toBe(1);
+
+    coordinator.scheduleRebalance();
+    coordinator.destroy();
+    expect(coordinator.getAnchorCount()).toBe(0);
+    expect(section.nextElementSibling).toBe(i4);
+
+    await flushMicrotasks();
+    expect(coordinator.getAnchorCount()).toBe(0);
+    expect(section.nextElementSibling).toBe(i4);
+  });
+
+  it("keeps a queued callback from consuming state after destroy and re-init", async () => {
+    installMatchMediaStub();
+    coordinator.init();
+    await flushMicrotasks();
+
+    const fullRebalanceSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(
+      coordinator as unknown as { rebalanceFull: () => void },
+      "rebalanceFull"
+    );
+    coordinator.scheduleRebalance(true);
+    coordinator.destroy();
+    container.remove();
+
+    const nextContainer: HTMLElement = document.createElement("ytd-rich-grid-renderer");
+    const nextContents: HTMLElement = document.createElement("div");
+    nextContents.id = "contents";
+    nextContents.className = "ytd-rich-grid-renderer";
+    const nextItems: HTMLElement[] = [
+      createItem("next-1"),
+      createItem("next-2"),
+      createItem("next-3"),
+      createItem("next-4")
+    ];
+    const nextSection: HTMLElement = createSection("next-section");
+    nextContents.append(nextItems[0], nextItems[1], nextItems[2], nextSection, nextItems[3]);
+    nextContainer.appendChild(nextContents);
+    document.body.appendChild(nextContainer);
+    container = nextContainer;
+
+    let fullCallsBeforeNewLifecycleTask: number = -1;
+    queueMicrotask((): void => {
+      fullCallsBeforeNewLifecycleTask = fullRebalanceSpy.mock.calls.length;
+    });
+    coordinator.init();
+    await flushMicrotasks();
+
+    expect(fullCallsBeforeNewLifecycleTask).toBe(0);
+    expect(fullRebalanceSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a queued callback from consuming state after navigation", async () => {
+    installMatchMediaStub();
+    coordinator.init();
+    await flushMicrotasks();
+
+    const fullRebalanceSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(
+      coordinator as unknown as { rebalanceFull: () => void },
+      "rebalanceFull"
+    );
+    coordinator.scheduleRebalance(true);
+    let fullCallsBeforeNewRouteTask: number = -1;
+    queueMicrotask((): void => {
+      fullCallsBeforeNewRouteTask = fullRebalanceSpy.mock.calls.length;
+    });
+
+    container.remove();
+    const nextContainer: HTMLElement = document.createElement("ytd-rich-grid-renderer");
+    const nextContents: HTMLElement = document.createElement("div");
+    nextContents.id = "contents";
+    nextContents.className = "ytd-rich-grid-renderer";
+    const nextItems: HTMLElement[] = [
+      createItem("next-1"),
+      createItem("next-2"),
+      createItem("next-3"),
+      createItem("next-4")
+    ];
+    const nextSection: HTMLElement = createSection("next-section");
+    nextContents.append(nextItems[0], nextItems[1], nextItems[2], nextSection, nextItems[3]);
+    nextContainer.appendChild(nextContents);
+    document.body.appendChild(nextContainer);
+    container = nextContainer;
+    window.dispatchEvent(new Event("yt-navigate-finish"));
+    await flushMicrotasks();
+
+    expect(fullCallsBeforeNewRouteTask).toBe(0);
+    expect(fullRebalanceSpy).toHaveBeenCalledTimes(1);
+    expect(coordinator.getAnchorCount()).toBe(1);
+  });
+
+  it("fully rebalances a section inserted before the third of six items", async () => {
+    const contents: HTMLElement = getContents();
+    const items: HTMLElement[] = [];
+    for (let index: number = 0; index < GRID_TEST_MIDDLE_INSERTION_ITEM_COUNT; index++) {
+      const item: HTMLElement = createItem(`i${index}`);
+      items.push(item);
+      contents.appendChild(item);
+    }
+    coordinator.rebalance();
+
+    const fullRebalanceSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(
+      coordinator as unknown as { rebalanceFull: () => void },
+      "rebalanceFull"
+    );
+    const section: HTMLElement = createSection("middle-section");
+    contents.insertBefore(section, items[GRID_CONSTANTS.COLUMNS.TWO]);
+    coordinator.scheduleRebalance(false, [section]);
+    await flushMicrotasks();
+
+    const children: Element[] = Array.from(contents.children);
+    expect(children.indexOf(section)).toBe(GRID_CONSTANTS.COLUMNS.FOUR);
+    expect(children.slice(0, GRID_CONSTANTS.COLUMNS.FOUR)).toEqual(items.slice(0, GRID_CONSTANTS.COLUMNS.FOUR));
+    expect(fullRebalanceSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("fully rebalances an item inserted before an existing section", async () => {
+    const contents: HTMLElement = getContents();
+    const items: HTMLElement[] = [
+      createItem("i1"),
+      createItem("i2"),
+      createItem("i3"),
+      createItem("i4"),
+      createItem("i5"),
+      createItem("i6"),
+      createItem("i7")
+    ];
+    const section: HTMLElement = createSection("s1");
+    contents.append(...items.slice(0, 4), section, ...items.slice(4));
+    coordinator.rebalance();
+
+    const fullRebalanceSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(
+      coordinator as unknown as { rebalanceFull: () => void },
+      "rebalanceFull"
+    );
+    const insertedItem: HTMLElement = createItem("inserted-item");
+    contents.insertBefore(insertedItem, section);
+    coordinator.scheduleRebalance(false, [insertedItem]);
+    await flushMicrotasks();
+
+    expect(Array.from(contents.children).indexOf(section)).toBe(GRID_CONSTANTS.COLUMNS.FOUR * GRID_CONSTANTS.COLUMNS.TWO);
+    expect(fullRebalanceSpy).toHaveBeenCalledTimes(1);
   });
 });
 

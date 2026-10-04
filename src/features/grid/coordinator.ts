@@ -14,6 +14,7 @@ export class GridCoordinator {
   private navigateHandler: (() => void) | null = null;
   private targetContents: HTMLElement | null = null;
   private isInitialized: boolean = false;
+  private lifecycleGeneration: number = 0;
   private isRebalanceScheduled: boolean = false;
   private pendingForceFull: boolean = false;
   private pendingAddedNodes: Node[] = [];
@@ -102,6 +103,7 @@ export class GridCoordinator {
     if (this.isInitialized) {
       return;
     }
+    this.invalidateScheduledRebalance();
     this.isInitialized = true;
 
     StyleEngine.inject(GridCoordinator.STYLE_ID, GridCoordinator.GRID_CSS);
@@ -153,8 +155,12 @@ export class GridCoordinator {
       return;
     }
     this.isRebalanceScheduled = true;
+    const generation: number = this.lifecycleGeneration;
 
     queueMicrotask(() => {
+      if (generation !== this.lifecycleGeneration) {
+        return;
+      }
       this.isRebalanceScheduled = false;
       const full = this.pendingForceFull;
       const added = [...this.pendingAddedNodes];
@@ -281,6 +287,11 @@ export class GridCoordinator {
       return;
     }
 
+    if (!this.isTailAppend(contents, validNewElements)) {
+      this.rebalanceFull();
+      return;
+    }
+
     const hasNewSection = validNewTypes.includes("section");
     const hasPendingSection = Boolean(this.tailState.pendingSection && this.tailState.pendingSection.parentNode === contents);
 
@@ -375,6 +386,25 @@ export class GridCoordinator {
     }
   }
 
+  private isTailAppend(contents: HTMLElement, addedElements: HTMLElement[]): boolean {
+    if (addedElements.length === 0) {
+      return false;
+    }
+
+    let current: Element | null = contents.lastElementChild;
+    for (let index: number = addedElements.length - 1; index >= 0; index--) {
+      while (current && this.getNodeType(current) === "other") {
+        current = current.previousElementSibling;
+      }
+      if (current !== addedElements[index]) {
+        return false;
+      }
+      current = current.previousElementSibling;
+    }
+
+    return true;
+  }
+
   private setupBreakpointListeners(): void {
     this.clearBreakpointListeners();
 
@@ -454,6 +484,7 @@ export class GridCoordinator {
   }
 
   private resetState(): void {
+    this.invalidateScheduledRebalance();
     if (this.targetContents) {
       this.revertAllRelocations(this.targetContents);
     }
@@ -463,7 +494,15 @@ export class GridCoordinator {
     this.targetContents = null;
   }
 
+  private invalidateScheduledRebalance(): void {
+    this.lifecycleGeneration++;
+    this.isRebalanceScheduled = false;
+    this.pendingForceFull = false;
+    this.pendingAddedNodes = [];
+  }
+
   public destroy(): void {
+    this.resetState();
     this.clearBreakpointListeners();
     this.scopedObserver.disconnect();
     if (this.tempMountObserver) {
@@ -474,10 +513,6 @@ export class GridCoordinator {
       window.removeEventListener("yt-navigate-finish", this.navigateHandler);
       this.navigateHandler = null;
     }
-    this.resetState();
-    this.isRebalanceScheduled = false;
-    this.pendingForceFull = false;
-    this.pendingAddedNodes = [];
     StyleEngine.remove(GridCoordinator.STYLE_ID);
     this.isInitialized = false;
   }
