@@ -36,7 +36,7 @@ export const Locale = (() => {
   };
 
   const activeLocaleCode = resolveLocale(detectRawLocale());
-  const activeDict = DICTIONARIES[activeLocaleCode] || DICTIONARIES["en"] || { messages: {} };
+  let activeDict: LocaleDictionary = DICTIONARIES[activeLocaleCode] || DICTIONARIES["en"] || { messages: {} };
 
   return {
     getLocale(): string {
@@ -69,6 +69,9 @@ export const Locale = (() => {
           direction: dict.direction || DICTIONARIES[locale].direction,
           messages: { ...DICTIONARIES[locale].messages, ...dict.messages }
         };
+      }
+      if (locale === activeLocaleCode) {
+        activeDict = DICTIONARIES[activeLocaleCode];
       }
     },
     exportActiveSnapshot(): ActiveLocaleSnapshot {
