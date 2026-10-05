@@ -234,30 +234,28 @@ export class TimedTextInterceptor {
 
       let originalText: string;
       try {
-        originalText = await response.text();
+        originalText = await response.clone().text();
       } catch {
         self.settleTrackRequestFailure(lifecycleToken, identity, requestSequence);
         return response;
       }
       if (!self.isCurrentLifecycle(lifecycleToken)) {
-        return new Response(originalText, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers
-        });
+        return response;
       }
 
       try {
         const isLatestRequest: boolean = self.isLatestRequest(identity.videoId, requestSequence);
         self.onTrackIngested(identity.key, originalText, identity.videoId, isLatestRequest, requestSequence);
+        if (
+          response.status === SUBTITLE_CONSTANTS.HTTP_STATUS_NO_CONTENT ||
+          response.status === SUBTITLE_CONSTANTS.HTTP_STATUS_RESET_CONTENT
+        ) {
+          return response;
+        }
 
         const offsetMs = isLatestRequest ? self.offsetProvider() : 0;
         if (offsetMs === 0) {
-          return new Response(originalText, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers
-          });
+          return response;
         }
 
         const modifiedText = self.modifyPayload(originalText, offsetMs);

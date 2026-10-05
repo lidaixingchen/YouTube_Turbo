@@ -136,7 +136,9 @@ describe("TimedTextInterceptor failure settlement", (): void => {
             status: HTTP_FAILURE_STATUS
           });
       if (failureCase === "body read failure") {
-        vi.spyOn(failedResponse, "text").mockRejectedValue(bodyReadError);
+        const clonedResponse: Response = failedResponse.clone();
+        vi.spyOn(clonedResponse, "text").mockRejectedValue(bodyReadError);
+        vi.spyOn(failedResponse, "clone").mockReturnValue(clonedResponse);
       }
       let requestCount: number = 0;
       const originalFetch: typeof window.fetch = (): Promise<Response> => {

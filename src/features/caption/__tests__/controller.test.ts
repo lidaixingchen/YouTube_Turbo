@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { StorageUtil } from "../../../core/storage";
 import { CaptionController } from "../controller";
+import { SUBTITLE_CONSTANTS } from "../constants";
 import { SubtitleTimeline } from "../timeline";
 import { resolveCaptionVideoId } from "../video-identity";
 
@@ -11,16 +13,18 @@ const callbacks = vi.hoisted((): {
   track: TrackCallback | null;
   requestStarted: TrackRequestCallback | null;
   requestFailed: TrackRequestFailureCallback | null;
-} => ({ track: null, requestStarted: null, requestFailed: null }));
+  offsetProvider: (() => number) | null;
+} => ({ track: null, requestStarted: null, requestFailed: null, offsetProvider: null }));
 
 vi.mock("../interceptor", (): { TimedTextInterceptor: unknown } => ({
   TimedTextInterceptor: class {
     public constructor(
-      _provider: () => number,
+      provider: () => number,
       callback: TrackCallback,
       requestStarted: TrackRequestCallback,
       requestFailed: TrackRequestFailureCallback
     ) {
+      callbacks.offsetProvider = provider;
       callbacks.track = callback;
       callbacks.requestStarted = requestStarted;
       callbacks.requestFailed = requestFailed;
@@ -70,10 +74,39 @@ function ingest(
 }
 
 afterEach((): void => {
+  vi.restoreAllMocks();
   CaptionController.getInstance().destroy();
 });
 
 describe("CaptionController video ownership", (): void => {
+  it("keeps the active offset unchanged when storage rejects an update and retries cleanly", (): void => {
+    const controller: CaptionController = CaptionController.getInstance();
+    const offsetProvider: (() => number) | null = callbacks.offsetProvider;
+    if (!offsetProvider) throw new Error("Caption offset provider is unavailable");
+
+    const originalOffset: number = controller.getGlobalDefaultOffsetMs();
+    const nextOffset: number = SUBTITLE_CONSTANTS.STEP_OFFSET_MS;
+    const storageWrite: MockInstance<typeof StorageUtil.setValue> = vi
+      .spyOn(StorageUtil, "setValue")
+      .mockImplementationOnce((): void => {
+        throw new Error("Storage unavailable");
+      });
+
+    expect((): void => controller.setGlobalDefaultOffset(nextOffset)).toThrow("Storage unavailable");
+    expect(controller.getGlobalDefaultOffsetMs()).toBe(originalOffset);
+    expect(controller.getState()).toEqual({
+      globalDefaultOffsetMs: originalOffset,
+      sessionOffsetMs: 0,
+      effectiveOffsetMs: originalOffset
+    });
+    expect(offsetProvider()).toBe(originalOffset);
+
+    controller.setGlobalDefaultOffset(nextOffset);
+    expect(controller.getGlobalDefaultOffsetMs()).toBe(nextOffset);
+    expect(offsetProvider()).toBe(nextOffset);
+    storageWrite.mockRestore();
+  });
+
   it.each(["/watch?v=current-video", "/shorts/current-video"])(
     "keeps the current track when an old response arrives on %s",
     (path: string): void => {

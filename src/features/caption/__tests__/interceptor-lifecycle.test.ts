@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { TimedTextInterceptor } from "../interceptor";
+import { SUBTITLE_CONSTANTS } from "../constants";
 
 type TrackCallback = (key: string, text: string, videoId: string, isLatestRequest: boolean, requestSequence: number) => void;
 
@@ -19,6 +20,10 @@ const TRACKED_XHR_EVENT_TYPES: readonly string[] = ["readystatechange", "abort",
 const REQUEST_LISTENER_COUNT: number = TRACKED_XHR_EVENT_TYPES.length;
 type XhrFailureEvent = "abort" | "error" | "timeout";
 const XHR_FAILURE_EVENTS: readonly XhrFailureEvent[] = ["abort", "error", "timeout"];
+const EMPTY_RESPONSE_STATUSES: readonly number[] = [
+  SUBTITLE_CONSTANTS.HTTP_STATUS_NO_CONTENT,
+  SUBTITLE_CONSTANTS.HTTP_STATUS_RESET_CONTENT
+];
 
 interface CapturedFailure {
   readonly key: string;
@@ -158,7 +163,9 @@ describe("TimedTextInterceptor lifecycle ownership", (): void => {
       resolveText = resolve;
     });
     const sourceResponse: Response = new Response(makePayload());
-    const readBody: Mock<() => Promise<string>> = vi.spyOn(sourceResponse, "text").mockReturnValue(pendingText);
+    const clonedResponse: Response = sourceResponse.clone();
+    const readBody: Mock<() => Promise<string>> = vi.spyOn(clonedResponse, "text").mockReturnValue(pendingText);
+    vi.spyOn(sourceResponse, "clone").mockReturnValue(clonedResponse);
     window.fetch = (): Promise<Response> => Promise.resolve(sourceResponse);
     const onTrack: Mock<TrackCallback> = vi.fn<TrackCallback>();
     interceptor = new TimedTextInterceptor((): number => OFFSET_MS, onTrack);
@@ -170,8 +177,79 @@ describe("TimedTextInterceptor lifecycle ownership", (): void => {
     const payload: string = makePayload();
     resolveText(payload);
     const response: Response = await pendingFetch;
+    expect(response).toBe(sourceResponse);
     expect(await response.text()).toBe(payload);
     expect(onTrack).not.toHaveBeenCalled();
+  });
+
+  it.each(EMPTY_RESPONSE_STATUSES)("preserves native no-body response semantics for status %s", async (status: number): Promise<void> => {
+    const sourceResponse: Response = new Response(null, { status });
+    window.fetch = (): Promise<Response> => Promise.resolve(sourceResponse);
+    const onTrack: Mock<TrackCallback> = vi.fn<TrackCallback>();
+    interceptor = new TimedTextInterceptor((): number => OFFSET_MS, onTrack);
+    interceptor.install();
+
+    const response: Response = await window.fetch(TIMEDTEXT_URL);
+
+    expect(response).toBe(sourceResponse);
+    expect(response.status).toBe(status);
+    expect(response.body).toBeNull();
+    expect(await response.text()).toBe("");
+    expect(onTrack).toHaveBeenCalledOnce();
+    expect(onTrack.mock.calls[0]).toEqual(["current-video_en_", "", "current-video", true, FIRST_REQUEST_SEQUENCE]);
+  });
+
+  it.each(EMPTY_RESPONSE_STATUSES)("keeps a no-body response successful when destroyed during body read for status %s", async (status: number): Promise<void> => {
+    let resolveText: (text: string) => void = (): void => {};
+    const pendingText: Promise<string> = new Promise<string>((resolve: (text: string) => void): void => {
+      resolveText = resolve;
+    });
+    const sourceResponse: Response = new Response(null, { status });
+    const clonedResponse: Response = sourceResponse.clone();
+    const readBody: Mock<() => Promise<string>> = vi.spyOn(clonedResponse, "text").mockReturnValue(pendingText);
+    vi.spyOn(sourceResponse, "clone").mockReturnValue(clonedResponse);
+    window.fetch = (): Promise<Response> => Promise.resolve(sourceResponse);
+    const onTrack: Mock<TrackCallback> = vi.fn<TrackCallback>();
+    interceptor = new TimedTextInterceptor((): number => OFFSET_MS, onTrack);
+    interceptor.install();
+
+    const pendingFetch: Promise<Response> = window.fetch(TIMEDTEXT_URL);
+    await Promise.resolve();
+    expect(readBody).toHaveBeenCalledOnce();
+    interceptor.destroy();
+    resolveText("");
+
+    const response: Response = await pendingFetch;
+    expect(response).toBe(sourceResponse);
+    expect(response.status).toBe(status);
+    expect(response.body).toBeNull();
+    expect(await response.text()).toBe("");
+    expect(onTrack).not.toHaveBeenCalled();
+  });
+
+  it("keeps the original response readable when interception fails after reading its clone", async (): Promise<void> => {
+    const sourceResponse: Response = new Response(makePayload());
+    const interceptionError: Error = new Error("track callback failed");
+    const onTrack: Mock<TrackCallback> = vi.fn<TrackCallback>(
+      (_key: string, _text: string, _videoId: string, _isLatestRequest: boolean, _requestSequence: number): void => {
+        throw interceptionError;
+      }
+    );
+    window.fetch = (): Promise<Response> => Promise.resolve(sourceResponse);
+    interceptor = new TimedTextInterceptor((): number => OFFSET_MS, onTrack);
+    interceptor.install();
+    const originalConsoleError: typeof console.error = console.error;
+    console.error = (): void => {};
+
+    try {
+      const response: Response = await window.fetch(TIMEDTEXT_URL);
+
+      expect(response).toBe(sourceResponse);
+      expect(await response.text()).toBe(makePayload());
+      expect(onTrack).toHaveBeenCalledOnce();
+    } finally {
+      console.error = originalConsoleError;
+    }
   });
 
   it.each([false, true])("ignores an old XHR response after destroy, reinstall=%s", (reinstall: boolean): void => {

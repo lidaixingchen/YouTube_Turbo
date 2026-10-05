@@ -141,8 +141,8 @@ export class CaptionController {
       SUBTITLE_CONSTANTS.MIN_OFFSET_MS,
       Math.min(SUBTITLE_CONSTANTS.MAX_OFFSET_MS, offsetMs)
     );
-    this.globalDefaultOffsetMs = clamped;
     StorageUtil.setValue(SUBTITLE_CONSTANTS.STORAGE_KEY_OFFSET, clamped);
+    this.globalDefaultOffsetMs = clamped;
     this.applyChange();
   }
 

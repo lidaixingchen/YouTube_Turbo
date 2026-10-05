@@ -9,6 +9,7 @@ interface SubtitleIntervalSnapshot {
 }
 
 interface CachedSubtitleTrack {
+  readonly videoId: string;
   readonly cues: SubtitleCue[];
   readonly requestSequence?: number;
 }
@@ -35,11 +36,11 @@ export class SubtitleTimeline {
 
   public constructor() {}
 
-  public parseJson3(text: string): SubtitleCue[] {
+  private parseJson3Result(text: string): SubtitleCue[] | null {
     try {
       const data = JSON.parse(text) as YouTubeTimedTextJson3;
       if (!data || !Array.isArray(data.events)) {
-        return [];
+        return null;
       }
       const cues: SubtitleCue[] = [];
       for (const ev of data.events) {
@@ -60,19 +61,27 @@ export class SubtitleTimeline {
       }
       return cues.sort((a, b) => a.startMs - b.startMs);
     } catch {
-      return [];
+      return null;
     }
   }
 
-  public parseXml(text: string): SubtitleCue[] {
+  public parseJson3(text: string): SubtitleCue[] {
+    return this.parseJson3Result(text) ?? [];
+  }
+
+  private parseXmlResult(text: string): SubtitleCue[] | null {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(text, "text/xml");
       if (doc.querySelector("parsererror")) {
-        return [];
+        return null;
       }
       const cues: SubtitleCue[] = [];
       const isSrv1 = doc.querySelector("transcript") !== null;
+      const pNodes: NodeListOf<HTMLParagraphElement> = doc.querySelectorAll("p");
+      if (!isSrv1 && doc.documentElement?.localName !== "timedtext" && pNodes.length === 0) {
+        return null;
+      }
 
       if (isSrv1) {
         const textNodes = doc.querySelectorAll("text");
@@ -91,7 +100,6 @@ export class SubtitleTimeline {
           }
         });
       } else {
-        const pNodes = doc.querySelectorAll("p");
         pNodes.forEach((p) => {
           const startMs = parseInt(p.getAttribute("t") || "0", 10);
           const durMs = parseInt(p.getAttribute("d") || String(SUBTITLE_CONSTANTS.FALLBACK_CUE_DURATION_MS), 10);
@@ -107,20 +115,28 @@ export class SubtitleTimeline {
       }
       return cues.sort((a, b) => a.startMs - b.startMs);
     } catch {
-      return [];
+      return null;
     }
   }
 
-  public parsePayload(rawText: string): SubtitleCue[] {
-    if (!rawText) return [];
+  public parseXml(text: string): SubtitleCue[] {
+    return this.parseXmlResult(text) ?? [];
+  }
+
+  private parsePayloadResult(rawText: string): SubtitleCue[] | null {
+    if (rawText.length === 0) return [];
     const trimmed = rawText.trimStart();
-    if (trimmed.startsWith("{") && trimmed.includes("events")) {
-      return this.parseJson3(rawText);
+    if (trimmed.startsWith("{")) {
+      return this.parseJson3Result(rawText);
     }
     if (trimmed.startsWith("<")) {
-      return this.parseXml(rawText);
+      return this.parseXmlResult(rawText);
     }
-    return [];
+    return null;
+  }
+
+  public parsePayload(rawText: string): SubtitleCue[] {
+    return this.parsePayloadResult(rawText) ?? [];
   }
 
   public ingest(
@@ -131,41 +147,46 @@ export class SubtitleTimeline {
     videoId?: string
   ): SubtitleCue[] {
     if (!key) return [];
-    const requestVideoId: string = videoId ?? this.extractVideoIdFromTrackKey(key);
+    const requestVideoId: string = videoId ?? this.resolveTrackVideoId(key);
     const requestOwner: SubtitleTrackRequestOwner | undefined = this.requestOwnerByVideo.get(requestVideoId);
     const ownsRequest: boolean =
       requestSequence !== undefined &&
       requestOwner?.key === key &&
       requestOwner.requestSequence === requestSequence;
+    const parsedCues: SubtitleCue[] | null = this.parsePayloadResult(rawText);
+    if (parsedCues === null) {
+      if (ownsRequest && requestSequence !== undefined) {
+        this.settleTrackRequestFailure(key, requestVideoId, requestSequence);
+      }
+      return [];
+    }
+
+    const cues: SubtitleCue[] = parsedCues;
+    const cachedTrack: CachedSubtitleTrack | undefined = this.cuesCache.get(key);
+    const isOlderThanCachedTrack: boolean =
+      requestSequence !== undefined &&
+      cachedTrack?.requestSequence !== undefined &&
+      requestSequence < cachedTrack.requestSequence;
+    if (!isOlderThanCachedTrack && this.cuesCache.size >= SUBTITLE_CONSTANTS.MAX_CACHE_TRACKS && !this.cuesCache.has(key)) {
+      const oldestKey: string | undefined = this.cuesCache.keys().next().value;
+      if (oldestKey) {
+        this.cuesCache.delete(oldestKey);
+      }
+    }
+    if (!isOlderThanCachedTrack) {
+      this.cuesCache.set(key, { videoId: requestVideoId, cues, requestSequence });
+    }
     if (ownsRequest && requestOwner?.status === "pending") {
       this.requestOwnerByVideo.set(requestVideoId, { ...requestOwner, status: "succeeded" });
     }
-    if (!rawText) return [];
-    const cues = this.parsePayload(rawText);
-    if (cues.length > 0) {
-      const cachedTrack: CachedSubtitleTrack | undefined = this.cuesCache.get(key);
-      const isOlderThanCachedTrack: boolean =
-        requestSequence !== undefined &&
-        cachedTrack?.requestSequence !== undefined &&
-        requestSequence < cachedTrack.requestSequence;
-      if (!isOlderThanCachedTrack && this.cuesCache.size >= SUBTITLE_CONSTANTS.MAX_CACHE_TRACKS && !this.cuesCache.has(key)) {
-        const oldestKey: string | undefined = this.cuesCache.keys().next().value;
-        if (oldestKey) {
-          this.cuesCache.delete(oldestKey);
-        }
-      }
-      if (!isOlderThanCachedTrack) {
-        this.cuesCache.set(key, { cues, requestSequence });
-      }
-      const latestOwnerAllowsActivation: boolean =
-        requestSequence === undefined ||
-        requestOwner === undefined ||
-        (ownsRequest && requestOwner?.status !== "failed");
-      if (activate && latestOwnerAllowsActivation && !isOlderThanCachedTrack) {
-        this.currentCues = cues;
-        this.currentPrefixMaxEndMs = this.buildPrefixMaxEndIndex(cues);
-        this.resetPointer();
-      }
+    const latestOwnerAllowsActivation: boolean =
+      requestSequence === undefined ||
+      requestOwner === undefined ||
+      (ownsRequest && requestOwner?.status !== "failed");
+    if (activate && latestOwnerAllowsActivation && !isOlderThanCachedTrack) {
+      this.currentCues = cues;
+      this.currentPrefixMaxEndMs = this.buildPrefixMaxEndIndex(cues);
+      this.resetPointer();
     }
     return cues;
   }
@@ -185,10 +206,8 @@ export class SubtitleTimeline {
       const oldestVideoId: string | undefined = this.requestOwnerByVideo.keys().next().value;
       if (oldestVideoId) {
         this.requestOwnerByVideo.delete(oldestVideoId);
-        const oldestVideoPrefix: string = `${oldestVideoId}${SUBTITLE_CONSTANTS.TRACK_KEY_SEPARATOR}`;
-        const cachedKeys: IterableIterator<string> = this.cuesCache.keys();
-        for (const cachedKey of cachedKeys) {
-          if (cachedKey.startsWith(oldestVideoPrefix)) {
+        for (const [cachedKey, cachedTrack] of this.cuesCache) {
+          if (cachedTrack.videoId === oldestVideoId) {
             this.cuesCache.delete(cachedKey);
           }
         }
@@ -211,16 +230,32 @@ export class SubtitleTimeline {
     return true;
   }
 
-  private extractVideoIdFromTrackKey(key: string): string {
-    const separatorIndex: number = key.indexOf(SUBTITLE_CONSTANTS.TRACK_KEY_SEPARATOR);
-    return separatorIndex < 0 ? "" : key.slice(0, separatorIndex);
+  private resolveTrackVideoId(key: string): string {
+    for (const [videoId, owner] of this.requestOwnerByVideo) {
+      if (owner.key === key) {
+        return videoId;
+      }
+    }
+    const cachedTrack: CachedSubtitleTrack | undefined = this.cuesCache.get(key);
+    if (cachedTrack?.videoId) {
+      return cachedTrack.videoId;
+    }
+    const currentVideoId: string | null = resolveCaptionVideoId(window.location.href);
+    if (currentVideoId && key.startsWith(`${currentVideoId}${SUBTITLE_CONSTANTS.TRACK_KEY_SEPARATOR}`)) {
+      return currentVideoId;
+    }
+    for (const videoId of this.requestOwnerByVideo.keys()) {
+      if (key.startsWith(`${videoId}${SUBTITLE_CONSTANTS.TRACK_KEY_SEPARATOR}`)) {
+        return videoId;
+      }
+    }
+    return "";
   }
 
   private findMostRecentCachedTrack(videoId: string, beforeSequence?: number): CachedSubtitleTrack | null {
-    const trackPrefix: string = `${videoId}${SUBTITLE_CONSTANTS.TRACK_KEY_SEPARATOR}`;
     let mostRecentTrack: CachedSubtitleTrack | null = null;
-    for (const [key, cachedTrack] of this.cuesCache) {
-      if (!key.startsWith(trackPrefix)) {
+    for (const cachedTrack of this.cuesCache.values()) {
+      if (cachedTrack.videoId !== videoId) {
         continue;
       }
       if (
