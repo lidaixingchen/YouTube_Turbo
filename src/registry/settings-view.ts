@@ -11,6 +11,12 @@ interface FeatureControls {
   input: HTMLInputElement;
   statusEl: HTMLElement;
   extraContainer: HTMLElement | null;
+  stepperControls: StepperFieldControl[];
+}
+
+interface StepperFieldControl {
+  element: HTMLElement;
+  syncValue: () => void;
 }
 
 export class SettingsModalView {
@@ -104,13 +110,16 @@ export class SettingsModalView {
       row.appendChild(header);
 
       let extraContainer: HTMLElement | null = null;
+      const stepperControls: StepperFieldControl[] = [];
       if (feature.extraFields && feature.extraFields.length > 0) {
         extraContainer = document.createElement("div");
         extraContainer.className = "setting-extra-config";
 
         feature.extraFields.forEach((field: StepperConfigField): void => {
           if (field.type === "stepper") {
-            extraContainer?.appendChild(SettingsModalView.renderStepperField(field, language));
+            const stepperControl: StepperFieldControl = SettingsModalView.renderStepperField(field, language);
+            extraContainer?.appendChild(stepperControl.element);
+            stepperControls.push(stepperControl);
           }
         });
         SettingsModalView.updateFieldAvailability(extraContainer, false);
@@ -120,7 +129,8 @@ export class SettingsModalView {
       featureControlsMap.set(feature.id, {
         input,
         statusEl,
-        extraContainer
+        extraContainer,
+        stepperControls
       });
 
       input.addEventListener("change", async (e: Event): Promise<void> => {
@@ -227,10 +237,16 @@ export class SettingsModalView {
       }
 
       if (extraContainer) {
+        const isAvailable: boolean = snapshot.enabled && snapshot.runtime === "enabled";
         SettingsModalView.updateFieldAvailability(
           extraContainer,
-          snapshot.enabled && snapshot.runtime === "enabled"
+          isAvailable
         );
+        if (isAvailable) {
+          controls.stepperControls.forEach((stepperControl: StepperFieldControl): void => {
+            stepperControl.syncValue();
+          });
+        }
       }
     };
 
@@ -341,7 +357,7 @@ export class SettingsModalView {
   private static renderStepperField(
     field: StepperConfigField,
     language: ReturnType<typeof LangueUtil.getLanguage>
-  ): HTMLElement {
+  ): StepperFieldControl {
     const wrapper = document.createElement("div");
     wrapper.className = "yt-subtitle-offset-config yt-stepper-config";
 
@@ -412,35 +428,87 @@ export class SettingsModalView {
       numberInput.value = (value / scale).toFixed(precision);
     };
 
+    let pendingValue: number | null = null;
+    const statusEl: HTMLDivElement = document.createElement("div");
+    statusEl.className = "setting-status setting-status-error";
+    statusEl.setAttribute("role", "status");
+    statusEl.setAttribute("aria-live", "polite");
+
+    const statusText: HTMLSpanElement = document.createElement("span");
+    const retryButton: HTMLButtonElement = document.createElement("button");
+    retryButton.type = "button";
+    retryButton.className = "yt-settings-btn-action";
+    retryButton.textContent = language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.ACTION_RETRY] || "";
+
+    const clearFailure: () => void = (): void => {
+      pendingValue = null;
+      statusEl.remove();
+    };
+
+    const showFailure: () => void = (): void => {
+      const errorLabel: string =
+        language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.STATUS_ERROR] || "";
+      const storageLabel: string =
+        language.content[FEATURE_REGISTRY_CONSTANTS.I18N_KEYS.ERROR_STAGE_STORAGE] || "";
+      statusText.textContent = storageLabel ? `${errorLabel} (${storageLabel})` : errorLabel;
+      statusEl.replaceChildren(statusText, retryButton);
+      if (statusEl.parentElement !== wrapper) {
+        wrapper.appendChild(statusEl);
+      }
+    };
+
+    const commitValue: (value: number) => boolean = (value: number): boolean => {
+      pendingValue = value;
+      try {
+        field.setValue(value);
+        clearFailure();
+        return true;
+      } catch {
+        showFailure();
+        return false;
+      }
+    };
+
+    retryButton.addEventListener("click", (): void => {
+      if (pendingValue !== null && commitValue(pendingValue)) {
+        syncInput(field.getValue());
+      }
+    });
+
     numberInput.addEventListener("input", (): void => {
       const parsed = parseFloat(numberInput.value);
       if (Number.isFinite(parsed)) {
         const raw = Math.round(parsed * scale);
         const clamped = clamp(raw);
-        field.setValue(clamped);
+        commitValue(clamped);
       }
     });
 
     numberInput.addEventListener("blur", (): void => {
-      syncInput(field.getValue());
+      if (pendingValue === null) {
+        syncInput(field.getValue());
+      }
     });
 
     btnAdvance.addEventListener("click", (): void => {
       const next = clamp(field.getValue() - field.step);
-      field.setValue(next);
-      syncInput(next);
+      if (commitValue(next)) {
+        syncInput(field.getValue());
+      }
     });
 
     btnDelay.addEventListener("click", (): void => {
       const next = clamp(field.getValue() + field.step);
-      field.setValue(next);
-      syncInput(next);
+      if (commitValue(next)) {
+        syncInput(field.getValue());
+      }
     });
 
     btnReset.addEventListener("click", (): void => {
       const defaultTarget = clamp(field.defaultValue ?? 0);
-      field.setValue(defaultTarget);
-      syncInput(defaultTarget);
+      if (commitValue(defaultTarget)) {
+        syncInput(field.getValue());
+      }
     });
 
     controlsRow.appendChild(btnAdvance);
@@ -456,6 +524,14 @@ export class SettingsModalView {
       wrapper.appendChild(descEl);
     }
 
-    return wrapper;
+    return {
+      element: wrapper,
+      syncValue: (): void => {
+        if (pendingValue !== null || document.activeElement === numberInput) {
+          return;
+        }
+        syncInput(field.getValue());
+      }
+    };
   }
 }

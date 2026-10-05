@@ -15,6 +15,13 @@ interface MockFeatureRegistry {
   subscribe: ReturnType<typeof vi.fn>;
 }
 
+const DEFAULT_STEPPER_VALUE: number = 0;
+const SAVED_STEPPER_VALUE: number = 600;
+const EDITED_STEPPER_VALUE: number = 400;
+const STEPPER_MIN_VALUE: number = -1000;
+const STEPPER_MAX_VALUE: number = 1000;
+const STEPPER_STEP: number = 100;
+
 describe("SettingsModalView Component & Interactions", () => {
   let mockRegistry: MockFeatureRegistry;
   let subscribedListener: FeatureStateListener | null = null;
@@ -40,6 +47,26 @@ describe("SettingsModalView Component & Interactions", () => {
     error: null,
     persistence: "persistent"
   };
+
+  const createStepperDescriptor = (
+    getValue: () => number,
+    setValue: (value: number) => void
+  ): FeatureDescriptor => ({
+    ...sampleDescriptor,
+    extraFields: [
+      {
+        key: "testStep",
+        type: "stepper",
+        titleI18nKey: "step_title",
+        defaultValue: DEFAULT_STEPPER_VALUE,
+        min: STEPPER_MIN_VALUE,
+        max: STEPPER_MAX_VALUE,
+        step: STEPPER_STEP,
+        getValue,
+        setValue
+      }
+    ]
+  });
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -341,6 +368,119 @@ describe("SettingsModalView Component & Interactions", () => {
 
     expect(extraConfig.classList.contains("is-disabled")).toBe(false);
     expect(input.disabled).toBe(false);
+  });
+
+  it("syncs the saved stepper value after the feature finishes enabling", () => {
+    let offsetValue: number = DEFAULT_STEPPER_VALUE;
+    mockRegistry.getAllDescriptors.mockReturnValue([
+      createStepperDescriptor(
+        (): number => offsetValue,
+        (value: number): void => {
+          offsetValue = value;
+        }
+      )
+    ]);
+
+    SettingsModalView.show();
+
+    const input: HTMLInputElement = document.querySelector(".setting-extra-config input") as HTMLInputElement;
+    expect(input.value).toBe(String(DEFAULT_STEPPER_VALUE));
+
+    offsetValue = SAVED_STEPPER_VALUE;
+    subscribedListener!({
+      ...sampleSnapshot,
+      enabled: true,
+      applied: false,
+      runtime: "starting"
+    });
+    expect(input.value).toBe(String(DEFAULT_STEPPER_VALUE));
+
+    subscribedListener!({
+      ...sampleSnapshot,
+      enabled: true,
+      applied: true,
+      runtime: "enabled"
+    });
+    expect(input.value).toBe(String(SAVED_STEPPER_VALUE));
+  });
+
+  it("shows a storage failure and retries the pending stepper value", () => {
+    let offsetValue: number = DEFAULT_STEPPER_VALUE;
+    let storageFails: boolean = true;
+    const setOffset = vi.fn((value: number): void => {
+      if (storageFails) {
+        throw new Error("Storage unavailable");
+      }
+      offsetValue = value;
+    });
+    mockRegistry.getAllDescriptors.mockReturnValue([
+      createStepperDescriptor((): number => offsetValue, setOffset)
+    ]);
+
+    SettingsModalView.show();
+    subscribedListener!({
+      ...sampleSnapshot,
+      enabled: true,
+      applied: true,
+      runtime: "enabled"
+    });
+
+    const input: HTMLInputElement = document.querySelector(".setting-extra-config input") as HTMLInputElement;
+    input.focus();
+    input.value = String(SAVED_STEPPER_VALUE);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const statusEl: HTMLElement = document.querySelector(".setting-extra-config .setting-status-error") as HTMLElement;
+    const retryButton: HTMLButtonElement = statusEl.querySelector(".yt-settings-btn-action") as HTMLButtonElement;
+    expect(statusEl.getAttribute("role")).toBe("status");
+    expect(retryButton).not.toBeNull();
+    expect(offsetValue).toBe(DEFAULT_STEPPER_VALUE);
+
+    storageFails = false;
+    retryButton.click();
+
+    expect(setOffset).toHaveBeenCalledTimes(2);
+    expect(setOffset).toHaveBeenNthCalledWith(2, SAVED_STEPPER_VALUE);
+    expect(offsetValue).toBe(SAVED_STEPPER_VALUE);
+    expect(statusEl.isConnected).toBe(false);
+    expect(input.value).toBe(String(SAVED_STEPPER_VALUE));
+  });
+
+  it("preserves the focused stepper value while a feature snapshot refreshes", () => {
+    let offsetValue: number = DEFAULT_STEPPER_VALUE;
+    mockRegistry.getAllDescriptors.mockReturnValue([
+      createStepperDescriptor(
+        (): number => offsetValue,
+        (value: number): void => {
+          offsetValue = value;
+        }
+      )
+    ]);
+
+    SettingsModalView.show();
+    subscribedListener!({
+      ...sampleSnapshot,
+      enabled: true,
+      applied: true,
+      runtime: "enabled"
+    });
+
+    const input: HTMLInputElement = document.querySelector(".setting-extra-config input") as HTMLInputElement;
+    input.focus();
+    input.value = String(EDITED_STEPPER_VALUE);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    offsetValue = SAVED_STEPPER_VALUE;
+    subscribedListener!({
+      ...sampleSnapshot,
+      enabled: true,
+      applied: true,
+      runtime: "enabled"
+    });
+    expect(input.value).toBe(String(EDITED_STEPPER_VALUE));
+
+    input.blur();
+    expect(input.value).toBe(String(SAVED_STEPPER_VALUE));
   });
 
   it("should unsubscribe on modal close and trigger reload if requiresReload feature changed", () => {
