@@ -29,6 +29,7 @@ export const GridCalculator = {
         instructions: [],
         finalRemainder: initialRemainder % validItemsPerRow,
         hasPendingSection: false,
+        hasMultiplePendingSections: false,
         neededForPending: 0,
         pendingSectionIndex: null
       };
@@ -37,6 +38,8 @@ export const GridCalculator = {
     const instructions: RebalanceInstruction[] = [];
     let videoCount = initialRemainder;
     let hasPendingSection = false;
+    let hasMultiplePendingSections: boolean = false;
+    let pendingSectionCount: number = 0;
     let neededForPending = 0;
     let pendingSectionIndex: number | null = null;
     const claimedIndices = new Set<number>();
@@ -68,6 +71,8 @@ export const GridCalculator = {
             videoCount += needed;
           } else {
             hasPendingSection = true;
+            pendingSectionCount++;
+            hasMultiplePendingSections = pendingSectionCount > 1;
             neededForPending = needed;
             pendingSectionIndex = i;
           }
@@ -80,6 +85,7 @@ export const GridCalculator = {
       instructions,
       finalRemainder: videoCount % validItemsPerRow,
       hasPendingSection,
+      hasMultiplePendingSections,
       neededForPending,
       pendingSectionIndex
     };

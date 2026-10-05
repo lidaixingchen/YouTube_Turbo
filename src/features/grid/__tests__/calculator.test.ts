@@ -23,6 +23,7 @@ describe("GridCalculator", () => {
       const result = GridCalculator.planRebalance(types, 1);
       expect(result.instructions).toEqual([]);
       expect(result.hasPendingSection).toBe(false);
+      expect(result.hasMultiplePendingSections).toBe(false);
       expect(result.finalRemainder).toBe(0);
     });
 
@@ -31,6 +32,7 @@ describe("GridCalculator", () => {
       expect(result.instructions).toEqual([]);
       expect(result.finalRemainder).toBe(0);
       expect(result.hasPendingSection).toBe(false);
+      expect(result.hasMultiplePendingSections).toBe(false);
     });
 
     it("produces zero instructions when items perfectly align before section", () => {
@@ -88,7 +90,17 @@ describe("GridCalculator", () => {
 
       expect(result.instructions).toHaveLength(0);
       expect(result.hasPendingSection).toBe(true);
+      expect(result.hasMultiplePendingSections).toBe(false);
       expect(result.finalRemainder).toBe(1);
+    });
+
+    it("marks a plan with multiple unresolved sections for full recomputation", () => {
+      const types: GridNodeType[] = ["item", "item", "section", "item", "section"];
+      const result = GridCalculator.planRebalance(types, GRID_CONSTANTS.COLUMNS.FOUR);
+
+      expect(result.hasPendingSection).toBe(true);
+      expect(result.hasMultiplePendingSections).toBe(true);
+      expect(result.pendingSectionIndex).toBe(types.length - 1);
     });
 
     it("takes initialRemainder into account for incremental batches", () => {

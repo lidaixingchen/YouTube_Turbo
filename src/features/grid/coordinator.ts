@@ -18,6 +18,7 @@ export class GridCoordinator {
   private isRebalanceScheduled: boolean = false;
   private pendingForceFull: boolean = false;
   private pendingAddedNodes: Node[] = [];
+  private requiresFullRebalanceOnAppend: boolean = false;
 
   private tailState: TailBalanceState = {
     tailRemainder: 0,
@@ -215,6 +216,7 @@ export class GridCoordinator {
     if (itemsPerRow <= 1) {
       this.revertAllRelocations(contents);
       this.tailState = { tailRemainder: 0, pendingSection: null, neededForPending: 0 };
+      this.requiresFullRebalanceOnAppend = false;
       this.isBalanced = true;
       return;
     }
@@ -255,6 +257,7 @@ export class GridCoordinator {
       pendingSection: pendingSectionEl,
       neededForPending: plan.neededForPending
     };
+    this.requiresFullRebalanceOnAppend = plan.hasMultiplePendingSections;
     this.isBalanced = true;
   }
 
@@ -266,6 +269,11 @@ export class GridCoordinator {
 
     const itemsPerRow = this.getItemsPerRow();
     if (itemsPerRow <= 1) {
+      return;
+    }
+
+    if (this.requiresFullRebalanceOnAppend) {
+      this.rebalanceFull();
       return;
     }
 
@@ -355,6 +363,10 @@ export class GridCoordinator {
 
     if (hasNewSection) {
       const plan = GridCalculator.planRebalance(validNewTypes, itemsPerRow, this.tailState.tailRemainder);
+      if (plan.hasMultiplePendingSections) {
+        this.rebalanceFull();
+        return;
+      }
 
       if (plan.instructions.length > 0) {
         this.scopedObserver.runWithSilence(() => {
@@ -485,11 +497,17 @@ export class GridCoordinator {
 
   private resetState(): void {
     this.invalidateScheduledRebalance();
+    this.scopedObserver.disconnect();
+    if (this.tempMountObserver) {
+      this.tempMountObserver.disconnect();
+      this.tempMountObserver = null;
+    }
     if (this.targetContents) {
       this.revertAllRelocations(this.targetContents);
     }
     this.anchorMap.clear();
     this.tailState = { tailRemainder: 0, pendingSection: null, neededForPending: 0 };
+    this.requiresFullRebalanceOnAppend = false;
     this.isBalanced = false;
     this.targetContents = null;
   }

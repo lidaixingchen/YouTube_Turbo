@@ -3,6 +3,7 @@ import { GridCoordinator } from "../coordinator";
 import { GRID_CONSTANTS } from "../constants";
 
 const GRID_TEST_MIDDLE_INSERTION_ITEM_COUNT: number = 6;
+const NATIVE_MUTATION_OBSERVER: typeof MutationObserver = globalThis.MutationObserver;
 
 describe("GridCoordinator", () => {
   let coordinator: GridCoordinator;
@@ -547,6 +548,96 @@ describe("GridCoordinator", () => {
 
     expect(Array.from(contents.children).indexOf(section)).toBe(GRID_CONSTANTS.COLUMNS.FOUR * GRID_CONSTANTS.COLUMNS.TWO);
     expect(fullRebalanceSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps native append batches equivalent to a full rebalance across pending sections", async () => {
+    vi.stubGlobal("MutationObserver", NATIVE_MUTATION_OBSERVER);
+    installMatchMediaStub();
+
+    const contents: HTMLElement = getContents();
+    const items: HTMLElement[] = [
+      createItem("A"),
+      createItem("B"),
+      createItem("C")
+    ];
+    const firstSection: HTMLElement = createSection("S1");
+    const secondSection: HTMLElement = createSection("S2");
+    contents.append(items[0], items[1], firstSection, items[2], secondSection);
+
+    coordinator.init();
+    await flushMicrotasks();
+
+    const appendedItems: HTMLElement[] = [
+      createItem("D"),
+      createItem("E"),
+      createItem("F")
+    ];
+    for (const item of appendedItems) {
+      contents.appendChild(item);
+      await flushMicrotasks();
+    }
+
+    const layoutAfterNativeAppends: string[] = Array.from(contents.children, (element: Element): string => element.id);
+    coordinator.rebalance();
+    const layoutAfterFullRebalance: string[] = Array.from(contents.children, (element: Element): string => element.id);
+
+    expect(layoutAfterNativeAppends).toEqual(layoutAfterFullRebalance);
+    expect(layoutAfterFullRebalance).toEqual(["A", "B", "C", "D", "S1", "S2", "E", "F"]);
+  });
+
+  it("disconnects old native grid observation on navigation and observes the reentered grid", async () => {
+    vi.stubGlobal("MutationObserver", NATIVE_MUTATION_OBSERVER);
+    installMatchMediaStub();
+
+    const oldContents: HTMLElement = getContents();
+    const oldItems: HTMLElement[] = [
+      createItem("old-1"),
+      createItem("old-2"),
+      createItem("old-3"),
+      createItem("old-4")
+    ];
+    const oldSection: HTMLElement = createSection("old-section");
+    oldContents.append(...oldItems.slice(0, GRID_CONSTANTS.COLUMNS.THREE), oldSection, oldItems[GRID_CONSTANTS.COLUMNS.THREE]);
+
+    coordinator.init();
+    await flushMicrotasks();
+
+    const fullRebalanceSpy: ReturnType<typeof vi.spyOn> = vi.spyOn(
+      coordinator as unknown as { rebalanceFull: () => void },
+      "rebalanceFull"
+    );
+
+    coordinator.scheduleRebalance(true);
+    container.remove();
+    window.dispatchEvent(new Event("yt-navigate-finish"));
+    oldContents.appendChild(createItem("old-route-mutation"));
+    await flushMicrotasks();
+
+    expect(fullRebalanceSpy).not.toHaveBeenCalled();
+    expect(coordinator.getAnchorCount()).toBe(0);
+
+    const nextContainer: HTMLElement = document.createElement("ytd-rich-grid-renderer");
+    const nextContents: HTMLElement = document.createElement("div");
+    nextContents.id = "contents";
+    nextContents.className = "ytd-rich-grid-renderer";
+    const nextItems: HTMLElement[] = [
+      createItem("next-1"),
+      createItem("next-2"),
+      createItem("next-3"),
+      createItem("next-4")
+    ];
+    const nextSection: HTMLElement = createSection("next-section");
+    nextContents.append(...nextItems.slice(0, GRID_CONSTANTS.COLUMNS.THREE), nextSection, nextItems[GRID_CONSTANTS.COLUMNS.THREE]);
+    nextContainer.appendChild(nextContents);
+    document.body.appendChild(nextContainer);
+    container = nextContainer;
+
+    window.dispatchEvent(new Event("yt-navigate-finish"));
+    await flushMicrotasks();
+
+    expect(fullRebalanceSpy).toHaveBeenCalledTimes(1);
+    expect(coordinator.getAnchorCount()).toBe(1);
+    expect(nextItems[GRID_CONSTANTS.COLUMNS.THREE].nextElementSibling).toBe(nextSection);
   });
 });
 

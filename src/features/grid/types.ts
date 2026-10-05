@@ -16,6 +16,7 @@ export interface RebalancePlanResult {
   instructions: RebalanceInstruction[];
   finalRemainder: number;
   hasPendingSection: boolean;
+  hasMultiplePendingSections: boolean;
   neededForPending: number;
   pendingSectionIndex: number | null;
 }
