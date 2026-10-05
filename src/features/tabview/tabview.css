@@ -63,3 +63,11 @@ ytd-watch-flexy #right-tabs .tab-btn.tab-btn-hidden {
   visibility: visible !important;
   opacity: 1 !important;
 }
+
+body ytd-watch-flexy[is-two-columns_][tyt-egm-panel_] #right-tabs {
+  flex-grow: 0;
+}
+
+body ytd-watch-flexy[is-two-columns_][tyt-egm-panel_] #right-tabs .tab-content {
+  display: none;
+}

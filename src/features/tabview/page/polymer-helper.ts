@@ -35,6 +35,18 @@ function settleCeSubscription(
 }
 
 export class PolymerHelper {
+  public static getPanelIdentifier(element: HTMLElement): string | null {
+    const data: Record<string, unknown> | undefined = PolymerHelper.insp(element)?.data;
+    const identifier: { tag?: unknown } | undefined = data?.identifier as { tag?: unknown } | undefined;
+    const candidates: unknown[] = [data?.panelIdentifier, identifier?.tag, data?.targetId];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.length > 0) {
+        return candidate;
+      }
+    }
+    return element.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TARGET_ID);
+  }
+
   public static insp(element: unknown): PolymerElementInstance | null {
     if (!element || typeof element !== "object") {
       return null;

@@ -161,11 +161,13 @@ export class TabviewLifecycleCoordinator {
   public setLocale(snapshot: LocaleSnapshot): void {
     this.localeSnapshot = snapshot;
     if (this.currentState.pageType === "watch") {
+      this.relocator.getTabsView().updateLocale(snapshot);
       this.tryMount();
     }
   }
 
   public setActiveTab(tabKey: TabKey): void {
+    this.panelState?.closeEngagementPanels();
     this.relocator.tryRelocateSlot(tabKey);
     this.relocator.getTabsView().setActiveTab(tabKey);
     this.expanderFixer?.setActiveTab(tabKey, this.routeGeneration);
@@ -436,6 +438,7 @@ export class TabviewLifecycleCoordinator {
         tabsOptions: {
           localeSnapshot: this.localeSnapshot,
           onTabSelected: (tabKey: TabKey): void => {
+            this.panelState?.closeEngagementPanels();
             this.onTabChangedCallback?.(tabKey);
             this.relocator.tryRelocateSlot(tabKey);
             this.expanderFixer?.setActiveTab(tabKey, generation);

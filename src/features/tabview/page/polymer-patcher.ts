@@ -1202,24 +1202,13 @@ export class PolymerPatcher {
 
     this.installMethod(cycle, tag, proto, PAGE_CONSTANTS.METHODS.ATTACHED, (raw: AnyFunction): AnyFunction => {
       return function (this: PolymerElementInstance, ...args: unknown[]): unknown {
+        const result: unknown = raw.apply(this, args);
         const hostElement = this.hostElement ?? (this as unknown as HTMLElement);
-        const proceed = (): unknown => raw.apply(this, args);
         if (cycle.closed || !(hostElement instanceof HTMLElement) || !hostElement.matches(panelSelector)) {
-          return proceed();
+          return result;
         }
-        patcher.attachSemanticElement(
-          cycle,
-          hostElement,
-          kinds.ENGAGEMENT_PANEL,
-          (element: HTMLElement): void => {
-            if (!element.hasAttribute("target-id")) {
-              element.setAttribute("target-id", `${PAGE_CONSTANTS.VALUES.ENGAGEMENT_TARGET_ID_PREFIX}${Math.random().toString(36).slice(2, 10)}`);
-            }
-            element.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EGM_PANEL, "");
-          },
-          (): IdempotentDisposer | null => (cycle.hooks !== null ? cycle.hooks.onEngagementPanelAttached(hostElement) : null)
-        );
-        return proceed();
+        patcher.attachEngagementPanelWhenReady(cycle, hostElement);
+        return result;
       };
     });
 
@@ -1233,6 +1222,57 @@ export class PolymerPatcher {
         return raw.apply(this, args);
       };
     });
+  }
+
+  private attachEngagementPanelWhenReady(cycle: InstallCycle, element: HTMLElement): void {
+    this.attachSemanticElement(
+      cycle,
+      element,
+      PAGE_CONSTANTS.ATTACHMENT_KINDS.ENGAGEMENT_PANEL,
+      (): void => {},
+      (): IdempotentDisposer => {
+        let disposed: boolean = false;
+        let ready: boolean = false;
+        let panelDisposer: IdempotentDisposer | null = null;
+        let readinessObserver: MutationObserver | null = null;
+        const bindReadyPanel = (): void => {
+          if (disposed || ready || cycle.closed || cycle.routeContext === null || !element.isConnected) {
+            return;
+          }
+          if (!element.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.VISIBILITY)) {
+            return;
+          }
+          if (!element.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TARGET_ID)) {
+            const targetId: string = PolymerHelper.getPanelIdentifier(element)
+              || `${PAGE_CONSTANTS.VALUES.ENGAGEMENT_TARGET_ID_PREFIX}${crypto.randomUUID()}`;
+            element.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TARGET_ID, targetId);
+          }
+          ready = true;
+          readinessObserver?.disconnect();
+          readinessObserver = null;
+          element.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EGM_PANEL, "");
+          panelDisposer = cycle.hooks?.onEngagementPanelAttached(element) ?? null;
+        };
+        bindReadyPanel();
+        if (!ready) {
+          readinessObserver = new MutationObserver(bindReadyPanel);
+          readinessObserver.observe(element, {
+            attributes: true,
+            attributeFilter: [PAGE_CONSTANTS.ATTRIBUTES.TARGET_ID, PAGE_CONSTANTS.ATTRIBUTES.VISIBILITY]
+          });
+        }
+        return (): void => {
+          if (disposed) {
+            return;
+          }
+          disposed = true;
+          readinessObserver?.disconnect();
+          readinessObserver = null;
+          element.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EGM_PANEL);
+          panelDisposer?.();
+        };
+      }
+    );
   }
 
   private installWatchMetadata(cycle: InstallCycle, tag: string, proto: PolymerControllerPrototype): void {
@@ -1412,18 +1452,7 @@ export class PolymerPatcher {
       if (!panel.isConnected) {
         continue;
       }
-      this.attachSemanticElement(
-        cycle,
-        panel,
-        PAGE_CONSTANTS.ATTACHMENT_KINDS.ENGAGEMENT_PANEL,
-        (element: HTMLElement): void => {
-          if (!element.hasAttribute("target-id")) {
-            element.setAttribute("target-id", `${PAGE_CONSTANTS.VALUES.ENGAGEMENT_TARGET_ID_PREFIX}${Math.random().toString(36).slice(2, 10)}`);
-          }
-          element.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EGM_PANEL, "");
-        },
-        (): IdempotentDisposer | null => (cycle.hooks !== null ? cycle.hooks.onEngagementPanelAttached(panel) : null)
-      );
+      this.attachEngagementPanelWhenReady(cycle, panel);
     }
   }
 

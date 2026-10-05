@@ -1,9 +1,11 @@
 import { PAGE_CONSTANTS } from "./constants";
+import { PolymerHelper } from "./polymer-helper";
 import type {
   RouteGeneration,
   IdempotentDisposer,
   WatchRouteContext,
-  TabviewPanelStateCallbacks
+  TabviewPanelStateCallbacks,
+  PolymerElementInstance
 } from "./types";
 
 function onceDisposer(cleanup: () => void): IdempotentDisposer {
@@ -282,6 +284,28 @@ export class TabviewPanelState {
 
       this.currentGeneration = null;
       this.currentFlexy = null;
+    }
+  }
+
+  public closeEngagementPanels(): void {
+    const controller: PolymerElementInstance | null = PolymerHelper.insp(this.currentFlexy);
+    if (!controller?.resolveCommand) {
+      return;
+    }
+    const actions: Array<{ hideEngagementPanelEndpoint: { panelIdentifier: string } }> = [];
+    for (const attachment of this.egmAttachments) {
+      const panel: HTMLElement = attachment.element;
+      if (!panel.isConnected || panel.closest(PAGE_CONSTANTS.SELECTORS.HIDDEN_CONTAINER) ||
+          panel.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.VISIBILITY) !== PAGE_CONSTANTS.ATTRIBUTES.ENGAGEMENT_PANEL_VISIBILITY_EXPANDED) {
+        continue;
+      }
+      const panelIdentifier: string | null = PolymerHelper.getPanelIdentifier(panel);
+      if (panelIdentifier) {
+        actions.push({ hideEngagementPanelEndpoint: { panelIdentifier } });
+      }
+    }
+    if (actions.length > 0) {
+      controller.resolveCommand({ signalServiceEndpoint: { signal: PAGE_CONSTANTS.VALUES.CLIENT_SIGNAL, actions } }, {}, false);
     }
   }
 

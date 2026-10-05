@@ -5,7 +5,8 @@ import { PAGE_CONSTANTS } from "../constants";
 import {
   installFakeObservers,
   resetFakeObservers,
-  FakeIntersectionObserver
+  FakeIntersectionObserver,
+  FakeMutationObserver
 } from "../../../../test/fake-observers";
 import type {
   PolymerSemanticHooks,
@@ -83,6 +84,90 @@ describe("PolymerPatcher", () => {
     resetFakeObservers();
     document.body.innerHTML = "";
     vi.restoreAllMocks();
+  });
+
+  it("allows native chapter panel initialization to assign its command target", async (): Promise<void> => {
+    const hooks: HooksMock = createHooks();
+    const panel: HTMLElement = document.createElement(PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANEL_ITEM);
+    const panels: HTMLElement = document.createElement("div");
+    panels.id = "panels";
+    panels.className = "ytd-watch-flexy";
+    document.body.appendChild(panels);
+    const chapterTarget: string = "engagement-panel-macro-markers-description-chapters";
+    const nativeAttached: ReturnType<typeof vi.fn<(this: PolymerElementInstance) => string>> = vi.fn(function (this: PolymerElementInstance): string {
+      if (!panel.hasAttribute("target-id")) {
+        panel.setAttribute("target-id", chapterTarget);
+      }
+      panel.setAttribute("visibility", PAGE_CONSTANTS.ATTRIBUTES.ENGAGEMENT_PANEL_VISIBILITY_HIDDEN);
+      return chapterTarget;
+    });
+    const proto: PolymerControllerPrototype = { attached: nativeAttached, detached: vi.fn() };
+    mockRetrieveCEByTag(new Map([[PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANEL_ITEM, Promise.resolve(proto)]]));
+    patcher.applyPatches(asHooks(hooks));
+    patcher.replayConnected(createRouteContext(1));
+    await flushMicrotasks();
+    panels.appendChild(panel);
+
+    const attached: (this: PolymerElementInstance) => unknown = proto.attached as (this: PolymerElementInstance) => unknown;
+    expect(attached.call({ hostElement: panel })).toBe(chapterTarget);
+    expect(nativeAttached).toHaveBeenCalledTimes(1);
+    expect(panel.getAttribute("target-id")).toBe(chapterTarget);
+    expect(hooks.onEngagementPanelAttached).toHaveBeenCalledWith(panel);
+  });
+
+  it("waits for native engagement panel attributes and releases readiness observers on suspension", async (): Promise<void> => {
+    installFakeObservers();
+    const hooks: HooksMock = createHooks();
+    const panels: HTMLElement = document.createElement("div");
+    panels.id = "panels";
+    panels.className = "ytd-watch-flexy";
+    const panel: HTMLElement = document.createElement(PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANEL_ITEM);
+    const pendingPanel: HTMLElement = document.createElement(PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANEL_ITEM);
+    panel.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.VISIBILITY, "");
+    panels.append(panel, pendingPanel);
+    document.body.appendChild(panels);
+    patcher.applyPatches(asHooks(hooks));
+    patcher.replayConnected(createRouteContext(1));
+
+    expect(panel.hasAttribute("target-id")).toBe(false);
+    expect(hooks.onEngagementPanelAttached).not.toHaveBeenCalled();
+    const observer: FakeMutationObserver | undefined = Array.from(FakeMutationObserver.activeInstances).find(
+      (candidate: FakeMutationObserver): boolean => candidate.observedTargets.some((record: { target: Node }): boolean => record.target === panel)
+    );
+    expect(observer).toBeDefined();
+    panel.setAttribute("target-id", "engagement-panel-macro-markers-description-chapters");
+    observer?.trigger([{ target: panel, attributeName: "target-id" }]);
+    expect(hooks.onEngagementPanelAttached).not.toHaveBeenCalled();
+    panel.setAttribute("visibility", PAGE_CONSTANTS.ATTRIBUTES.ENGAGEMENT_PANEL_VISIBILITY_EXPANDED);
+    observer?.trigger([{ target: panel, attributeName: "visibility" }]);
+    expect(hooks.onEngagementPanelAttached).toHaveBeenCalledTimes(1);
+    expect(observer?.disconnectCount).toBeGreaterThan(0);
+
+    patcher.replayConnected(createRouteContext(1));
+    expect(hooks.onEngagementPanelAttached).toHaveBeenCalledTimes(1);
+    patcher.suspendRoute();
+    expect(FakeMutationObserver.activeInstances.size).toBe(0);
+    expect(panel.hasAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_EGM_PANEL)).toBe(false);
+    observer?.trigger([{ target: panel, attributeName: "visibility" }]);
+    expect(hooks.onEngagementPanelAttached).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the native chapter identifier when panel visibility is ready before its target attribute", (): void => {
+    const hooks: HooksMock = createHooks();
+    const panels: HTMLElement = document.createElement("div");
+    panels.id = "panels";
+    panels.className = "ytd-watch-flexy";
+    const panel: HTMLElement = document.createElement(PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANEL_ITEM);
+    const chapterIdentifier: string = "engagement-panel-macro-markers-description-chapters";
+    Object.assign(panel, { inst: { data: { identifier: { tag: chapterIdentifier } } } });
+    panel.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.VISIBILITY, PAGE_CONSTANTS.ATTRIBUTES.ENGAGEMENT_PANEL_VISIBILITY_EXPANDED);
+    panels.appendChild(panel);
+    document.body.appendChild(panels);
+    patcher.applyPatches(asHooks(hooks));
+    patcher.replayConnected(createRouteContext(1));
+
+    expect(panel.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TARGET_ID)).toBe(chapterIdentifier);
+    expect(hooks.onEngagementPanelAttached).toHaveBeenCalledExactlyOnceWith(panel);
   });
 
   it("translates attached and detached lifecycle to semantic hooks with idempotent disposers", async () => {

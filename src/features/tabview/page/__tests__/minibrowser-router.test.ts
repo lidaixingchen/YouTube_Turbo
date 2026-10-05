@@ -115,4 +115,32 @@ describe("MinibrowserRouter", () => {
 
     expect(nextButtonClick).toHaveBeenCalledTimes(1);
   });
+
+  it("removes the loadstart listener on destroy and installs one listener after restart", () => {
+    navigate(requestForUrl("/@before-destroy/videos"));
+
+    const mainVideo = document.createElement("video");
+    const otherVideo = document.createElement("video");
+    mainVideo.className = "video-stream html5-main-video";
+    otherVideo.className = "video-stream html5-main-video";
+    Object.defineProperty(otherVideo, "paused", { value: false, configurable: true });
+    const pauseSpy = vi.spyOn(otherVideo, "pause").mockImplementation((): void => {});
+    document.body.append(mainVideo, otherVideo);
+
+    router.destroy();
+    mainVideo.dispatchEvent(new Event(PAGE_CONSTANTS.DOM_EVENTS.LOAD_START, { bubbles: true }));
+    expect(pauseSpy).not.toHaveBeenCalled();
+
+    const restartedRouter: MinibrowserRouter = new MinibrowserRouter();
+    const restartedNavigate: AnyFunction = restartedRouter.createPatchedHandleNavigate(
+      (_request: unknown): unknown => undefined
+    );
+    try {
+      restartedNavigate(requestForUrl("/@after-destroy/videos"));
+      mainVideo.dispatchEvent(new Event(PAGE_CONSTANTS.DOM_EVENTS.LOAD_START, { bubbles: true }));
+      expect(pauseSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      restartedRouter.destroy();
+    }
+  });
 });

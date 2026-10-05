@@ -13,7 +13,7 @@ interface YtdAppResponseData {
 export class MinibrowserRouter {
   private static instance: MinibrowserRouter | null = null;
   private navigationCounter: number = 0;
-  private isLoadStartListened: boolean = false;
+  private loadStartListener: ((event: Event) => void) | null = null;
   private aboutPopupTimer: number | null = null;
   private aboutPopupNavigateListener: (() => void) | null = null;
 
@@ -55,6 +55,10 @@ export class MinibrowserRouter {
 
   public destroy(): void {
     this.cancelScheduledChannelAboutPopup();
+    if (this.loadStartListener) {
+      document.removeEventListener(PAGE_CONSTANTS.DOM_EVENTS.LOAD_START, this.loadStartListener, true);
+      this.loadStartListener = null;
+    }
     this.advanceNavigationToken();
   }
 
@@ -163,29 +167,24 @@ export class MinibrowserRouter {
   }
 
   private ensureLoadStartListener(): void {
-    if (this.isLoadStartListened) {
+    if (this.loadStartListener) {
       return;
     }
-    this.isLoadStartListened = true;
+    this.loadStartListener = (evt: Event): void => {
+      const targetMedia = evt.target as HTMLMediaElement | null;
+      if (!targetMedia || (targetMedia.nodeName !== "VIDEO" && targetMedia.nodeName !== "AUDIO")) {
+        return;
+      }
 
-    document.addEventListener(
-      "loadstart",
-      (evt: Event) => {
-        const targetMedia = evt.target as HTMLMediaElement | null;
-        if (!targetMedia || (targetMedia.nodeName !== "VIDEO" && targetMedia.nodeName !== "AUDIO")) {
-          return;
+      const mainVideos = Array.from(document.querySelectorAll<HTMLMediaElement>(".video-stream.html5-main-video"));
+      for (let i = 0; i < mainVideos.length; i++) {
+        const video = mainVideos[i];
+        if (video !== targetMedia && !video.paused) {
+          void video.pause();
         }
-
-        const mainVideos = Array.from(document.querySelectorAll<HTMLMediaElement>(".video-stream.html5-main-video"));
-        for (let i = 0; i < mainVideos.length; i++) {
-          const video = mainVideos[i];
-          if (video !== targetMedia && !video.paused) {
-            void video.pause();
-          }
-        }
-      },
-      true
-    );
+      }
+    };
+    document.addEventListener(PAGE_CONSTANTS.DOM_EVENTS.LOAD_START, this.loadStartListener, true);
   }
 
   private scheduleChannelAboutPopup(token: number): void {

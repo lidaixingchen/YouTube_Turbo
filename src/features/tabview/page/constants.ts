@@ -102,6 +102,8 @@ export const PAGE_CONSTANTS = {
     METADATA_HOVER_RESIZED: "tyt-metadata-hover-resized"
   },
   ATTRIBUTES: {
+    TARGET_ID: "target-id",
+    VISIBILITY: "visibility",
     TYT_DI: "tyt-di",
     TYT_TAB: "tyt-tab",
     TYT_TAB_CONTENT: "tyt-tab-content",
@@ -144,6 +146,7 @@ export const PAGE_CONSTANTS = {
     ENGAGEMENT_PANEL_VISIBILITY_HIDDEN: "ENGAGEMENT_PANEL_VISIBILITY_HIDDEN"
   },
   VALUES: {
+    CLIENT_SIGNAL: "CLIENT_SIGNAL",
     TABVIEW_LOADED_ICP: "icp",
     ENGAGEMENT_TARGET_ID_PREFIX: "tid051-"
   },
@@ -233,6 +236,7 @@ export const PAGE_CONSTANTS = {
     PLAYLIST: `<path d="M0 3h12v2H0zm0 4h12v2H0zm0 4h8v2H0zm16 0V7h-2v4h-4v2h4v4h2v-4h4v-2z"/>`
   },
   DOM_EVENTS: {
+    LOAD_START: "loadstart",
     YT_NAVIGATE_FINISH: "yt-navigate-finish",
     YT_NAVIGATE_START: "yt-navigate-start",
     YT_PAGE_TYPE_CHANGED: "yt-page-type-changed",

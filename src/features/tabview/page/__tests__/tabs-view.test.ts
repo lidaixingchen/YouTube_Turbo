@@ -32,4 +32,30 @@ describe("TabsView font size projection", () => {
 
     view.destroy();
   });
+
+  it("keeps the translated comments accessible name synchronized with its count", () => {
+    const view: TabsView = new TabsView();
+    const container: HTMLElement = document.createElement("section");
+    const localizedOptions: TabsViewOptions = {
+      localeSnapshot: {
+        locale: "fr",
+        messages: { tab_comments: "Commentaires" }
+      },
+      onTabSelected: (_tabKey): void => {},
+      onFontSizeChanged: (_tabKey, _delta): void => {}
+    };
+
+    view.render(container, localizedOptions);
+    view.updateCommentCount("17");
+
+    expect(container.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_BTN_COMMENTS)?.getAttribute("aria-label"))
+      .toBe("Commentaires 17");
+    expect(container.querySelector(PAGE_CONSTANTS.SELECTORS.COMMENT_COUNT_BADGE)?.textContent).toBe("17");
+
+    view.updateCommentCount("");
+    expect(container.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_BTN_COMMENTS)?.getAttribute("aria-label"))
+      .toBe("Commentaires");
+
+    view.destroy();
+  });
 });

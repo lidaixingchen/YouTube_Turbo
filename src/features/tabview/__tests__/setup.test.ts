@@ -2,12 +2,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { TABVIEW_CONSTANTS } from "../constants";
 import { Tabview } from "../index";
 import { TabviewLifecycleCoordinator } from "../page/coordinator";
+import { PAGE_CONSTANTS } from "../page/constants";
 import { main as pageMain } from "../page/index";
+import { createSessionId } from "../protocol";
+import type { LocaleSnapshot, TabviewBootstrap } from "../types";
 
 const READY_SEQUENCE: number = TABVIEW_CONSTANTS.INITIAL_SEQUENCE + 1;
 const TEARDOWN_ACK_SEQUENCE: number = READY_SEQUENCE + 1;
 const COMMAND_SEQUENCE: number = READY_SEQUENCE + 1;
 const MANUAL_TEARDOWN_SEQUENCE: number = COMMAND_SEQUENCE + 1;
+
+interface CapturedPageEventDetail {
+  sender?: string;
+  target?: string;
+  body?: { kind?: string; value?: { type?: string; tabKey?: string } };
+}
 
 vi.mock("virtual:tabview-page-bundle", () => {
   return {
@@ -64,6 +73,23 @@ describe("Tabview.setup() and destroy() lifecycle", () => {
         body: {
           kind: "message",
           value: { type: "set-active-tab", tabKey: "videos" }
+        }
+      }
+    }));
+  }
+
+  function publishLocaleCommand(sessionId: string, snapshot: LocaleSnapshot): void {
+    window.dispatchEvent(new CustomEvent(TABVIEW_CONSTANTS.CHANNEL_EVENT_NAME, {
+      detail: {
+        namespace: TABVIEW_CONSTANTS.PROTOCOL_NAMESPACE,
+        protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION,
+        sessionId,
+        sender: "sandbox",
+        target: "page",
+        sequence: COMMAND_SEQUENCE,
+        body: {
+          kind: "message",
+          value: { type: "update-locale", snapshot }
         }
       }
     }));
@@ -228,6 +254,123 @@ describe("Tabview.setup() and destroy() lifecycle", () => {
     window.dispatchEvent(ackEvent);
     await destroyPromise;
     expect(document.documentElement.getAttribute("tabview-loaded")).toBeNull();
+  });
+
+  it("updates mounted tab labels through the locale command and preserves page state", (): void => {
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=video1"),
+      configurable: true,
+      writable: true
+    });
+
+    const flexy: HTMLElement = document.createElement(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+    const secondaryInner: HTMLElement = document.createElement("div");
+    secondaryInner.id = PAGE_CONSTANTS.IDS.SECONDARY_INNER;
+    secondaryInner.className = "style-scope ytd-watch-flexy";
+    const relatedSection: HTMLElement = document.createElement("ytd-watch-next-secondary-results-renderer");
+    const userState: HTMLInputElement = document.createElement("input");
+    userState.value = "saved draft";
+    relatedSection.appendChild(userState);
+    secondaryInner.appendChild(relatedSection);
+    document.body.append(flexy, secondaryInner);
+
+    const bootstrap: TabviewBootstrap = {
+      namespace: TABVIEW_CONSTANTS.PROTOCOL_NAMESPACE,
+      protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION,
+      sessionId: createSessionId(),
+      initialLocale: { locale: "en", messages: {} }
+    };
+
+    const outgoingTabKeys: string[] = [];
+    const capturePageEvents = (event: Event): void => {
+      const detail: CapturedPageEventDetail = (event as CustomEvent<CapturedPageEventDetail>).detail;
+      if (
+        detail.sender === "page" &&
+        detail.target === "sandbox" &&
+        detail.body?.kind === "message" &&
+        detail.body.value?.type === "tab-changed" &&
+        detail.body.value.tabKey
+      ) {
+        outgoingTabKeys.push(detail.body.value.tabKey);
+      }
+    };
+    const sessionId: string = bootstrap.sessionId;
+    window.addEventListener(TABVIEW_CONSTANTS.CHANNEL_EVENT_NAME, capturePageEvents);
+    try {
+      pageMain(bootstrap);
+      const tabsContainer: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS);
+      const videosButton: HTMLAnchorElement | null = tabsContainer?.querySelector<HTMLAnchorElement>(
+        PAGE_CONSTANTS.SELECTORS.TAB_BTN_VIDEOS
+      ) ?? null;
+      const videosPanel: HTMLElement | null = tabsContainer?.querySelector<HTMLElement>(
+        PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER
+      ) ?? null;
+      const commentsButton: HTMLAnchorElement | null = tabsContainer?.querySelector<HTMLAnchorElement>(
+        PAGE_CONSTANTS.SELECTORS.TAB_BTN_COMMENTS
+      ) ?? null;
+      const commentCount: HTMLElement | null = commentsButton?.querySelector<HTMLElement>(
+        PAGE_CONSTANTS.SELECTORS.COMMENT_COUNT_BADGE
+      ) ?? null;
+
+      expect(sessionId).not.toBe("");
+      expect(tabsContainer).not.toBeNull();
+      expect(videosButton).not.toBeNull();
+      expect(videosPanel?.contains(relatedSection)).toBe(true);
+      expect(videosButton?.classList.contains(PAGE_CONSTANTS.CLASSES.TAB_BTN_ACTIVE)).toBe(false);
+
+      videosButton?.click();
+      const fontPlusButton: HTMLElement | null = videosButton?.querySelector<HTMLElement>(
+        `.${PAGE_CONSTANTS.CLASSES.FONT_SIZE_PLUS}`
+      ) ?? null;
+      fontPlusButton?.click();
+      const savedFontSize: string = videosPanel?.style.fontSize ?? "";
+      expect(savedFontSize).not.toBe("");
+      expect(videosButton?.classList.contains(PAGE_CONSTANTS.CLASSES.TAB_BTN_ACTIVE)).toBe(true);
+
+      const countText: string = "17";
+      if (commentCount) {
+        commentCount.textContent = countText;
+      }
+
+      const localizedSnapshot: LocaleSnapshot = {
+        locale: "fr",
+        direction: "ltr",
+        messages: {
+          tab_info: "Informations FR",
+          tab_comments: "Commentaires FR",
+          tab_videos: "Vidéos FR",
+          tab_playlist: "Playlist FR"
+        }
+      };
+      publishLocaleCommand(sessionId, localizedSnapshot);
+
+      expect(document.querySelector(PAGE_CONSTANTS.SELECTORS.RIGHT_TABS)).toBe(tabsContainer);
+      expect(tabsContainer?.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_BTN_VIDEOS)).toBe(videosButton);
+      expect(tabsContainer?.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER)).toBe(videosPanel);
+      expect(tabsContainer?.querySelector(`${PAGE_CONSTANTS.SELECTORS.TAB_BTN_INFO} span`)?.textContent)
+        .toBe("Informations FR");
+      expect(tabsContainer?.querySelector(`${PAGE_CONSTANTS.SELECTORS.TAB_BTN_VIDEOS} span`)?.textContent)
+        .toBe("Vidéos FR");
+      expect(tabsContainer?.querySelector(`${PAGE_CONSTANTS.SELECTORS.TAB_BTN_PLAYLIST} span`)?.textContent)
+        .toBe("Playlist FR");
+      expect(tabsContainer?.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_BTN_INFO)?.getAttribute("aria-label"))
+        .toBe("Informations FR");
+      expect(videosButton?.getAttribute("aria-label")).toBe("Vidéos FR");
+      expect(tabsContainer?.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_BTN_PLAYLIST)?.getAttribute("aria-label"))
+        .toBe("Playlist FR");
+      expect(commentsButton?.getAttribute("aria-label")).toBe("Commentaires FR 17");
+      expect(commentCount?.textContent).toBe(countText);
+      expect(userState.value).toBe("saved draft");
+      expect(videosPanel?.contains(relatedSection)).toBe(true);
+      expect(videosButton?.classList.contains(PAGE_CONSTANTS.CLASSES.TAB_BTN_ACTIVE)).toBe(true);
+      expect(videosPanel?.style.fontSize).toBe(savedFontSize);
+
+      commentsButton?.click();
+      expect(outgoingTabKeys).toContain("comments");
+    } finally {
+      publishTeardownRequest(sessionId);
+      window.removeEventListener(TABVIEW_CONSTANTS.CHANNEL_EVENT_NAME, capturePageEvents);
+    }
   });
 
   it.each(["null", "throw"] as const)(

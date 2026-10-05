@@ -52,10 +52,44 @@ export class TabsView {
     container.replaceChildren(fragment);
 
     this.bindEvents();
+    this.updateLocale(localeSnapshot);
     for (const [tabKey, sizePx] of this.fontSizes) {
       this.setFontSize(tabKey, sizePx);
     }
     this.setActiveTab(this.activeTab);
+  }
+
+  public updateLocale(localeSnapshot: LocaleSnapshot): void {
+    if (this.options) {
+      this.options = { ...this.options, localeSnapshot };
+    }
+    if (!this.container) {
+      return;
+    }
+
+    const tabKeys: TabKey[] = ["info", "comments", "videos", "playlist"];
+    for (const tabKey of tabKeys) {
+      const button: HTMLAnchorElement | null = this.container.querySelector<HTMLAnchorElement>(
+        this.getTabButtonSelector(tabKey)
+      );
+      if (!button) {
+        continue;
+      }
+
+      const label: string = this.getTabLabel(localeSnapshot, tabKey);
+      if (tabKey !== "comments") {
+        const labelElement: HTMLSpanElement | null = button.querySelector<HTMLSpanElement>("span");
+        if (labelElement) {
+          labelElement.textContent = label;
+        }
+      }
+
+      const commentCount: string =
+        tabKey === "comments"
+          ? this.container.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.COMMENT_COUNT_BADGE)?.textContent?.trim() ?? ""
+          : "";
+      button.setAttribute("aria-label", commentCount ? `${label} ${commentCount}` : label);
+    }
   }
 
   public setActiveTab(tabKey: TabKey): void {
@@ -103,6 +137,14 @@ export class TabsView {
     const badge = this.container.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.COMMENT_COUNT_BADGE);
     if (badge) {
       badge.textContent = countText;
+    }
+    const commentsButton: HTMLAnchorElement | null = this.container.querySelector<HTMLAnchorElement>(PAGE_CONSTANTS.SELECTORS.TAB_BTN_COMMENTS);
+    if (commentsButton) {
+      const label: string = this.options
+        ? this.getTabLabel(this.options.localeSnapshot, "comments")
+        : "Comments";
+      const commentCount: string = countText.trim();
+      commentsButton.setAttribute("aria-label", commentCount ? `${label} ${commentCount}` : label);
     }
   }
 
@@ -166,11 +208,33 @@ export class TabsView {
     }
   }
 
-  private generateTabsHtml(localeSnapshot: LocaleSnapshot): string {
-    const getMessage = (key: string, fallback: string): string => {
-      return localeSnapshot.messages[key] || fallback;
-    };
+  private getTabButtonSelector(tabKey: TabKey): string {
+    switch (tabKey) {
+      case "info":
+        return PAGE_CONSTANTS.SELECTORS.TAB_BTN_INFO;
+      case "comments":
+        return PAGE_CONSTANTS.SELECTORS.TAB_BTN_COMMENTS;
+      case "videos":
+        return PAGE_CONSTANTS.SELECTORS.TAB_BTN_VIDEOS;
+      case "playlist":
+        return PAGE_CONSTANTS.SELECTORS.TAB_BTN_PLAYLIST;
+    }
+  }
 
+  private getTabLabel(localeSnapshot: LocaleSnapshot, tabKey: TabKey): string {
+    switch (tabKey) {
+      case "info":
+        return localeSnapshot.messages["tab_info"] || "Info";
+      case "comments":
+        return localeSnapshot.messages["tab_comments"] || "Comments";
+      case "videos":
+        return localeSnapshot.messages["tab_videos"] || "Videos";
+      case "playlist":
+        return localeSnapshot.messages["tab_playlist"] || "Playlist";
+    }
+  }
+
+  private generateTabsHtml(localeSnapshot: LocaleSnapshot): string {
     const strRipple = `
       <paper-ripple class="style-scope yt-icon-button">
         <div id="background" class="style-scope paper-ripple" style="opacity:0;"></div>
@@ -195,9 +259,9 @@ export class TabsView {
       </div>
     `.replace(/[\r\n\s]+/g, " ");
 
-    const infoLabel = getMessage("tab_info", "Info");
-    const videosLabel = getMessage("tab_videos", "Videos");
-    const playlistLabel = getMessage("tab_playlist", "Playlist");
+    const infoLabel: string = this.getTabLabel(localeSnapshot, "info");
+    const videosLabel: string = this.getTabLabel(localeSnapshot, "videos");
+    const playlistLabel: string = this.getTabLabel(localeSnapshot, "playlist");
 
     const svgInfoElm = `<svg width="16" height="16" viewBox="0 0 60 60" preserveAspectRatio="xMidYMid meet">${PAGE_CONSTANTS.SVG.INFO}</svg>`;
     const svgCommentsElm = `<svg width="16" height="16" viewBox="0 0 120 120" preserveAspectRatio="xMidYMid meet">${PAGE_CONSTANTS.SVG.COMMENTS}</svg>`;

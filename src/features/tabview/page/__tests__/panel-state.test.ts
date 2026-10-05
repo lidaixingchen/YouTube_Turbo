@@ -194,4 +194,37 @@ describe("TabviewPanelState", () => {
     expect(FakeMutationObserver.allInstances.length).toBe(1); // No new observer
     lateDisposer();
   });
+
+  it("closes the expanded chapter panel using its native command identifier", (): void => {
+    panelState.activateRoute({
+      generation: gen1,
+      state: { pageType: "watch", videoId: "v1", playlistId: null, isTheater: false, isLiveStream: false },
+      flexy
+    });
+    const resolveCommand: ReturnType<typeof vi.fn> = vi.fn();
+    Object.assign(flexy, { inst: { resolveCommand } });
+    const chapterPanel: HTMLElement = document.createElement(PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANEL_ITEM);
+    const chapterIdentifier: string = "engagement-panel-macro-markers-description-chapters";
+    Object.assign(chapterPanel, { inst: { data: { panelIdentifier: chapterIdentifier } } });
+    chapterPanel.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TARGET_ID, "tid051-layout");
+    chapterPanel.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.VISIBILITY, PAGE_CONSTANTS.ATTRIBUTES.ENGAGEMENT_PANEL_VISIBILITY_EXPANDED);
+    flexy.appendChild(chapterPanel);
+    panelState.attachEngagementPanel(chapterPanel, gen1);
+    const hiddenPanel: HTMLElement = document.createElement(PAGE_CONSTANTS.SELECTORS.ENGAGEMENT_PANEL_ITEM);
+    hiddenPanel.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.VISIBILITY, PAGE_CONSTANTS.ATTRIBUTES.ENGAGEMENT_PANEL_VISIBILITY_HIDDEN);
+    flexy.appendChild(hiddenPanel);
+    panelState.attachEngagementPanel(hiddenPanel, gen1);
+
+    panelState.closeEngagementPanels();
+
+    expect(resolveCommand).toHaveBeenCalledExactlyOnceWith({
+      signalServiceEndpoint: {
+        signal: PAGE_CONSTANTS.VALUES.CLIENT_SIGNAL,
+        actions: [{ hideEngagementPanelEndpoint: { panelIdentifier: chapterIdentifier } }]
+      }
+    }, {}, false);
+    panelState.deactivateRoute(gen1);
+    panelState.closeEngagementPanels();
+    expect(resolveCommand).toHaveBeenCalledTimes(1);
+  });
 });
