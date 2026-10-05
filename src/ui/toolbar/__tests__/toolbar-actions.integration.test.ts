@@ -3,7 +3,61 @@ import { Toolbar } from "../toolbar";
 import { TOOLBAR_CONSTANTS } from "../constants";
 import { SlotMountBus } from "../slot-mount-bus";
 import { PLAYER_CONSTANTS } from "../../../features/player/constants";
+import { VideoDownloadService } from "../../../features/download";
 import type { ActionConfig } from "../types";
+
+interface DownloadActionSlotScenario {
+  readonly actionId: string;
+  readonly slotKey: string;
+  readonly route: string;
+  readonly buttonIdPrefix: string;
+  readonly rootId: string;
+  readonly createHost: () => HTMLElement;
+}
+
+function createShortsHost(): HTMLElement {
+  const shortsContainer: HTMLElement = document.createElement("ytd-shorts");
+  const navDown: HTMLElement = document.createElement("div");
+  navDown.id = TOOLBAR_CONSTANTS.SHORTS_TARGET_SELECTOR.replace(/^#/, "");
+  shortsContainer.appendChild(navDown);
+  document.body.appendChild(shortsContainer);
+  return shortsContainer;
+}
+
+function createWatchMetadataHost(): HTMLElement {
+  const watchPage: HTMLElement = document.createElement("ytd-watch-flexy");
+  const metadataContainer: HTMLElement = document.createElement("ytd-watch-metadata");
+  const actionsInner: HTMLElement = document.createElement("div");
+  actionsInner.id = "top-level-buttons-computed";
+  metadataContainer.appendChild(actionsInner);
+  watchPage.appendChild(metadataContainer);
+  document.body.appendChild(watchPage);
+  return watchPage;
+}
+
+async function flushToolbarUpdates(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+const DOWNLOAD_ACTION_SLOT_SCENARIOS: readonly DownloadActionSlotScenario[] = [
+  {
+    actionId: "shorts_download",
+    slotKey: TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS,
+    route: "https://www.youtube.com/shorts/integration_test",
+    buttonIdPrefix: "shorts_action_",
+    rootId: TOOLBAR_CONSTANTS.SHORTS_CONTAINER_ID,
+    createHost: createShortsHost
+  },
+  {
+    actionId: "watch_download",
+    slotKey: TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA,
+    route: "https://www.youtube.com/watch?v=integration_test",
+    buttonIdPrefix: "metadata_action_",
+    rootId: TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_ID,
+    createHost: createWatchMetadataHost
+  }
+];
 
 function createPlayerHost(): HTMLElement {
   const watchPage: HTMLElement = document.createElement("ytd-watch-flexy");
@@ -29,6 +83,7 @@ function dispatchKey(target: HTMLElement, key: string): KeyboardEvent {
 
 describe("Toolbar Actions Integration Tests", (): void => {
   beforeEach((): void => {
+    VideoDownloadService.disable();
     Object.defineProperty(window, "location", {
       value: new URL("https://www.youtube.com/watch?v=integration_test"),
       writable: true,
@@ -39,6 +94,7 @@ describe("Toolbar Actions Integration Tests", (): void => {
   });
 
   afterEach((): void => {
+    VideoDownloadService.disable();
     Toolbar.destroy();
     SlotMountBus.getInstance().destroy();
     vi.restoreAllMocks();
@@ -257,6 +313,154 @@ describe("Toolbar Actions Integration Tests", (): void => {
     expect(document.getElementById(TOOLBAR_CONSTANTS.SHORTS_CONTAINER_ID)).toBeNull();
 
     shortsContainer.remove();
+  });
+
+  for (const scenario of DOWNLOAD_ACTION_SLOT_SCENARIOS) {
+    it(`reconciles same-target actions for ${scenario.slotKey} using the current registration`, async (): Promise<void> => {
+      Object.defineProperty(window, "location", {
+        value: new URL(scenario.route),
+        writable: true,
+        configurable: true
+      });
+
+      const host: HTMLElement = scenario.createHost();
+      const downloadSpy: ReturnType<typeof vi.spyOn> = vi
+        .spyOn(VideoDownloadService, "downloadCurrentVideo")
+        .mockResolvedValue(undefined);
+      VideoDownloadService.enable();
+      Toolbar.init();
+
+      const mountedRoot: HTMLElement | null = document.getElementById(scenario.rootId);
+      const serviceButtonElement: HTMLElement | null = document.getElementById(
+        `${scenario.buttonIdPrefix}${scenario.actionId}`
+      );
+      expect(mountedRoot).not.toBeNull();
+      expect(serviceButtonElement).toBeInstanceOf(HTMLButtonElement);
+      if (!mountedRoot || !serviceButtonElement) {
+        throw new Error("Expected the download action to be mounted.");
+      }
+
+      const serviceButton: HTMLButtonElement = serviceButtonElement as HTMLButtonElement;
+      const initialTitle: string = serviceButton.title;
+      if (scenario.slotKey === TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS) {
+        expect(serviceButton.type).toBe("button");
+        expect(serviceButton.tabIndex).toBe(0);
+        expect(serviceButton.disabled).toBe(false);
+      }
+
+      serviceButton.focus();
+      expect(document.activeElement).toBe(serviceButton);
+      serviceButton.click();
+      expect(downloadSpy).toHaveBeenCalledTimes(1);
+      await flushToolbarUpdates();
+
+      let siblingExecutions: number = 0;
+      const siblingId: string = `${scenario.actionId}_sibling`;
+      const removeSibling: () => void = Toolbar.registerAction({
+        id: siblingId,
+        slot: scenario.slotKey,
+        titleKey: "integration_sibling",
+        defaultTitle: "Sibling action",
+        icon: "sibling",
+        onClick: (): void => {
+          siblingExecutions += 1;
+        }
+      });
+      await flushToolbarUpdates();
+
+      const siblingButtonElement: HTMLElement | null = document.getElementById(
+        `${scenario.buttonIdPrefix}${siblingId}`
+      );
+      expect(document.getElementById(scenario.rootId)).toBe(mountedRoot);
+      expect(document.getElementById(`${scenario.buttonIdPrefix}${scenario.actionId}`)).toBe(serviceButton);
+      expect(document.activeElement).toBe(serviceButton);
+      expect(siblingButtonElement).toBeInstanceOf(HTMLButtonElement);
+      if (!siblingButtonElement) {
+        throw new Error("Expected the sibling action to be mounted.");
+      }
+
+      siblingButtonElement.click();
+      expect(siblingExecutions).toBe(1);
+      await flushToolbarUpdates();
+
+      serviceButton.focus();
+      VideoDownloadService.disable();
+      let replacementExecutions: number = 0;
+      const removeReplacement: () => void = Toolbar.registerAction({
+        id: scenario.actionId,
+        slot: scenario.slotKey,
+        titleKey: "integration_updated_action",
+        defaultTitle: "Updated download action",
+        icon: "download",
+        onClick: (): void => {
+          replacementExecutions += 1;
+        }
+      });
+
+      serviceButton.click();
+      expect(replacementExecutions).toBe(1);
+      expect(downloadSpy).toHaveBeenCalledTimes(1);
+      await flushToolbarUpdates();
+
+      const updatedSiblingButton: HTMLElement | null = document.getElementById(
+        `${scenario.buttonIdPrefix}${siblingId}`
+      );
+      expect(document.getElementById(scenario.rootId)).toBe(mountedRoot);
+      expect(document.getElementById(`${scenario.buttonIdPrefix}${scenario.actionId}`)).toBe(serviceButton);
+      expect(serviceButton.title).not.toBe(initialTitle);
+      expect(updatedSiblingButton).toBeInstanceOf(HTMLButtonElement);
+      expect(document.activeElement).toBe(serviceButton);
+
+      removeSibling();
+      await flushToolbarUpdates();
+      expect(document.getElementById(`${scenario.buttonIdPrefix}${siblingId}`)).toBeNull();
+      expect(document.getElementById(`${scenario.buttonIdPrefix}${scenario.actionId}`)).toBe(serviceButton);
+
+      removeReplacement();
+      await flushToolbarUpdates();
+      expect(document.getElementById(scenario.rootId)).toBeNull();
+      host.remove();
+    });
+  }
+
+  it("refreshes action visibility when a route changes but reuses the metadata target", async (): Promise<void> => {
+    const host: HTMLElement = createWatchMetadataHost();
+    let isVisible: boolean = true;
+    const removeAction: () => void = Toolbar.registerAction({
+      id: "route-visibility-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA,
+      titleKey: "route_visibility",
+      defaultTitle: "Route visibility",
+      icon: "visibility",
+      isVisible: (): boolean => isVisible,
+      onClick: (): void => {}
+    });
+
+    Toolbar.init();
+    expect(document.getElementById(TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_ID)).not.toBeNull();
+
+    isVisible = false;
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=route_hidden"),
+      writable: true,
+      configurable: true
+    });
+    document.dispatchEvent(new Event(TOOLBAR_CONSTANTS.NAVIGATION_FINISH_EVENT));
+    expect(document.getElementById(TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_ID)).toBeNull();
+
+    isVisible = true;
+    Object.defineProperty(window, "location", {
+      value: new URL("https://www.youtube.com/watch?v=route_visible"),
+      writable: true,
+      configurable: true
+    });
+    document.dispatchEvent(new Event(TOOLBAR_CONSTANTS.NAVIGATION_FINISH_EVENT));
+    expect(document.getElementById(TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_ID)).not.toBeNull();
+
+    removeAction();
+    await flushToolbarUpdates();
+    expect(document.getElementById(TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_ID)).toBeNull();
+    host.remove();
   });
 
   it("should prevent orphan DOM creation when route changes during microtask invalidation", async (): Promise<void> => {

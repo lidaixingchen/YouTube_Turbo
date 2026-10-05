@@ -4,7 +4,7 @@ import { PopoverEngine } from "./popover";
 import { Locale } from "../../i18n";
 import type { ActionConfig, PopoverController, SlotMountContext } from "./types";
 
-export type ActionExecutor = (action: ActionConfig, event: MouseEvent, buttonElement: HTMLElement) => void;
+export type ActionExecutor = (actionId: string, event: MouseEvent, buttonElement: HTMLElement) => void;
 
 export class ToolbarRenderers {
   public static safeIsActive(action: ActionConfig): boolean {
@@ -33,49 +33,50 @@ export class ToolbarRenderers {
     actions: readonly ActionConfig[],
     executeAction: ActionExecutor
   ): void {
-    toolsGrid.innerHTML = "";
     const defaultTooltipText: string = TOOLBAR_CONSTANTS.TOOLTIP_DEFAULT_TEXT;
+    const existingButtons: Map<string, HTMLButtonElement> = ToolbarRenderers.indexButtons(toolsGrid);
+    const buttons: HTMLButtonElement[] = [];
 
     actions.forEach((action: ActionConfig): void => {
-      const btn: HTMLButtonElement = document.createElement("button");
-      btn.type = "button";
-      btn.setAttribute("role", "menuitem");
-      btn.tabIndex = TOOLBAR_CONSTANTS.POPOVER_MENU_ITEM_TAB_INDEX;
-      btn.className = "toolbox_extension_tool_btn";
-      btn.id = "action_" + action.id;
+      const actionId: string = action.id;
+      const buttonId: string = `action_${actionId}`;
+      let btn: HTMLButtonElement | undefined = existingButtons.get(buttonId);
+      if (!btn) {
+        btn = document.createElement("button");
+      }
+      const button: HTMLButtonElement = btn;
+      button.type = "button";
+      button.setAttribute("role", "menuitem");
+      button.tabIndex = TOOLBAR_CONSTANTS.POPOVER_MENU_ITEM_TAB_INDEX;
+      button.className = "toolbox_extension_tool_btn";
+      button.id = buttonId;
 
-      const updateBtnContent = (): void => {
-        btn.innerHTML = "";
-        const iconKey: string = ToolbarRenderers.resolveIconKey(action);
-        btn.appendChild(IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.ACTION_ICON_SIZE }));
-        const titleText: string = Locale.t(action.titleKey) || action.defaultTitle;
-        btn.setAttribute("aria-label", titleText);
+      const iconKey: string = ToolbarRenderers.resolveIconKey(action);
+      button.replaceChildren(IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.ACTION_ICON_SIZE }));
+      const titleText: string = Locale.t(action.titleKey) || action.defaultTitle;
+      button.setAttribute("aria-label", titleText);
 
-        const isActive: boolean = ToolbarRenderers.safeIsActive(action);
-        if (isActive) {
-          btn.classList.add("active");
-        } else {
-          btn.classList.remove("active");
-        }
+      const isActive: boolean = ToolbarRenderers.safeIsActive(action);
+      if (isActive) {
+        button.classList.add("active");
+      } else {
+        button.classList.remove("active");
+      }
+
+      button.onmouseenter = (): void => {
+        tooltipEl.textContent = button.getAttribute("aria-label") ?? defaultTooltipText;
+      };
+      button.onmouseleave = (): void => {
+        tooltipEl.textContent = defaultTooltipText;
+      };
+      button.onclick = (event: MouseEvent): void => {
+        executeAction(actionId, event, button);
       };
 
-      updateBtnContent();
-
-      btn.addEventListener("mouseenter", (): void => {
-        const titleText: string = Locale.t(action.titleKey) || action.defaultTitle;
-        tooltipEl.textContent = titleText;
-      });
-
-      btn.addEventListener("mouseleave", (): void => {
-        tooltipEl.textContent = defaultTooltipText;
-      });
-
-      btn.addEventListener("click", (e: MouseEvent): void => {
-        executeAction(action, e, btn);
-      });
-
-      toolsGrid.appendChild(btn);
+      buttons.push(button);
     });
+
+    ToolbarRenderers.reconcileButtons(toolsGrid, buttons);
   }
 
   public static refreshToolboxGrid(
@@ -166,33 +167,40 @@ export class ToolbarRenderers {
 
     const elementId: string = TOOLBAR_CONSTANTS.SHORTS_CONTAINER_ID;
     const existing: HTMLElement | null = context.container.querySelector<HTMLElement>(`#${elementId}`);
-    if (existing && existing.isConnected) {
-      existing.innerHTML = "";
-    }
 
     const container: HTMLElement = existing || document.createElement("div");
     container.id = elementId;
     container.className = "navigation-button style-scope ytd-shorts yt-turbo-shorts-btn";
+    const existingButtons: Map<string, HTMLButtonElement> = ToolbarRenderers.indexButtons(container);
+    const buttons: HTMLButtonElement[] = [];
 
     actions.forEach((action: ActionConfig): void => {
-      const actionWrap: HTMLDivElement = document.createElement("div");
-      actionWrap.id = "shorts_action_" + action.id;
-      actionWrap.style.cssText = "display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; cursor: pointer;";
+      const actionId: string = action.id;
+      const buttonId: string = `shorts_action_${actionId}`;
+      let actionWrap: HTMLButtonElement | undefined = existingButtons.get(buttonId);
+      if (!actionWrap) {
+        actionWrap = document.createElement("button");
+      }
+      const button: HTMLButtonElement = actionWrap;
+      button.type = "button";
+      button.id = buttonId;
+      button.style.cssText = TOOLBAR_CONSTANTS.SHORTS_ACTION_BUTTON_STYLE;
 
       const iconKey: string = ToolbarRenderers.resolveIconKey(action);
       const iconSvg: Element = IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.SHORTS_ICON_SIZE });
-      actionWrap.appendChild(iconSvg);
+      button.replaceChildren(iconSvg);
       const title: string = Locale.t(action.titleKey) || action.defaultTitle;
-      actionWrap.title = title;
-      actionWrap.setAttribute("aria-label", title);
+      button.title = title;
+      button.setAttribute("aria-label", title);
 
-      actionWrap.addEventListener("click", (e: MouseEvent): void => {
-        executeAction(action, e, actionWrap);
-      });
+      button.onclick = (event: MouseEvent): void => {
+        executeAction(actionId, event, button);
+      };
 
-      container.appendChild(actionWrap);
+      buttons.push(button);
     });
 
+    ToolbarRenderers.reconcileButtons(container, buttons);
     return container;
   }
 
@@ -207,44 +215,86 @@ export class ToolbarRenderers {
 
     const elementId: string = TOOLBAR_CONSTANTS.WATCH_METADATA_CONTAINER_ID;
     const existing: HTMLElement | null = context.container.querySelector<HTMLElement>(`#${elementId}`);
-    if (existing && existing.isConnected) {
-      existing.innerHTML = "";
-    }
 
     const outerBox: HTMLElement = existing || document.createElement("div");
     outerBox.id = elementId;
     outerBox.className = "yt-turbo-metadata-outer";
+    const existingButtons: Map<string, HTMLButtonElement> = ToolbarRenderers.indexButtons(outerBox);
+    const buttons: HTMLButtonElement[] = [];
 
     actions.forEach((action: ActionConfig): void => {
-      const btn: HTMLButtonElement = document.createElement("button");
-      btn.type = "button";
-      btn.className = "yt-turbo-metadata-btn";
-      btn.id = "metadata_action_" + action.id;
+      const actionId: string = action.id;
+      const buttonId: string = `metadata_action_${actionId}`;
+      let btn: HTMLButtonElement | undefined = existingButtons.get(buttonId);
+      if (!btn) {
+        btn = document.createElement("button");
+      }
+      const button: HTMLButtonElement = btn;
+      button.type = "button";
+      button.className = "yt-turbo-metadata-btn";
+      button.id = buttonId;
 
       const iconKey: string = ToolbarRenderers.resolveIconKey(action);
       const iconEl: Element = IconRegistry.createSvg(iconKey, { size: TOOLBAR_CONSTANTS.METADATA_ICON_SIZE });
-      btn.appendChild(iconEl);
+      button.replaceChildren(iconEl);
 
       const titleText: string = Locale.t(action.titleKey) || action.defaultTitle;
       const labelSpan: HTMLSpanElement = document.createElement("span");
       labelSpan.className = "yt-turbo-metadata-label";
       labelSpan.textContent = titleText;
-      btn.appendChild(labelSpan);
-      btn.title = titleText;
-      btn.setAttribute("aria-label", titleText);
+      button.appendChild(labelSpan);
+      button.title = titleText;
+      button.setAttribute("aria-label", titleText);
 
       const isActive: boolean = ToolbarRenderers.safeIsActive(action);
       if (isActive) {
-        btn.classList.add("active");
+        button.classList.add("active");
+      } else {
+        button.classList.remove("active");
       }
 
-      btn.addEventListener("click", (e: MouseEvent): void => {
-        executeAction(action, e, btn);
-      });
+      button.onclick = (event: MouseEvent): void => {
+        executeAction(actionId, event, button);
+      };
 
-      outerBox.appendChild(btn);
+      buttons.push(button);
     });
 
+    ToolbarRenderers.reconcileButtons(outerBox, buttons);
     return outerBox;
+  }
+
+  private static indexButtons(container: HTMLElement): Map<string, HTMLButtonElement> {
+    const buttons: Map<string, HTMLButtonElement> = new Map<string, HTMLButtonElement>();
+    Array.from(container.children).forEach((child: Element): void => {
+      if (child instanceof HTMLButtonElement && child.id) {
+        buttons.set(child.id, child);
+      }
+    });
+    return buttons;
+  }
+
+  private static reconcileButtons(container: HTMLElement, buttons: readonly HTMLButtonElement[]): void {
+    const retainedButtons: Set<Element> = new Set<Element>(buttons);
+    const activeElement: Element | null = document.activeElement;
+    const focusedButton: HTMLButtonElement | null =
+      activeElement instanceof HTMLButtonElement && container.contains(activeElement) ? activeElement : null;
+
+    Array.from(container.children).forEach((child: Element): void => {
+      if (!retainedButtons.has(child)) {
+        child.remove();
+      }
+    });
+
+    buttons.forEach((button: HTMLButtonElement, index: number): void => {
+      const current: Element | null = container.children.item(index);
+      if (current !== button) {
+        container.insertBefore(button, current);
+      }
+    });
+
+    if (focusedButton && focusedButton.isConnected && container.contains(focusedButton)) {
+      focusedButton.focus();
+    }
   }
 }

@@ -22,6 +22,7 @@ export const TOOLBAR_CONSTANTS = Object.freeze({
   BUTTON_SIZE_PX: 36,
   ICON_SIZE_PX: 20,
   SHORTS_ICON_SIZE: 32,
+  SHORTS_ACTION_BUTTON_STYLE: "display:flex;justify-content:center;align-items:center;width:100%;height:100%;margin:0;padding:0;border:0;background:transparent;color:inherit;font:inherit;appearance:none;cursor:pointer;",
   ACTION_ICON_SIZE: 18,
   METADATA_BUTTON_HEIGHT_PX: 36,
   METADATA_BORDER_RADIUS_PX: 18,

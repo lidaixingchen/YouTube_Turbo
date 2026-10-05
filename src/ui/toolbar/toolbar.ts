@@ -441,14 +441,11 @@ export class ToolbarController {
         return;
       }
 
-      const element: HTMLElement | null = SlotMountBus.getInstance().mountSlot(
+      SlotMountBus.getInstance().mountSlot(
         def,
-        this.slotRenderers[slotKey]
+        this.slotRenderers[slotKey],
+        true
       );
-
-      if (element && slotKey === TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS) {
-        ToolbarRenderers.refreshToolboxGrid(actions, this.executeActionWrapper, this.toolboxPanelHost);
-      }
     } catch (error: unknown) {
       console.error(`[ToolbarController] Error reconciling slot "${slotKey}":`, error);
     }
@@ -488,14 +485,15 @@ export class ToolbarController {
   }
 
   private readonly executeActionWrapper: ActionExecutor = (
-    action: ActionConfig,
+    actionId: string,
     event: MouseEvent,
     buttonElement: HTMLElement
   ): void => {
-    const record: ToolbarActionRecord | undefined = this.actionsById.get(action.id);
+    const record: ToolbarActionRecord | undefined = this.actionsById.get(actionId);
     if (!record) {
       return;
     }
+    const action: Readonly<ActionConfig> = record.config;
 
     // 并发防重入互斥锁
     if (record.isExecuting) {

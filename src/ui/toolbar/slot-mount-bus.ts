@@ -12,6 +12,12 @@ type SlotDisplayState = "inactive" | "pending" | "mounted";
 
 const NO_ATTRIBUTE_FILTER: ReadonlySet<string> = new Set<string>();
 const PAGE_MANAGER_ATTRIBUTE_FILTER: ReadonlySet<string> = new Set<string>([HIDDEN_ATTRIBUTE]);
+const NO_MOUNT_REFRESH: ReadonlySet<string> = new Set<string>();
+const TOOLBAR_ACTION_SLOTS: ReadonlySet<string> = new Set<string>([
+  TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+  TOOLBAR_CONSTANTS.SLOT_SHORTS_ACTIONS,
+  TOOLBAR_CONSTANTS.SLOT_WATCH_METADATA
+]);
 
 interface SlotRecord {
   readonly identity: object;
@@ -87,12 +93,19 @@ export class SlotMountBus {
     }
   }
 
-  public mountSlot(definition: SlotDefinition, renderer: SlotRenderer): HTMLElement | null {
+  public mountSlot(
+    definition: SlotDefinition,
+    renderer: SlotRenderer,
+    refreshMountedDisplay: boolean = false
+  ): HTMLElement | null {
     this.bindNavigation();
     const slotKey: string = definition.slotKey;
+    const refreshSlots: ReadonlySet<string> = refreshMountedDisplay
+      ? new Set<string>([slotKey])
+      : NO_MOUNT_REFRESH;
     const existing: SlotRecord | undefined = this.records.get(slotKey);
     if (existing && existing.definition === definition && existing.renderer === renderer) {
-      this.coordinateSlots([slotKey], null);
+      this.coordinateSlots([slotKey], null, refreshSlots);
       return this.resolveExposedElement(slotKey);
     }
     if (existing) {
@@ -110,7 +123,7 @@ export class SlotMountBus {
     };
     this.records.set(slotKey, record);
     try {
-      this.coordinateSlots([slotKey], slotKey);
+      this.coordinateSlots([slotKey], slotKey, refreshSlots);
     } catch (error: unknown) {
       if (this.records.get(slotKey) === record) {
         this.releaseDisplay(record);
@@ -185,7 +198,11 @@ export class SlotMountBus {
     return record.element.isConnected ? record.element : null;
   }
 
-  private coordinateSlots(keys: ReadonlyArray<string>, initialKey: string | null): void {
+  private coordinateSlots(
+    keys: ReadonlyArray<string>,
+    initialKey: string | null,
+    refreshMountedSlots: ReadonlySet<string> = NO_MOUNT_REFRESH
+  ): void {
     if (typeof window === "undefined" || typeof document === "undefined") {
       return;
     }
@@ -201,7 +218,14 @@ export class SlotMountBus {
         continue;
       }
       try {
-        this.coordinateSingleSlot(slotKey, record, playerCache, initialKey === slotKey, epoch);
+        this.coordinateSingleSlot(
+          slotKey,
+          record,
+          playerCache,
+          initialKey === slotKey,
+          refreshMountedSlots.has(slotKey),
+          epoch
+        );
       } catch (error: unknown) {
         if (initialKey === slotKey) {
           throw error;
@@ -221,6 +245,7 @@ export class SlotMountBus {
     record: SlotRecord,
     playerCache: Map<HTMLElement, HTMLElement | null>,
     isInitial: boolean,
+    refreshMountedDisplay: boolean,
     epoch: number
   ): void {
     const url = new URL(window.location.href);
@@ -237,7 +262,7 @@ export class SlotMountBus {
     const container: HTMLElement | null = this.resolveContainer(record.definition, playerCache);
     const target: HTMLElement | null = container ? this.resolveTarget(container, record.definition) : null;
 
-    if (
+    const hasMountedDisplay: boolean = Boolean(
       record.state === "mounted" &&
       record.element &&
       record.container &&
@@ -247,15 +272,19 @@ export class SlotMountBus {
       record.element.isConnected &&
       container !== null &&
       container.contains(record.element)
-    ) {
+    );
+
+    if (hasMountedDisplay && !refreshMountedDisplay) {
       return;
     }
-    if (record.state === "mounted") {
+    if (record.state === "mounted" && !hasMountedDisplay) {
       this.releaseDisplay(record);
     }
-    record.state = "pending";
-    record.container = container;
-    record.target = target;
+    if (!hasMountedDisplay) {
+      record.state = "pending";
+      record.container = container;
+      record.target = target;
+    }
 
     if (container === null || target === null) {
       return;
@@ -275,6 +304,12 @@ export class SlotMountBus {
       return;
     }
     if (!rendered) {
+      if (hasMountedDisplay) {
+        this.releaseDisplay(record);
+        record.state = "inactive";
+        this.windowPausedSlots.delete(slotKey);
+        this.dirtySlots.delete(slotKey);
+      }
       return;
     }
 
@@ -289,7 +324,15 @@ export class SlotMountBus {
     }
 
     try {
-      record.definition.mount(target, rendered);
+      if (hasMountedDisplay && rendered !== record.element) {
+        this.releaseDisplay(record);
+        record.state = "pending";
+        record.container = container;
+        record.target = target;
+      }
+      if (!hasMountedDisplay || rendered !== record.element) {
+        record.definition.mount(target, rendered);
+      }
     } catch (error: unknown) {
       this.discardAttempt(rendered);
       if (isInitial) {
@@ -673,7 +716,7 @@ export class SlotMountBus {
       return;
     }
     this.syncRouteSnapshot();
-    this.coordinateSlots(Array.from(this.records.keys()), null);
+    this.coordinateSlots(Array.from(this.records.keys()), null, TOOLBAR_ACTION_SLOTS);
   }
 
   private unbindNavigation(): void {
