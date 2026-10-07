@@ -148,21 +148,22 @@ export class TabsView {
     }
   }
 
-  public setFontSize(tabKey: TabKey, sizePx: number): void {
-    const clampedSize = Math.max(
+  public setFontSize(tabKey: TabKey, sizePx: number): number {
+    const clampedSize: number = Math.max(
       PAGE_CONSTANTS.FONT_SIZE.MIN_PX,
       Math.min(PAGE_CONSTANTS.FONT_SIZE.MAX_PX, sizePx)
     );
     this.fontSizes.set(tabKey, clampedSize);
 
     if (!this.container) {
-      return;
+      return clampedSize;
     }
     const selector = this.getContentSelector(tabKey);
     const panel = this.container.querySelector<HTMLElement>(selector);
     if (panel) {
       panel.style.fontSize = `${clampedSize}px`;
     }
+    return clampedSize;
   }
 
   public getFontSize(tabKey: TabKey): number {
@@ -326,20 +327,20 @@ export class TabsView {
       if (fontPlus) {
         ev.preventDefault();
         ev.stopPropagation();
-        const currentSize = this.getFontSize(tabKey);
-        const nextSize = currentSize + PAGE_CONSTANTS.FONT_SIZE.STEP_PX;
-        this.setFontSize(tabKey, nextSize);
-        this.options?.onFontSizeChanged(tabKey, nextSize);
+        const currentSize: number = this.getFontSize(tabKey);
+        const nextSize: number = currentSize + PAGE_CONSTANTS.FONT_SIZE.STEP_PX;
+        const appliedSize: number = this.setFontSize(tabKey, nextSize);
+        this.options?.onFontSizeChanged(tabKey, appliedSize);
         return;
       }
 
       if (fontMinus) {
         ev.preventDefault();
         ev.stopPropagation();
-        const currentSize = this.getFontSize(tabKey);
-        const nextSize = currentSize - PAGE_CONSTANTS.FONT_SIZE.STEP_PX;
-        this.setFontSize(tabKey, nextSize);
-        this.options?.onFontSizeChanged(tabKey, nextSize);
+        const currentSize: number = this.getFontSize(tabKey);
+        const nextSize: number = currentSize - PAGE_CONSTANTS.FONT_SIZE.STEP_PX;
+        const appliedSize: number = this.setFontSize(tabKey, nextSize);
+        this.options?.onFontSizeChanged(tabKey, appliedSize);
         return;
       }
 

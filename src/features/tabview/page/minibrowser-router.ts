@@ -63,14 +63,68 @@ export class MinibrowserRouter {
   }
 
   private isChannelAboutUrl(url: string): boolean {
-    if (!url || !url.endsWith("/about")) {
+    if (!url) {
       return false;
     }
-    return (
-      PAGE_CONSTANTS.PATTERNS.CHANNEL_ID_ABOUT.test(url) ||
-      PAGE_CONSTANTS.PATTERNS.CHANNEL_HANDLE_ABOUT.test(url) ||
-      PAGE_CONSTANTS.PATTERNS.CHANNEL_CUSTOM_ABOUT.test(url)
-    );
+
+    let pathSegments: string[] | null;
+    try {
+      const parsedUrl: URL = new URL(url, window.location.origin);
+      pathSegments = this.decodePathSegments(parsedUrl.pathname);
+    } catch {
+      return false;
+    }
+
+    if (!pathSegments) {
+      return false;
+    }
+
+    const aboutSegment: string | undefined = pathSegments.pop();
+    if (aboutSegment !== PAGE_CONSTANTS.ROUTE_SEGMENTS.ABOUT) {
+      return false;
+    }
+
+    const identifierSegment: string | undefined = pathSegments.pop();
+    const routeSegment: string | undefined = pathSegments.pop();
+    if (!identifierSegment || pathSegments.length > 0) {
+      return false;
+    }
+
+    if (routeSegment === PAGE_CONSTANTS.ROUTE_SEGMENTS.CHANNEL_ID) {
+      return PAGE_CONSTANTS.PATTERNS.CHANNEL_ID.test(identifierSegment);
+    }
+
+    if (
+      routeSegment === PAGE_CONSTANTS.ROUTE_SEGMENTS.CHANNEL_CUSTOM ||
+      routeSegment === PAGE_CONSTANTS.ROUTE_SEGMENTS.CHANNEL_USER
+    ) {
+      return PAGE_CONSTANTS.PATTERNS.CHANNEL_CUSTOM.test(identifierSegment);
+    }
+
+    if (routeSegment === undefined && identifierSegment.startsWith("@")) {
+      return PAGE_CONSTANTS.PATTERNS.CHANNEL_HANDLE.test(identifierSegment.slice(1));
+    }
+
+    return false;
+  }
+
+  private decodePathSegments(pathname: string): string[] | null {
+    const encodedSegments: string[] = pathname.split("/");
+    if (encodedSegments[0] === "") {
+      encodedSegments.shift();
+    }
+    if (encodedSegments[encodedSegments.length - 1] === "") {
+      encodedSegments.pop();
+    }
+    if (encodedSegments.some((segment: string) => segment.length === 0)) {
+      return null;
+    }
+
+    try {
+      return encodedSegments.map((segment: string): string => decodeURIComponent(segment));
+    } catch {
+      return null;
+    }
   }
 
   private shouldKeepMiniPlayer(): boolean {

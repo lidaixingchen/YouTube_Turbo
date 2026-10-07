@@ -74,6 +74,53 @@ describe("MinibrowserRouter", () => {
     expect(latestButtonClick).toHaveBeenCalledTimes(1);
   });
 
+  it("recognizes encoded international About paths and preserves native navigation", () => {
+    const rawNavigate: AnyFunction = vi.fn((_request: unknown): unknown => undefined);
+    const navigateAbout: AnyFunction = router.createPatchedHandleNavigate(rawNavigate);
+    const aboutUrls: string[] = [
+      `/@${encodeURIComponent("中文频道")}/about?feature=share#details`,
+      `/@${encodeURIComponent("東京チャンネル")}/about?feature=share#details`,
+      `/@${encodeURIComponent("قناة_العربية-1")}/about?feature=share#details`,
+      "/@creator.middle·dot_name-1/about?feature=share#details",
+      "/@creator_1/about?feature=share#details",
+      "/c/legacy_custom-name/about?feature=share#details",
+      `/c/${encodeURIComponent("东京频道")}/about?feature=share#details`,
+      "/user/legacy_name/about?feature=share#details",
+      "/channel/UCabcdefghijABCDEFGHIJ12/about?feature=share#details"
+    ];
+
+    for (const url of aboutUrls) {
+      const request: AppNavigateRequest = requestForUrl(url);
+      const navigationResult: unknown = navigateAbout(request);
+      expect(navigationResult).toBeUndefined();
+      expect(rawNavigate).toHaveBeenCalledTimes(aboutUrls.indexOf(url) + 1);
+
+      document.dispatchEvent(new Event(PAGE_CONSTANTS.DOM_EVENTS.YT_NAVIGATE_FINISH));
+      const aboutButton: HTMLButtonElement = createDescriptionPreview();
+      const aboutButtonClick = vi.spyOn(aboutButton, "click");
+      vi.advanceTimersByTime(PAGE_CONSTANTS.TIMEOUTS.ABOUT_POPUP_TRIGGER_MS);
+
+      expect(aboutButtonClick).toHaveBeenCalledTimes(1);
+      aboutButton.parentElement?.remove();
+    }
+  });
+
+  it("keeps native navigation when a URL path has an invalid encoded segment", () => {
+    const rawNavigate: AnyFunction = vi.fn((_request: unknown): unknown => undefined);
+    const navigateAbout: AnyFunction = router.createPatchedHandleNavigate(rawNavigate);
+    const request: AppNavigateRequest = requestForUrl("/@%E0%A4%A/about?feature=share#details");
+
+    navigateAbout(request);
+    expect(rawNavigate).toHaveBeenCalledTimes(1);
+
+    document.dispatchEvent(new Event(PAGE_CONSTANTS.DOM_EVENTS.YT_NAVIGATE_FINISH));
+    const aboutButton: HTMLButtonElement = createDescriptionPreview();
+    const aboutButtonClick = vi.spyOn(aboutButton, "click");
+    vi.advanceTimersByTime(PAGE_CONSTANTS.TIMEOUTS.ABOUT_POPUP_TRIGGER_MS);
+
+    expect(aboutButtonClick).not.toHaveBeenCalled();
+  });
+
   it("cancels a pending About listener on teardown and works in the next lifecycle", () => {
     navigate(requestForUrl("/@before-finish/about"));
     router.destroy();

@@ -82,6 +82,50 @@ describe("TabviewSession", () => {
     pageSession.close();
   });
 
+  it("accepts repeated font-size boundary events between paired sessions", () => {
+    const bootstrap: TabviewBootstrap = createMockBootstrap();
+    const sandboxNotices: TabviewSessionNotice<"sandbox">[] = [];
+    const sandboxSession: TabviewSession<"sandbox"> = createTabviewSession({
+      role: "sandbox",
+      bootstrap,
+      receive: (notice: TabviewSessionNotice<"sandbox">): void => {
+        sandboxNotices.push(notice);
+      }
+    });
+    const pageSession: TabviewSession<"page"> = createTabviewSession({
+      role: "page",
+      bootstrap,
+      receive: (_notice: TabviewSessionNotice<"page">): void => {}
+    });
+    const boundarySizes: number[] = [
+      TABVIEW_CONSTANTS.FONT_SIZE_MIN,
+      TABVIEW_CONSTANTS.FONT_SIZE_MAX,
+      TABVIEW_CONSTANTS.FONT_SIZE_MAX,
+      TABVIEW_CONSTANTS.FONT_SIZE_MIN
+    ];
+
+    pageSession.dispatch({
+      type: "ready",
+      protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION
+    });
+    for (const fontSize of boundarySizes) {
+      expect(pageSession.dispatch({ type: "font-size-changed", tabKey: "info", fontSize })).toEqual({
+        status: "sent"
+      });
+    }
+
+    expect(sandboxNotices).toEqual([
+      { kind: "message", message: { type: "ready", protocolVersion: TABVIEW_CONSTANTS.PROTOCOL_VERSION } },
+      ...boundarySizes.map((fontSize: number) => ({
+        kind: "message",
+        message: { type: "font-size-changed", tabKey: "info", fontSize }
+      }))
+    ]);
+
+    sandboxSession.close();
+    pageSession.close();
+  });
+
   it("isolates sessions with different sessionIds", () => {
     const bootstrapA = createMockBootstrap(createSessionId());
     const bootstrapB = createMockBootstrap(createSessionId());

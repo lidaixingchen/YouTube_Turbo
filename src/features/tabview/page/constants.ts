@@ -1,3 +1,5 @@
+import { TABVIEW_CONSTANTS } from "../constants";
+
 export const PAGE_CONSTANTS = {
   TAGS: {
     SECONDARY_WRAPPER: "secondary-wrapper",
@@ -194,10 +196,16 @@ export const PAGE_CONSTANTS = {
   ANIMATIONS: {
     RELATED_ELEMENT_PROVIDED: "relatedElementProvided"
   },
+  ROUTE_SEGMENTS: {
+    CHANNEL_ID: "channel",
+    CHANNEL_CUSTOM: "c",
+    CHANNEL_USER: "user",
+    ABOUT: "about"
+  },
   PATTERNS: {
-    CHANNEL_ID_ABOUT: /\/channel\/UC[-_a-zA-Z0-9+=.]{22}\/about/,
-    CHANNEL_HANDLE_ABOUT: /\/@[a-zA-Z0-9_.-]+\/about/,
-    CHANNEL_CUSTOM_ABOUT: /\/(?:c|user)\/[a-zA-Z0-9_.-]+\/about/
+    CHANNEL_ID: /^UC[-_a-zA-Z0-9+=.]{22}$/,
+    CHANNEL_HANDLE: /^[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}._·-]*[\p{L}\p{N}\p{M}])?$/u,
+    CHANNEL_CUSTOM: /^[\p{L}\p{N}\p{M}._-]+$/u
   },
   COMMENTS_STATUS: {
     ENABLED: "1",
@@ -224,8 +232,8 @@ export const PAGE_CONSTANTS = {
     OVERFLOW_TOLERANCE_PX: 4
   },
   FONT_SIZE: {
-    MIN_PX: 10,
-    MAX_PX: 28,
+    MIN_PX: TABVIEW_CONSTANTS.FONT_SIZE_MIN,
+    MAX_PX: TABVIEW_CONSTANTS.FONT_SIZE_MAX,
     STEP_PX: 1,
     DEFAULT_PX: 14
   },

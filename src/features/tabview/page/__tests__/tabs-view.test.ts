@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PAGE_CONSTANTS } from "../constants";
 import { TabsView } from "../tabs-view";
-import type { TabsViewOptions } from "../types";
+import type { TabKey, TabsViewOptions } from "../types";
 
 const options: TabsViewOptions = {
   localeSnapshot: { locale: "en", messages: {} },
@@ -55,6 +55,51 @@ describe("TabsView font size projection", () => {
     view.updateCommentCount("");
     expect(container.querySelector(PAGE_CONSTANTS.SELECTORS.TAB_BTN_COMMENTS)?.getAttribute("aria-label"))
       .toBe("Commentaires");
+
+    view.destroy();
+  });
+
+  it("reports the applied font size when controls keep clicking at either bound", () => {
+    const reportedSizes: Array<{ tabKey: TabKey; sizePx: number }> = [];
+    const boundaryOptions: TabsViewOptions = {
+      ...options,
+      onFontSizeChanged: (tabKey: TabKey, sizePx: number): void => {
+        reportedSizes.push({ tabKey, sizePx });
+      }
+    };
+    const view: TabsView = new TabsView();
+    const container: HTMLElement = document.createElement("section");
+    view.render(container, boundaryOptions);
+
+    const minusButton: HTMLElement = container.querySelector<HTMLElement>(
+      `#${PAGE_CONSTANTS.IDS.TAB_BTN_INFO} .${PAGE_CONSTANTS.CLASSES.FONT_SIZE_MINUS}`
+    ) as HTMLElement;
+    const plusButton: HTMLElement = container.querySelector<HTMLElement>(
+      `#${PAGE_CONSTANTS.IDS.TAB_BTN_INFO} .${PAGE_CONSTANTS.CLASSES.FONT_SIZE_PLUS}`
+    ) as HTMLElement;
+
+    view.setFontSize("info", PAGE_CONSTANTS.FONT_SIZE.MIN_PX);
+    minusButton.click();
+    minusButton.click();
+    expect(view.getFontSize("info")).toBe(PAGE_CONSTANTS.FONT_SIZE.MIN_PX);
+    expect(container.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER)?.style.fontSize)
+      .toBe(`${PAGE_CONSTANTS.FONT_SIZE.MIN_PX}px`);
+    expect(reportedSizes).toEqual([
+      { tabKey: "info", sizePx: PAGE_CONSTANTS.FONT_SIZE.MIN_PX },
+      { tabKey: "info", sizePx: PAGE_CONSTANTS.FONT_SIZE.MIN_PX }
+    ]);
+
+    reportedSizes.length = 0;
+    view.setFontSize("info", PAGE_CONSTANTS.FONT_SIZE.MAX_PX);
+    plusButton.click();
+    plusButton.click();
+    expect(view.getFontSize("info")).toBe(PAGE_CONSTANTS.FONT_SIZE.MAX_PX);
+    expect(container.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER)?.style.fontSize)
+      .toBe(`${PAGE_CONSTANTS.FONT_SIZE.MAX_PX}px`);
+    expect(reportedSizes).toEqual([
+      { tabKey: "info", sizePx: PAGE_CONSTANTS.FONT_SIZE.MAX_PX },
+      { tabKey: "info", sizePx: PAGE_CONSTANTS.FONT_SIZE.MAX_PX }
+    ]);
 
     view.destroy();
   });
