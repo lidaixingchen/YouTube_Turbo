@@ -224,10 +224,9 @@ describe("SubtitleTimeline Piecewise Interval Gate", () => {
     expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Cached English");
 
     timeline.noteTrackRequest("current-video", frenchKey, SECOND_REQUEST_SEQUENCE);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
     expect(timeline.ingest(frenchKey, emptyTrackPayload, true, SECOND_REQUEST_SEQUENCE, "current-video")).toEqual([]);
 
-    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
-    timeline.clearCurrent();
     expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
     expect(timeline.settleTrackRequestFailure(frenchKey, "current-video", SECOND_REQUEST_SEQUENCE)).toBe(false);
   });
@@ -239,11 +238,29 @@ describe("SubtitleTimeline Piecewise Interval Gate", () => {
     timeline.noteTrackRequest("current-video", englishKey, FIRST_REQUEST_SEQUENCE);
     timeline.ingest(englishKey, makeTrackPayload("Cached English"), true, FIRST_REQUEST_SEQUENCE, "current-video");
     timeline.noteTrackRequest("current-video", frenchKey, SECOND_REQUEST_SEQUENCE);
-    timeline.clearCurrent();
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
 
     expect(timeline.ingest(frenchKey, damagedPayload, true, SECOND_REQUEST_SEQUENCE, "current-video")).toEqual([]);
     expect(timeline.settleTrackRequestFailure(frenchKey, "current-video", SECOND_REQUEST_SEQUENCE)).toBe(false);
     expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Cached English");
+  });
+
+  it("keeps the current track visible while the same track refresh is pending", (): void => {
+    const trackKey: string = "active-track";
+    timeline.noteTrackRequest("current-video", trackKey, FIRST_REQUEST_SEQUENCE);
+    timeline.ingest(trackKey, makeTrackPayload("Current caption"), true, FIRST_REQUEST_SEQUENCE, "current-video");
+
+    expect(timeline.noteTrackRequest("current-video", trackKey, SECOND_REQUEST_SEQUENCE)).toBe(false);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Current caption");
+  });
+
+  it("keeps the current track visible while another video is prefetched", (): void => {
+    const currentTrackKey: string = "active-track";
+    timeline.noteTrackRequest("current-video", currentTrackKey, FIRST_REQUEST_SEQUENCE);
+    timeline.ingest(currentTrackKey, makeTrackPayload("Current caption"), true, FIRST_REQUEST_SEQUENCE, "current-video");
+
+    expect(timeline.noteTrackRequest("prefetched-video", "prefetch-track", SECOND_REQUEST_SEQUENCE)).toBe(false);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Current caption");
   });
 
   it("infers an underscore-containing video ID from a track key", (): void => {

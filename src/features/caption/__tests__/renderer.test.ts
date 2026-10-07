@@ -22,6 +22,9 @@ const createCaptionPlayer = (): CaptionPlayerFixture => {
 };
 
 describe("CaptionOverlayRenderer native caption ownership", () => {
+  const FIRST_REQUEST_SEQUENCE: number = 1;
+  const SECOND_REQUEST_SEQUENCE: number = 2;
+
   it("restores replaced containers, restores on CC close, and restores on destroy", () => {
     const firstPlayer: CaptionPlayerFixture = createCaptionPlayer();
     const secondPlayer: CaptionPlayerFixture = createCaptionPlayer();
@@ -56,6 +59,53 @@ describe("CaptionOverlayRenderer native caption ownership", () => {
 
       renderer.destroy();
       expect(secondPlayer.container.classList.contains(SUBTITLE_CONSTANTS.CLASS_NATIVE_CAPTIONS_HIDDEN)).toBe(false);
+    } finally {
+      renderer.destroy();
+      document.body.replaceChildren();
+    }
+  });
+
+  it("removes the displayed cue when the timeline revokes its active track", (): void => {
+    const player: CaptionPlayerFixture = createCaptionPlayer();
+    const videoId: string = "caption-video";
+    Object.defineProperty(window, "location", {
+      value: new URL(`https://www.youtube.com/watch?v=${videoId}`),
+      configurable: true,
+      writable: true
+    });
+    const cueStartMs: number = SUBTITLE_CONSTANTS.DEFAULT_OFFSET_MS;
+    const cueDurationMs: number = SUBTITLE_CONSTANTS.FALLBACK_CUE_DURATION_MS;
+    const currentTimeSeconds: number = cueDurationMs / SUBTITLE_CONSTANTS.MS_PER_SECOND;
+    const sessionOffsetMs: number = SUBTITLE_CONSTANTS.STEP_OFFSET_MS;
+    player.video.currentTime = currentTimeSeconds;
+    const timeline: SubtitleTimeline = new SubtitleTimeline();
+    const renderer: CaptionOverlayRenderer = new CaptionOverlayRenderer(
+      () => ({ sessionOffsetMs, effectiveOffsetMs: sessionOffsetMs }),
+      timeline
+    );
+
+    try {
+      timeline.noteTrackRequest(videoId, "english-track", FIRST_REQUEST_SEQUENCE);
+      timeline.ingest(
+        "english-track",
+        JSON.stringify({
+          events: [{ tStartMs: cueStartMs, dDurationMs: cueDurationMs, segs: [{ utf8: "English" }] }]
+        }),
+        true,
+        FIRST_REQUEST_SEQUENCE,
+        videoId
+      );
+      renderer.attachVideo(player.video, player.container);
+      renderer.renderCurrentFrame(true);
+
+      const textElement: HTMLElement | null = document.querySelector<HTMLElement>(`.${SUBTITLE_CONSTANTS.BOX_CLASS}`);
+      expect(textElement?.textContent).toBe("English");
+
+      timeline.noteTrackRequest(videoId, "french-track", SECOND_REQUEST_SEQUENCE);
+      renderer.renderCurrentFrame(true);
+
+      expect(textElement?.textContent).toBe("");
+      expect(textElement?.style.display).toBe("none");
     } finally {
       renderer.destroy();
       document.body.replaceChildren();

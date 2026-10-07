@@ -54,10 +54,17 @@ export class CaptionController {
         }
       },
       (key: string, videoId: string, requestSequence: number): void => {
-        this.timeline.noteTrackRequest(videoId, key, requestSequence);
+        const replacesCurrentTrack: boolean = this.timeline.noteTrackRequest(videoId, key, requestSequence);
+        if (replacesCurrentTrack) {
+          this.renderer.renderCurrentFrame(true);
+        }
       },
       (key: string, videoId: string, requestSequence: number): void => {
-        this.timeline.settleTrackRequestFailure(key, videoId, requestSequence);
+        const settled: boolean = this.timeline.settleTrackRequestFailure(key, videoId, requestSequence);
+        const currentVideoId: string | null = resolveCaptionVideoId(window.location.href);
+        if (settled && videoId === currentVideoId) {
+          this.renderer.renderCurrentFrame(true);
+        }
       }
     );
   }

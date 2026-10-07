@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { StorageUtil } from "../../../core/storage";
 import { CaptionController } from "../controller";
 import { SUBTITLE_CONSTANTS } from "../constants";
+import { CaptionOverlayRenderer } from "../renderer";
 import { SubtitleTimeline } from "../timeline";
 import { resolveCaptionVideoId } from "../video-identity";
 
@@ -37,6 +38,8 @@ const CUE_DURATION_MS: number = 5000;
 const QUERY_TIME_MS: number = 1000;
 const FIRST_REQUEST_SEQUENCE: number = 1;
 const SECOND_REQUEST_SEQUENCE: number = 2;
+const THIRD_REQUEST_SEQUENCE: number = 3;
+const FOURTH_REQUEST_SEQUENCE: number = 4;
 
 function setLocation(path: string): void {
   Object.defineProperty(window, "location", {
@@ -63,14 +66,15 @@ function ingest(
   videoId: string,
   isLatestRequest: boolean = true,
   requestSequence: number = 1,
-  language: string = "en"
+  language: string = "en",
+  key: string = `${videoId}_${language}_`
 ): void {
   const callback: TrackCallback | null = callbacks.track;
   if (!callback) throw new Error("Caption callback is unavailable");
   const payload: string = JSON.stringify({
     events: [{ tStartMs: 0, dDurationMs: CUE_DURATION_MS, segs: [{ utf8: text }] }]
   });
-  callback(`${videoId}_${language}_`, payload, videoId, isLatestRequest, requestSequence);
+  callback(key, payload, videoId, isLatestRequest, requestSequence);
 }
 
 afterEach((): void => {
@@ -145,8 +149,6 @@ describe("CaptionController video ownership", (): void => {
 
     ingest("French", "current-video", true, 2, "fr");
     expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("French");
-    timeline.clearCurrent();
-    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("French");
   });
 
   it("keeps the latest same-video track active when the older response arrives last", (): void => {
@@ -192,12 +194,51 @@ describe("CaptionController video ownership", (): void => {
     startRequest(trackKey, "current-video", FIRST_REQUEST_SEQUENCE);
     ingest("Cached caption", "current-video", true, FIRST_REQUEST_SEQUENCE);
     const timeline: SubtitleTimeline = ingestion.mock.contexts[0] as SubtitleTimeline;
-    timeline.clearCurrent();
     startRequest(trackKey, "current-video", SECOND_REQUEST_SEQUENCE);
 
-    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Cached caption");
     failRequest(trackKey, "current-video", SECOND_REQUEST_SEQUENCE);
     expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Cached caption");
+  });
+
+  it("revokes a different current track while preserving same-track refreshes and video prefetches", (): void => {
+    setLocation("/watch?v=current-video");
+    CaptionController.getInstance();
+    const ingestion: MockInstance<SubtitleTimeline["ingest"]> = vi.spyOn(SubtitleTimeline.prototype, "ingest");
+    const renderCurrentFrame: MockInstance<CaptionOverlayRenderer["renderCurrentFrame"]> = vi.spyOn(
+      CaptionOverlayRenderer.prototype,
+      "renderCurrentFrame"
+    );
+    const englishKey: string = "english-track";
+    const frenchKey: string = "translated-track";
+
+    startRequest(englishKey, "current-video", FIRST_REQUEST_SEQUENCE);
+    ingest("English", "current-video", true, FIRST_REQUEST_SEQUENCE, "en", englishKey);
+    const timeline: SubtitleTimeline = ingestion.mock.contexts[0] as SubtitleTimeline;
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("English");
+
+    startRequest(englishKey, "current-video", SECOND_REQUEST_SEQUENCE);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("English");
+    ingest("Refreshed English", "current-video", true, SECOND_REQUEST_SEQUENCE, "en", englishKey);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Refreshed English");
+
+    renderCurrentFrame.mockClear();
+    startRequest(frenchKey, "current-video", THIRD_REQUEST_SEQUENCE);
+    expect(renderCurrentFrame).toHaveBeenCalledWith(true);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
+
+    ingest("Stale English", "current-video", false, FIRST_REQUEST_SEQUENCE, "en", englishKey);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("");
+
+    failRequest(frenchKey, "current-video", THIRD_REQUEST_SEQUENCE);
+    expect(renderCurrentFrame).toHaveBeenLastCalledWith(true);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Refreshed English");
+
+    startRequest("prefetch-track", "prefetched-video", FOURTH_REQUEST_SEQUENCE);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Refreshed English");
+
+    ingest("Late stale English", "current-video", false, FIRST_REQUEST_SEQUENCE, "en", englishKey);
+    expect(timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Refreshed English");
   });
 
   it("restores a cached Shorts track after clearing current cues", (): void => {
