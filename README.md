@@ -4,7 +4,7 @@
 
 ## 安装与版本
 
-当前版本：**1.1.6**。安装 Tampermonkey 或 Violentmonkey 后，打开 [用户脚本安装文件](https://github.com/lidaixingchen/YouTube_Turbo/releases/download/v1.1.6/youtube-turbo.user.js)，按管理器提示安装或更新。更新内容见 [1.1.6 发布说明](docs/release-1.1.6.md)。
+当前版本：**1.1.9**。安装 Tampermonkey 或 Violentmonkey 后，打开 [用户脚本安装文件](https://github.com/lidaixingchen/YouTube_Turbo/releases/download/v1.1.9/youtube-turbo.user.js)，按管理器提示安装或更新。更新内容见 [1.1.9 发布说明](docs/release-1.1.9.md)。
 
 ## 功能特性
 
