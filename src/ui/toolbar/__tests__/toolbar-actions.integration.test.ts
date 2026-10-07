@@ -6,6 +6,8 @@ import { PLAYER_CONSTANTS } from "../../../features/player/constants";
 import { VideoDownloadService } from "../../../features/download";
 import type { ActionConfig } from "../types";
 
+const LONG_CONFIRMATION_READING_DELAY_MS: number = 6000;
+
 interface DownloadActionSlotScenario {
   readonly actionId: string;
   readonly slotKey: string;
@@ -154,6 +156,74 @@ describe("Toolbar Actions Integration Tests", (): void => {
 
     playerContainer.remove();
     metadataContainer.remove();
+  });
+
+  it("keeps a real download confirmation single through a long wait and retries after cancel", async (): Promise<void> => {
+    vi.useFakeTimers();
+    const openedUrls: string[] = [];
+    const watchPage: HTMLElement = createPlayerHost();
+    vi.stubGlobal("GM_getValue", (_key: string, defaultValue: unknown): unknown => defaultValue);
+    vi.stubGlobal("GM_setValue", (_key: string, _value: unknown): void => {});
+    vi.stubGlobal("GM_openInTab", (url: string): void => {
+      openedUrls.push(url);
+    });
+
+    try {
+      VideoDownloadService.enable();
+      Toolbar.init();
+
+      const toolboxTrigger: HTMLButtonElement | null = document.getElementById(
+        TOOLBAR_CONSTANTS.TOOLBOX_ROOT_ID
+      ) as HTMLButtonElement | null;
+      const downloadButton: HTMLButtonElement | null = document.getElementById(
+        "action_download"
+      ) as HTMLButtonElement | null;
+      expect(toolboxTrigger).not.toBeNull();
+      expect(downloadButton).not.toBeNull();
+      if (!toolboxTrigger || !downloadButton) {
+        throw new Error("Expected the player download action to be mounted.");
+      }
+
+      toolboxTrigger.click();
+      downloadButton.focus();
+      downloadButton.click();
+
+      const firstCancelButton: HTMLButtonElement | null = document.querySelector<HTMLButtonElement>(
+        ".yt-modal-btn-cancel"
+      );
+      expect(document.querySelectorAll(".yt-modal-backdrop")).toHaveLength(1);
+      expect(document.activeElement).toBe(firstCancelButton);
+
+      vi.advanceTimersByTime(LONG_CONFIRMATION_READING_DELAY_MS);
+      downloadButton.click();
+      expect(document.querySelectorAll(".yt-modal-backdrop")).toHaveLength(1);
+      expect(document.activeElement).toBe(firstCancelButton);
+
+      firstCancelButton?.click();
+      await flushToolbarUpdates();
+      expect(document.activeElement).toBe(toolboxTrigger);
+
+      downloadButton.click();
+      const secondCancelButton: HTMLButtonElement | null = document.querySelector<HTMLButtonElement>(
+        ".yt-modal-btn-cancel"
+      );
+      const secondConfirmButton: HTMLButtonElement | null = document.querySelector<HTMLButtonElement>(
+        ".yt-modal-btn-confirm"
+      );
+      expect(document.querySelectorAll(".yt-modal-backdrop")).toHaveLength(1);
+      expect(document.activeElement).toBe(secondCancelButton);
+      secondConfirmButton?.click();
+      await flushToolbarUpdates();
+
+      expect(openedUrls).toHaveLength(1);
+      expect(document.querySelector(".yt-modal-backdrop")).toBeNull();
+      expect(document.activeElement).toBe(toolboxTrigger);
+    } finally {
+      VideoDownloadService.disable();
+      Toolbar.destroy();
+      watchPage.remove();
+      vi.useRealTimers();
+    }
   });
 
   it("uses native menu buttons with keyboard navigation and focus dismissal", (): void => {

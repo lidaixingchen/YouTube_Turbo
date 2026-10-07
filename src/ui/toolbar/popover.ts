@@ -1,4 +1,5 @@
 import { TOOLBAR_CONSTANTS } from "./constants";
+import { Modal } from "../modal/modal";
 import type { PopoverController, PopoverState } from "./types";
 
 type MenuFocusTarget = "first" | "last" | "next" | "previous";
@@ -104,14 +105,15 @@ export class PopoverEngine {
         document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
       }
 
+      const modalOwnsFocus: boolean = Modal.preserveFocusForPopoverClose(containerEl, triggerBtn);
       const activeElement: Element | null = document.activeElement;
       const hasMenuFocus: boolean = activeElement instanceof Node && containerEl.contains(activeElement);
       currentState = "closed";
 
       if (hasMenuFocus && activeElement instanceof HTMLElement) {
-        if (restoreFocus && triggerBtn.isConnected) {
+        if (!modalOwnsFocus && restoreFocus && triggerBtn.isConnected) {
           triggerBtn.focus();
-        } else if (blurMenuFocus || !triggerBtn.isConnected) {
+        } else if (!modalOwnsFocus && (blurMenuFocus || !triggerBtn.isConnected)) {
           activeElement.blur();
         }
       }

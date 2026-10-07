@@ -13,7 +13,6 @@ interface ToolbarActionRecord {
   stateDisposer: (() => void) | null;
   stateBindingStatus: "unbound" | "bound" | "unavailable";
   isExecuting: boolean;
-  executionTimer: ReturnType<typeof setTimeout> | null;
   executionEpoch: number;
 }
 
@@ -195,7 +194,6 @@ export class ToolbarController {
         stateDisposer: null,
         stateBindingStatus: "unbound",
         isExecuting: false,
-        executionTimer: null,
         executionEpoch: 0
       };
 
@@ -262,10 +260,6 @@ export class ToolbarController {
 
     // 1. 释放所有状态订阅
     this.actionsById.forEach((record: ToolbarActionRecord): void => {
-      if (record.executionTimer !== null) {
-        clearTimeout(record.executionTimer);
-        record.executionTimer = null;
-      }
       record.isExecuting = false;
       record.executionEpoch++;
 
@@ -326,11 +320,8 @@ export class ToolbarController {
       const id: string = registration.actionIds[i];
       const record: ToolbarActionRecord | undefined = this.actionsById.get(id);
       if (record && record.owner === ownerToken) {
-        if (record.executionTimer !== null) {
-          clearTimeout(record.executionTimer);
-          record.executionTimer = null;
-        }
         record.isExecuting = false;
+        record.executionEpoch++;
 
         if (record.stateDisposer) {
           try {
@@ -503,23 +494,12 @@ export class ToolbarController {
     const currentEpoch: number = ++record.executionEpoch;
 
     const releaseLock = (epoch: number): void => {
-      // 严格代际校验：仅当前执行代数匹配时才执行释放与定时器清理
       if (record.executionEpoch !== epoch) {
         return;
-      }
-      if (record.executionTimer !== null) {
-        clearTimeout(record.executionTimer);
-        record.executionTimer = null;
       }
       record.isExecuting = false;
       this.invalidateSlot(record.config.slot);
     };
-
-    // 看门狗自愈保护
-    record.executionTimer = setTimeout((): void => {
-      console.warn(`[ToolbarController] Action "${action.id}" execution timed out, releasing lock.`);
-      releaseLock(currentEpoch);
-    }, TOOLBAR_CONSTANTS.ACTION_EXECUTION_TIMEOUT_MS);
 
     const context: ActionContext = {
       actionId: action.id,
@@ -527,16 +507,20 @@ export class ToolbarController {
       buttonElement
     };
 
+    let result: void | Promise<void>;
     try {
-      const result: void | Promise<void> = action.onClick(event, context);
-      if (action.dismissOnExecute !== false) {
-        this.popoverController?.close();
-      }
+      result = action.onClick(event, context);
+    } catch (error: unknown) {
+      console.error(`[ToolbarController] Sync error in action "${action.id}":`, error);
+      releaseLock(currentEpoch);
+      return;
+    }
 
+    try {
       if (result && typeof (result as Promise<void>).then === "function") {
-        (result as Promise<void>)
-          .catch((err: unknown): void => {
-            console.error(`[ToolbarController] Async error in action "${action.id}":`, err);
+        void Promise.resolve(result)
+          .catch((error: unknown): void => {
+            console.error(`[ToolbarController] Async error in action "${action.id}":`, error);
           })
           .finally((): void => {
             releaseLock(currentEpoch);
@@ -545,8 +529,16 @@ export class ToolbarController {
         releaseLock(currentEpoch);
       }
     } catch (error: unknown) {
-      console.error(`[ToolbarController] Sync error in action "${action.id}":`, error);
+      console.error(`[ToolbarController] Error settling action "${action.id}":`, error);
       releaseLock(currentEpoch);
+    }
+
+    if (action.dismissOnExecute !== false) {
+      try {
+        this.popoverController?.close();
+      } catch (error: unknown) {
+        console.error(`[ToolbarController] Error closing popover for action "${action.id}":`, error);
+      }
     }
   };
 

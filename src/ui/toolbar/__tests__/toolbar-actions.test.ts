@@ -4,6 +4,8 @@ import { ToolbarRenderers } from "../renderers";
 import { TOOLBAR_CONSTANTS } from "../constants";
 import type { ActionConfig } from "../types";
 
+const LONG_ACTION_SETTLEMENT_DELAY_MS: number = 6000;
+
 describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
   beforeEach((): void => {
     Object.defineProperty(window, "location", {
@@ -17,6 +19,7 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
   afterEach((): void => {
     Toolbar.destroy();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("should validate registration inputs and reject invalid parameters atomically", (): void => {
@@ -322,20 +325,22 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
     playerContainer.remove();
   });
 
-  it("should recover automatically via safety watchdog timer if async action hangs", async (): Promise<void> => {
+  it("keeps an asynchronous action locked until its promise settles after a long wait", async (): Promise<void> => {
     vi.useFakeTimers();
     let executeCount: number = 0;
+    const resolveActions: Array<() => void> = [];
 
     const actionConfig: ActionConfig = {
-      id: "hanging-action",
+      id: "long-running-action",
       slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
-      titleKey: "hang",
-      defaultTitle: "Hang",
-      icon: "hang",
+      titleKey: "long-running",
+      defaultTitle: "Long running",
+      icon: "download",
       onClick: (): Promise<void> => {
         executeCount++;
-        // 永远不 resolve 的挂起 Promise
-        return new Promise<void>((): void => {});
+        return new Promise<void>((resolve: () => void): void => {
+          resolveActions.push(resolve);
+        });
       }
     };
 
@@ -352,25 +357,105 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
 
     Toolbar.init();
 
-    const actionBtn = document.getElementById("action_hanging-action");
+    const actionBtn: HTMLElement | null = document.getElementById("action_long-running-action");
     expect(actionBtn).not.toBeNull();
 
-    // 第一次点击发起
     actionBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(executeCount).toBe(1);
 
-    // 此时连击被拦截
-    actionBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    vi.advanceTimersByTime(LONG_ACTION_SETTLEMENT_DELAY_MS);
+    actionBtn?.click();
     expect(executeCount).toBe(1);
 
-    // 时间快进到看门狗超时 (5000ms)
-    vi.advanceTimersByTime(TOOLBAR_CONSTANTS.ACTION_EXECUTION_TIMEOUT_MS);
+    resolveActions[0]();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
 
-    // 看门狗强制释放互斥锁，再次点击可以执行
-    actionBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const settledButton: HTMLElement | null = document.getElementById("action_long-running-action");
+    settledButton?.click();
     expect(executeCount).toBe(2);
 
-    vi.useRealTimers();
+    resolveActions[1]();
+    await Promise.resolve();
+    await Promise.resolve();
+    disposer();
+    playerContainer.remove();
+  });
+
+  it("releases the action lock after a synchronous exception so the next attempt can run", (): void => {
+    let executeCount: number = 0;
+    vi.spyOn(console, "error").mockImplementation((): void => {});
+    const disposer: () => void = Toolbar.registerAction({
+      id: "sync-error-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "sync-error",
+      defaultTitle: "Sync error",
+      icon: "download",
+      onClick: (): void => {
+        executeCount++;
+        if (executeCount === 1) {
+          throw new Error("Action failed");
+        }
+      }
+    });
+
+    const watchPage: HTMLElement = document.createElement("ytd-watch-flexy");
+    const playerContainer: HTMLElement = document.createElement("div");
+    playerContainer.id = "movie_player";
+    const controls: HTMLElement = document.createElement("div");
+    controls.className = "ytp-right-controls";
+    playerContainer.appendChild(controls);
+    watchPage.appendChild(playerContainer);
+    document.body.appendChild(watchPage);
+    Toolbar.init();
+
+    const actionButton: HTMLElement | null = document.getElementById("action_sync-error-action");
+    actionButton?.click();
+    actionButton?.click();
+
+    expect(executeCount).toBe(2);
+    disposer();
+    playerContainer.remove();
+  });
+
+  it("releases the action lock after a rejected promise so the next attempt can run", async (): Promise<void> => {
+    vi.spyOn(console, "error").mockImplementation((): void => {});
+    let executeCount: number = 0;
+    const disposer: () => void = Toolbar.registerAction({
+      id: "async-error-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "async-error",
+      defaultTitle: "Async error",
+      icon: "download",
+      onClick: (): Promise<void> => {
+        executeCount += 1;
+        return executeCount === 1 ? Promise.reject(new Error("Action failed")) : Promise.resolve();
+      }
+    });
+
+    const watchPage: HTMLElement = document.createElement("ytd-watch-flexy");
+    const playerContainer: HTMLElement = document.createElement("div");
+    playerContainer.id = "movie_player";
+    const controls: HTMLElement = document.createElement("div");
+    controls.className = "ytp-right-controls";
+    playerContainer.appendChild(controls);
+    watchPage.appendChild(playerContainer);
+    document.body.appendChild(watchPage);
+    Toolbar.init();
+
+    const actionButton: HTMLElement | null = document.getElementById("action_async-error-action");
+    actionButton?.click();
+    expect(executeCount).toBe(1);
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    actionButton?.click();
+    expect(executeCount).toBe(2);
+
+    await Promise.resolve();
+    await Promise.resolve();
     disposer();
     playerContainer.remove();
   });
@@ -409,9 +494,8 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
     errorSpy.mockRestore();
   });
 
-  it("should isolate execution epochs and prevent late promise from releasing newer lock", async (): Promise<void> => {
-    vi.useFakeTimers();
-    let resolveFirstPromise: (() => void) | null = null;
+  it("does not let an unregistered action completion release its replacement lock", async (): Promise<void> => {
+    const resolveActions: Array<() => void> = [];
     let executeCount: number = 0;
 
     const actionConfig: ActionConfig = {
@@ -422,17 +506,13 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
       icon: "epoch",
       onClick: (): Promise<void> => {
         executeCount++;
-        if (executeCount === 1) {
-          return new Promise<void>((resolve): void => {
-            resolveFirstPromise = resolve;
-          });
-        }
-        // 第二次点击返回永久挂起的 Promise
-        return new Promise<void>((): void => {});
+        return new Promise<void>((resolve: () => void): void => {
+          resolveActions.push(resolve);
+        });
       }
     };
 
-    const disposer = Toolbar.registerAction(actionConfig);
+    const oldDisposer: () => void = Toolbar.registerAction(actionConfig);
 
     const watchPage = document.createElement("ytd-watch-flexy");
     const playerContainer = document.createElement("div");
@@ -452,27 +532,87 @@ describe("Toolbar Actions Lifecycle Unit Tests", (): void => {
     actionBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(executeCount).toBe(1);
 
-    // 5000ms 超时，看门狗强制解锁第一次执行
-    vi.advanceTimersByTime(TOOLBAR_CONSTANTS.ACTION_EXECUTION_TIMEOUT_MS);
-
-    // 发起第二次点击，生成新的 epoch
-    actionBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(executeCount).toBe(2);
-
-    // 此时第一次的迟到 Promise resolve
-    if (resolveFirstPromise) {
-      (resolveFirstPromise as () => void)();
-    }
-    // 推进微任务
+    oldDisposer();
+    const newDisposer: () => void = Toolbar.registerAction(actionConfig);
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    // 核心断言：迟到的第一次 Promise resolve 绝不能误解开第二次点击的锁！
-    // 再次点击必须依然被互斥锁拦截
-    actionBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const replacementButton: HTMLElement | null = document.getElementById("action_epoch-test-action");
+    replacementButton?.click();
     expect(executeCount).toBe(2);
 
-    vi.useRealTimers();
+    resolveActions[0]();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    replacementButton?.click();
+    expect(executeCount).toBe(2);
+
+    resolveActions[1]();
+    await Promise.resolve();
+    await Promise.resolve();
+    newDisposer();
+    playerContainer.remove();
+  });
+
+  it("does not let a pre-destroy promise completion release a reinitialized action lock", async (): Promise<void> => {
+    const resolveActions: Array<() => void> = [];
+    let executeCount: number = 0;
+    const actionConfig: ActionConfig = {
+      id: "reinitialized-epoch-action",
+      slot: TOOLBAR_CONSTANTS.SLOT_PLAYER_CONTROLS,
+      titleKey: "reinitialized-epoch",
+      defaultTitle: "Reinitialized epoch",
+      icon: "epoch",
+      onClick: (): Promise<void> => {
+        executeCount += 1;
+        return new Promise<void>((resolve: () => void): void => {
+          resolveActions.push(resolve);
+        });
+      }
+    };
+    const disposer: () => void = Toolbar.registerAction(actionConfig);
+
+    const watchPage: HTMLElement = document.createElement("ytd-watch-flexy");
+    const playerContainer: HTMLElement = document.createElement("div");
+    playerContainer.id = "movie_player";
+    const controls: HTMLElement = document.createElement("div");
+    controls.className = "ytp-right-controls";
+    playerContainer.appendChild(controls);
+    watchPage.appendChild(playerContainer);
+    document.body.appendChild(watchPage);
+
+    Toolbar.init();
+    const oldButton: HTMLElement | null = document.getElementById("action_reinitialized-epoch-action");
+    oldButton?.click();
+    expect(executeCount).toBe(1);
+
+    Toolbar.destroy();
+    Toolbar.init();
+    const currentButton: HTMLElement | null = document.getElementById("action_reinitialized-epoch-action");
+    currentButton?.click();
+    expect(executeCount).toBe(2);
+
+    resolveActions[0]();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    currentButton?.click();
+    expect(executeCount).toBe(2);
+
+    resolveActions[1]();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    currentButton?.click();
+    expect(executeCount).toBe(3);
+
+    resolveActions[2]();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
     disposer();
     playerContainer.remove();
   });
