@@ -1,3 +1,5 @@
+import { ACTIVE_MODAL_ATTRIBUTE } from "./constants";
+
 export interface ShortcutBinding {
   key: string;
   shiftKey?: boolean;
@@ -81,7 +83,7 @@ export const ShortcutDispatcher = (() => {
   };
 
   const handleKeydown = (event: KeyboardEvent): void => {
-    if (!isEnabled) {
+    if (!isEnabled || document.documentElement.hasAttribute(ACTIVE_MODAL_ATTRIBUTE)) {
       return;
     }
 

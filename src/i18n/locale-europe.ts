@@ -5,6 +5,7 @@ export const EUROPE_LOCALES: Record<string, LocaleDictionary> = {
     direction: 'ltr',
     messages: {
       function_setting_title: "Настройки",
+      modal_close: "Затвори",
       feature_comment_table_title: "Подредба Tabview",
       feature_comment_table_desc: "Разделя подробностите за видеото в раздели за коментари, препоръки и информация.",
       feature_four_column_grid_title: "Адаптивна мрежа с 4 колони",
@@ -79,6 +80,7 @@ export const EUROPE_LOCALES: Record<string, LocaleDictionary> = {
     direction: 'ltr',
     messages: {
       function_setting_title: "Nastavení",
+      modal_close: "Zavřít",
       feature_comment_table_title: "Rozložení Tabview",
       feature_comment_table_desc: "Rozděluje podrobnosti o videu do karet s komentáři, doporučeními a informacemi.",
       feature_four_column_grid_title: "Responzivní mřížka se 4 sloupci",
@@ -153,6 +155,7 @@ export const EUROPE_LOCALES: Record<string, LocaleDictionary> = {
     direction: 'ltr',
     messages: {
       function_setting_title: "Indstillinger",
+      modal_close: "Luk",
       feature_comment_table_title: "Tabview-layout",
       feature_comment_table_desc: "Opdeler videooplysninger i faner med kommentarer, anbefalinger og information.",
       feature_four_column_grid_title: "Responsivt gitter med 4 kolonner",
@@ -227,6 +230,7 @@ export const EUROPE_LOCALES: Record<string, LocaleDictionary> = {
     direction: 'ltr',
     messages: {
       function_setting_title: "Ρυθμίσεις",
+      modal_close: "Κλείσιμο",
       feature_comment_table_title: "Διάταξη Tabview",
       feature_comment_table_desc: "Χωρίζει τις λεπτομέρειες του βίντεο σε καρτέλες για σχόλια, προτάσεις και πληροφορίες.",
       feature_four_column_grid_title: "Προσαρμοζόμενο πλέγμα 4 στηλών",
@@ -301,6 +305,7 @@ export const EUROPE_LOCALES: Record<string, LocaleDictionary> = {
     direction: 'ltr',
     messages: {
       function_setting_title: "Agordoj",
+      modal_close: "Fermi",
       feature_comment_table_title: "Tabview-aranĝo",
       feature_comment_table_desc: "Dividas la videodetalojn en langetojn por komentoj, rekomendoj kaj informoj.",
       feature_four_column_grid_title: "Adaptiĝema krado kun 4 kolumnoj",
@@ -375,6 +380,7 @@ export const EUROPE_LOCALES: Record<string, LocaleDictionary> = {
     direction: 'ltr',
     messages: {
       function_setting_title: "Asetukset",
+      modal_close: "Sulje",
       feature_comment_table_title: "Tabview-asettelu",
       feature_comment_table_desc: "Jakaa videon tiedot välilehtiin, joissa ovat kommentit, suositukset ja tiedot.",
       feature_four_column_grid_title: "Mukautuva neljän sarakkeen ruudukko",
@@ -449,6 +455,7 @@ export const EUROPE_LOCALES: Record<string, LocaleDictionary> = {
     direction: 'ltr',
     messages: {
       function_setting_title: "Postavke",
+      modal_close: "Zatvori",
       feature_comment_table_title: "Raspored Tabview",
       feature_comment_table_desc: "Razdvaja pojedinosti o videozapisu u kartice za komentare, preporuke i informacije.",
       feature_four_column_grid_title: "Prilagodljiva mreža s 4 stupca",
@@ -523,6 +530,7 @@ export const EUROPE_LOCALES: Record<string, LocaleDictionary> = {
     direction: 'ltr',
     messages: {
       function_setting_title: "Beállítások",
+      modal_close: "Bezárás",
       feature_comment_table_title: "Tabview-elrendezés",
       feature_comment_table_desc: "A videó részleteit a hozzászólások, ajánlások és információk lapjaira rendezi.",
       feature_four_column_grid_title: "Reszponzív, 4 oszlopos rács",
@@ -597,6 +605,7 @@ export const EUROPE_LOCALES: Record<string, LocaleDictionary> = {
     direction: 'ltr',
     messages: {
       function_setting_title: "Impostazioni",
+      modal_close: "Chiudi",
       feature_comment_table_title: "Layout Tabview",
       feature_comment_table_desc: "Organizza i dettagli del video in schede per commenti, consigli e informazioni.",
       feature_four_column_grid_title: "Griglia adattiva a 4 colonne",
@@ -671,6 +680,7 @@ export const EUROPE_LOCALES: Record<string, LocaleDictionary> = {
     direction: 'ltr',
     messages: {
       function_setting_title: "Innstillinger",
+      modal_close: "Lukk",
       feature_comment_table_title: "Tabview-oppsett",
       feature_comment_table_desc: "Deler videodetaljene inn i faner for kommentarer, anbefalinger og informasjon.",
       feature_four_column_grid_title: "Responsivt rutenett med 4 kolonner",

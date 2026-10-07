@@ -5,6 +5,7 @@ export const GLOBAL_LOCALES: Record<string, LocaleDictionary> = {
     direction: "rtl",
     messages: {
       function_setting_title: "הגדרות",
+      modal_close: "סגירה",
       feature_comment_table_title: "פריסת Tabview",
       feature_comment_table_desc: "ארגן מחדש את פרטי הסרטון בכרטיסיות לתגובות, המלצות ומידע.",
       feature_four_column_grid_title: "רשת רספונסיבית בת 4 עמודות",
@@ -79,6 +80,7 @@ export const GLOBAL_LOCALES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "პარამეტრები",
+      modal_close: "დახურვა",
       feature_comment_table_title: "Tabview განლაგება",
       feature_comment_table_desc: "ვიდეოს დეტალები გადაანაწილეთ ჩანართებად კომენტარების, რეკომენდაციებისა და ინფორმაციისთვის.",
       feature_four_column_grid_title: "ადაპტური 4-სვეტიანი ბადე",
@@ -153,6 +155,7 @@ export const GLOBAL_LOCALES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Instellingen",
+      modal_close: "Sluiten",
       feature_comment_table_title: "Tabview-indeling",
       feature_comment_table_desc: "Verdeel de videogegevens over tabbladen voor reacties, aanbevelingen en informatie.",
       feature_four_column_grid_title: "Responsief raster met 4 kolommen",
@@ -227,6 +230,7 @@ export const GLOBAL_LOCALES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Ustawienia",
+      modal_close: "Zamknij",
       feature_comment_table_title: "Układ Tabview",
       feature_comment_table_desc: "Podziel szczegóły filmu na karty z komentarzami, poleceniami i informacjami.",
       feature_four_column_grid_title: "Responsywna siatka 4-kolumnowa",
@@ -301,6 +305,7 @@ export const GLOBAL_LOCALES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Setări",
+      modal_close: "Închide",
       feature_comment_table_title: "Aspect Tabview",
       feature_comment_table_desc: "Reorganizează detaliile videoclipului în file pentru comentarii, recomandări și informații.",
       feature_four_column_grid_title: "Grilă adaptivă cu 4 coloane",
@@ -375,6 +380,7 @@ export const GLOBAL_LOCALES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Inställningar",
+      modal_close: "Stäng",
       feature_comment_table_title: "Tabview-layout",
       feature_comment_table_desc: "Dela upp videodetaljer i flikar för kommentarer, rekommendationer och information.",
       feature_four_column_grid_title: "Responsivt rutnät med fyra kolumner",
@@ -449,6 +455,7 @@ export const GLOBAL_LOCALES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "การตั้งค่า",
+      modal_close: "ปิด",
       feature_comment_table_title: "รูปแบบแท็บ Tabview",
       feature_comment_table_desc: "จัดรายละเอียดวิดีโอเป็นแท็บสำหรับความคิดเห็น วิดีโอแนะนำ และข้อมูล",
       feature_four_column_grid_title: "ตารางแบบปรับตามหน้าจอ 4 คอลัมน์",
@@ -523,6 +530,7 @@ export const GLOBAL_LOCALES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Налаштування",
+      modal_close: "Закрити",
       feature_comment_table_title: "Макет Tabview",
       feature_comment_table_desc: "Розподіліть відомості про відео на вкладки з коментарями, рекомендаціями та інформацією.",
       feature_four_column_grid_title: "Адаптивна сітка з 4 стовпців",
@@ -597,6 +605,7 @@ export const GLOBAL_LOCALES: Record<string, LocaleDictionary> = {
     direction: "rtl",
     messages: {
       function_setting_title: "تەڭشەكلەر",
+      modal_close: "ياپماق",
       feature_comment_table_title: "Tabview بەت ئورۇنلاشتۇرۇشى",
       feature_comment_table_desc: "سىن تەپسىلاتلىرىنى باھا، تەۋسىيە ۋە ئۇچۇرلار ئۈچۈن بەتكۈچلەرگە ئايرىڭ.",
       feature_four_column_grid_title: "ماسلىشىشچان 4 ئىستونلۇق تور",
@@ -671,6 +680,7 @@ export const GLOBAL_LOCALES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Cài đặt",
+      modal_close: "Đóng",
       feature_comment_table_title: "Bố cục Tabview",
       feature_comment_table_desc: "Sắp xếp thông tin video thành các thẻ bình luận, video đề xuất và thông tin.",
       feature_four_column_grid_title: "Lưới thích ứng 4 cột",

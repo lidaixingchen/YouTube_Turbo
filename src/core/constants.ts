@@ -22,6 +22,7 @@ export const RETAINED_PAGE_EXCLUSION = ":not([hidden])";
 export const PAGE_MANAGER_ID = "page-manager";
 export const HIDDEN_ATTRIBUTE = "hidden";
 export const FEATURE_STATE_STORAGE_KEY = "yt/functionState_01";
+export const ACTIVE_MODAL_ATTRIBUTE = "data-yt-modal-active";
 
 export const APPLICATION_STARTUP_CONSTANTS = {
   SETTINGS_ACTION_ID: "setting",

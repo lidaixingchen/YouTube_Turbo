@@ -13,6 +13,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Setting",
+      modal_close: "Close",
       feature_comment_table_title: "Tabview Layout",
       feature_comment_table_desc: "Reorganize video details into tabs for comments, recommendations, and info.",
       feature_four_column_grid_title: "4-Column Responsive Grid",
@@ -87,6 +88,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "设置",
+      modal_close: "关闭",
       feature_comment_table_title: "Tabview 分栏标签页",
       feature_comment_table_desc: "重构详情页评论区、推荐列表与简介为多标签分栏布局",
       feature_four_column_grid_title: "响应式 4 列网格",
@@ -161,6 +163,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "設定",
+      modal_close: "關閉",
       feature_comment_table_title: "Tabview 分欄標籤頁",
       feature_comment_table_desc: "重構詳情頁留言區、推薦列表與簡介為多標籤分欄版面",
       feature_four_column_grid_title: "響應式 4 欄網格",
@@ -235,6 +238,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "設定",
+      modal_close: "閉じる",
       feature_comment_table_title: "Tabview 分割タブ",
       feature_comment_table_desc: "コメント、おすすめ、概要欄をタブ形式のレイアウトに再構築します",
       feature_four_column_grid_title: "4列レスポンシブグリッド",
@@ -309,6 +313,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "설정",
+      modal_close: "닫기",
       feature_screenshot_title: "동영상 해상도 스크린샷",
       feature_screenshot_desc: "단축키: Shift+S, 툴바 버튼 및 무손실 캡처 지원",
       feature_pip_title: "PIP(화면 속 화면)",
@@ -383,6 +388,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Настройки",
+      modal_close: "Закрыть",
       feature_screenshot_title: "Скриншот в физическом разрешении",
       feature_screenshot_desc: "Горячая клавиша: Shift+S, кнопка на панели и захват холста без потерь.",
       feature_pip_title: "Картинка в картинке",
@@ -457,6 +463,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Paramètres",
+      modal_close: "Fermer",
       feature_screenshot_title: "Capture d'écran en résolution native",
       feature_screenshot_desc: "Raccourci : Shift+S, bouton de barre d'outils et capture sans perte.",
       feature_pip_title: "Image dans l'image (PiP)",
@@ -531,6 +538,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Einstellungen",
+      modal_close: "Schließen",
       feature_screenshot_title: "Screenshot in nativer Auflösung",
       feature_screenshot_desc: "Tastenkürzel: Shift+S, Toolbar-Aktion und verlustfreie Frame-Erfassung.",
       feature_pip_title: "Bild-in-Bild",
@@ -605,6 +613,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Ajustes",
+      modal_close: "Cerrar",
       feature_screenshot_title: "Captura de pantalla de resolución nativa",
       feature_screenshot_desc: "Atajo: Shift+S, botón en barra de control y captura sin pérdidas.",
       feature_pip_title: "Imagen en imagen",
@@ -679,6 +688,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Pengaturan",
+      modal_close: "Tutup",
       feature_screenshot_title: "Tangkapan Layar Resolusi Asli",
       feature_screenshot_desc: "Pintasan: Shift+S, tombol bilah alat dan tangkapan tanpa penurunan kualitas.",
       feature_pip_title: "Gambar dalam Gambar (PiP)",
@@ -753,6 +763,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Configurações",
+      modal_close: "Fechar",
       feature_screenshot_title: "Captura em Resolução Nativa",
       feature_screenshot_desc: "Atalho: Shift+S, botão na barra de controle e captura sem perdas.",
       feature_pip_title: "Picture-in-Picture",
@@ -827,6 +838,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "ltr",
     messages: {
       function_setting_title: "Ayarlar",
+      modal_close: "Kapat",
       feature_screenshot_title: "Fiziksel Çözünürlükte Ekran Görüntüsü",
       feature_screenshot_desc: "Kısayol: Shift+S, araç çubuğu düğmesi ve kayıpsız kare yakalama.",
       feature_pip_title: "Resim içinde Resim (PiP)",
@@ -901,6 +913,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     direction: "rtl",
     messages: {
       function_setting_title: "الإعدادات",
+      modal_close: "إغلاق",
       feature_screenshot_title: "لقطة شاشة بالدقة الفعلية",
       feature_screenshot_desc: "اختصار: Shift+S، يدعم زر شريط الأدوات والتقاط الإطارات بدون فقدان.",
       feature_pip_title: "صورة داخل صورة",
