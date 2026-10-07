@@ -164,6 +164,9 @@ describe("TimedTextInterceptor failure settlement", (): void => {
       } else {
         const response: Response = await failedRequest;
         expect(response).toBe(failedResponse);
+        if (failureCase === "body read failure") {
+          expect(await response.text()).toBe(makePayload("Unreadable"));
+        }
       }
 
       expect(harness.timeline.getActiveCueText(QUERY_TIME_MS)).toBe("Cached English");

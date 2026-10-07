@@ -1,6 +1,7 @@
 export const SUBTITLE_CONSTANTS = {
   STORAGE_KEY_OFFSET: "yt/subtitleOffset",
   MS_PER_SECOND: 1000,
+  TIME_ORIGIN_MS: 0,
   DECIMAL_PRECISION: 2,
   DEFAULT_OFFSET_MS: 0,
   STEP_OFFSET_MS: 250,
@@ -18,6 +19,18 @@ export const SUBTITLE_CONSTANTS = {
   HTTP_STATUS_NO_CONTENT: 204,
   HTTP_STATUS_RESET_CONTENT: 205,
   XHR_READY_STATE_DONE: 4,
+  XHR_HEADER_LINE_SEPARATOR: "\r\n",
+  HTTP_HEADER_NAME_SEPARATOR: ":",
+  INVALIDATED_RESPONSE_HEADERS: [
+    "content-length",
+    "content-encoding",
+    "content-range",
+    "content-md5",
+    "digest",
+    "content-digest",
+    "repr-digest",
+    "etag"
+  ],
   INTERVAL_START_MIN_MS: Number.NEGATIVE_INFINITY,
   INTERVAL_END_MAX_MS: Number.POSITIVE_INFINITY,
   SHORTCUT_ADVANCE_KEY: "[",
