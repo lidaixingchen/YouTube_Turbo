@@ -56,7 +56,7 @@ export const Locale = (() => {
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
-          msg = msg.replace(new RegExp(`\\{${paramKey}\\}`, "g"), val);
+          msg = msg.replace(new RegExp(`\\{${paramKey}\\}`, "g"), (_match: string): string => val);
         });
       }
       return msg;
