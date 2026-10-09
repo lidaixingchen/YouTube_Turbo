@@ -71,3 +71,41 @@ body ytd-watch-flexy[is-two-columns_][tyt-egm-panel_] #right-tabs {
 body ytd-watch-flexy[is-two-columns_][tyt-egm-panel_] #right-tabs .tab-content {
   display: none;
 }
+
+#right-tabs #material-tabs .tab-btn-group {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  position: relative;
+}
+
+#right-tabs #material-tabs .tab-btn-group:has(> .tab-btn-hidden) {
+  display: none;
+}
+
+#right-tabs #material-tabs button.tab-btn[tyt-tab-content] {
+  appearance: none;
+  font-family: inherit;
+}
+
+#right-tabs #material-tabs .font-size-right {
+  display: inline-flex;
+}
+
+#right-tabs #material-tabs .tab-btn-group:hover .font-size-btn,
+#right-tabs #material-tabs .tab-btn-group:focus-within .font-size-btn {
+  --tyt-font-size-btn-display: inline-block;
+}
+
+#right-tabs #material-tabs button.font-size-btn {
+  appearance: none;
+  border: 0;
+  font-family: inherit;
+}
+
+#right-tabs #material-tabs button.tab-btn:focus-visible,
+#right-tabs #material-tabs button.font-size-btn:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+  z-index: 1;
+}

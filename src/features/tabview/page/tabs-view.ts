@@ -69,7 +69,7 @@ export class TabsView {
 
     const tabKeys: TabKey[] = ["info", "comments", "videos", "playlist"];
     for (const tabKey of tabKeys) {
-      const button: HTMLAnchorElement | null = this.container.querySelector<HTMLAnchorElement>(
+      const button: HTMLButtonElement | null = this.container.querySelector<HTMLButtonElement>(
         this.getTabButtonSelector(tabKey)
       );
       if (!button) {
@@ -88,8 +88,12 @@ export class TabsView {
         tabKey === "comments"
           ? this.container.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.COMMENT_COUNT_BADGE)?.textContent?.trim() ?? ""
           : "";
-      button.setAttribute("aria-label", commentCount ? `${label} ${commentCount}` : label);
+      button.setAttribute(
+        PAGE_CONSTANTS.ATTRIBUTES.ARIA_LABEL,
+        commentCount ? `${label} ${commentCount}` : label
+      );
     }
+    this.updateFontSizeLabels(localeSnapshot);
   }
 
   public setActiveTab(tabKey: TabKey): void {
@@ -98,33 +102,41 @@ export class TabsView {
       return;
     }
 
-    const tabButtons = this.container.querySelectorAll<HTMLAnchorElement>(`a.${PAGE_CONSTANTS.CLASSES.TAB_BTN}`);
-    const tabPanels = this.container.querySelectorAll<HTMLElement>(PAGE_CONSTANTS.SELECTORS.TAB_CONTENT_CHILDREN);
+    const tabButtons: NodeListOf<HTMLButtonElement> = this.container.querySelectorAll<HTMLButtonElement>(
+      `button.${PAGE_CONSTANTS.CLASSES.TAB_BTN}[${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}]`
+    );
+    const tabPanels: NodeListOf<HTMLElement> = this.container.querySelectorAll<HTMLElement>(
+      PAGE_CONSTANTS.SELECTORS.TAB_CONTENT_CHILDREN
+    );
 
-    const targetContentSelector = this.getContentSelector(tabKey);
+    const targetContentSelector: string = this.getContentSelector(tabKey);
 
     for (let i = 0; i < tabButtons.length; i++) {
-      const btn = tabButtons[i];
-      const contentAttr = btn.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT);
-      if (contentAttr === targetContentSelector) {
+      const btn: HTMLButtonElement = tabButtons[i];
+      const contentAttr: string | null = btn.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT);
+      const isActive: boolean = contentAttr === targetContentSelector;
+      if (isActive) {
         btn.classList.add(PAGE_CONSTANTS.CLASSES.TAB_BTN_ACTIVE);
       } else {
         btn.classList.remove(PAGE_CONSTANTS.CLASSES.TAB_BTN_ACTIVE);
       }
+      btn.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.ARIA_PRESSED, String(isActive));
     }
 
     for (let i = 0; i < tabPanels.length; i++) {
-      const panel = tabPanels[i];
+      const panel: HTMLElement = tabPanels[i];
       if (`#${panel.id}` === targetContentSelector) {
         panel.classList.remove(PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN);
         panel.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN);
+        panel.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.ARIA_HIDDEN, "false");
       } else {
         panel.classList.add(PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN);
         panel.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN, "");
+        panel.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.ARIA_HIDDEN, "true");
       }
     }
 
-    const flexy = document.querySelector(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
+    const flexy: HTMLElement | null = document.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.YTD_WATCH_FLEXY);
     if (flexy) {
       flexy.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB, targetContentSelector);
     }
@@ -134,17 +146,61 @@ export class TabsView {
     if (!this.container) {
       return;
     }
-    const badge = this.container.querySelector<HTMLElement>(PAGE_CONSTANTS.SELECTORS.COMMENT_COUNT_BADGE);
+    const badge: HTMLElement | null = this.container.querySelector<HTMLElement>(
+      PAGE_CONSTANTS.SELECTORS.COMMENT_COUNT_BADGE
+    );
     if (badge) {
       badge.textContent = countText;
     }
-    const commentsButton: HTMLAnchorElement | null = this.container.querySelector<HTMLAnchorElement>(PAGE_CONSTANTS.SELECTORS.TAB_BTN_COMMENTS);
+    const commentsButton: HTMLButtonElement | null = this.container.querySelector<HTMLButtonElement>(
+      PAGE_CONSTANTS.SELECTORS.TAB_BTN_COMMENTS
+    );
     if (commentsButton) {
       const label: string = this.options
         ? this.getTabLabel(this.options.localeSnapshot, "comments")
         : "Comments";
       const commentCount: string = countText.trim();
-      commentsButton.setAttribute("aria-label", commentCount ? `${label} ${commentCount}` : label);
+      commentsButton.setAttribute(
+        PAGE_CONSTANTS.ATTRIBUTES.ARIA_LABEL,
+        commentCount ? `${label} ${commentCount}` : label
+      );
+    }
+  }
+
+  private updateFontSizeLabels(localeSnapshot: LocaleSnapshot): void {
+    if (!this.container) {
+      return;
+    }
+
+    const fontSizeButtons: NodeListOf<HTMLButtonElement> = this.container.querySelectorAll<HTMLButtonElement>(
+      `button.${PAGE_CONSTANTS.CLASSES.FONT_SIZE_BTN}`
+    );
+    for (let i: number = 0; i < fontSizeButtons.length; i++) {
+      const fontSizeButton: HTMLButtonElement = fontSizeButtons[i];
+      const group: HTMLElement | null = fontSizeButton.closest<HTMLElement>(
+        `.${PAGE_CONSTANTS.CLASSES.TAB_BTN_GROUP}`
+      );
+      const tabButton: HTMLButtonElement | null = group?.querySelector<HTMLButtonElement>(
+        `button.${PAGE_CONSTANTS.CLASSES.TAB_BTN}[${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}]`
+      ) ?? null;
+      if (!tabButton) {
+        continue;
+      }
+
+      const tabKey: TabKey = this.getTabKeyFromSelector(
+        tabButton.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT)
+      );
+      const messageKey: string = fontSizeButton.classList.contains(PAGE_CONSTANTS.CLASSES.FONT_SIZE_PLUS)
+        ? PAGE_CONSTANTS.I18N_KEYS.TAB_FONT_SIZE_INCREASE
+        : PAGE_CONSTANTS.I18N_KEYS.TAB_FONT_SIZE_DECREASE;
+      const actionLabel: string | undefined = localeSnapshot.messages[messageKey];
+      if (!actionLabel) {
+        fontSizeButton.removeAttribute(PAGE_CONSTANTS.ATTRIBUTES.ARIA_LABEL);
+        continue;
+      }
+
+      const tabLabel: string = this.getTabLabel(localeSnapshot, tabKey);
+      fontSizeButton.setAttribute(PAGE_CONSTANTS.ATTRIBUTES.ARIA_LABEL, `${tabLabel}: ${actionLabel}`);
     }
   }
 
@@ -158,8 +214,8 @@ export class TabsView {
     if (!this.container) {
       return clampedSize;
     }
-    const selector = this.getContentSelector(tabKey);
-    const panel = this.container.querySelector<HTMLElement>(selector);
+    const selector: string = this.getContentSelector(tabKey);
+    const panel: HTMLElement | null = this.container.querySelector<HTMLElement>(selector);
     if (panel) {
       panel.style.fontSize = `${clampedSize}px`;
     }
@@ -236,27 +292,27 @@ export class TabsView {
   }
 
   private generateTabsHtml(localeSnapshot: LocaleSnapshot): string {
-    const strRipple = `
+    const strRipple: string = `
       <paper-ripple class="style-scope yt-icon-button">
         <div id="background" class="style-scope paper-ripple" style="opacity:0;"></div>
         <div id="waves" class="style-scope paper-ripple"></div>
       </paper-ripple>
     `;
 
-    const strFontBtns = `
+    const strFontBtns = (): string => `
       <div class="${PAGE_CONSTANTS.CLASSES.FONT_SIZE_RIGHT}">
-        <div class="${PAGE_CONSTANTS.CLASSES.FONT_SIZE_BTN} ${PAGE_CONSTANTS.CLASSES.FONT_SIZE_PLUS}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="8rdLQ">
+        <button type="button" class="${PAGE_CONSTANTS.CLASSES.FONT_SIZE_BTN} ${PAGE_CONSTANTS.CLASSES.FONT_SIZE_PLUS}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="8rdLQ">
           <svg width="12" height="12" viewBox="0 0 50 50" preserveAspectRatio="xMidYMid meet"
-               stroke="currentColor" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-size">
+               stroke="currentColor" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-size" aria-hidden="true" focusable="false">
             <path d="M12 25H38M25 12V38"/>
           </svg>
-        </div>
-        <div class="${PAGE_CONSTANTS.CLASSES.FONT_SIZE_BTN} ${PAGE_CONSTANTS.CLASSES.FONT_SIZE_MINUS}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="8rdLQ">
+        </button>
+        <button type="button" class="${PAGE_CONSTANTS.CLASSES.FONT_SIZE_BTN} ${PAGE_CONSTANTS.CLASSES.FONT_SIZE_MINUS}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="8rdLQ">
           <svg width="12" height="12" viewBox="0 0 50 50" preserveAspectRatio="xMidYMid meet"
-               stroke="currentColor" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-size">
+               stroke="currentColor" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-size" aria-hidden="true" focusable="false">
             <path d="M12 25h26"/>
           </svg>
-        </div>
+        </button>
       </div>
     `.replace(/[\r\n\s]+/g, " ");
 
@@ -264,34 +320,42 @@ export class TabsView {
     const videosLabel: string = this.getTabLabel(localeSnapshot, "videos");
     const playlistLabel: string = this.getTabLabel(localeSnapshot, "playlist");
 
-    const svgInfoElm = `<svg width="16" height="16" viewBox="0 0 60 60" preserveAspectRatio="xMidYMid meet">${PAGE_CONSTANTS.SVG.INFO}</svg>`;
-    const svgCommentsElm = `<svg width="16" height="16" viewBox="0 0 120 120" preserveAspectRatio="xMidYMid meet">${PAGE_CONSTANTS.SVG.COMMENTS}</svg>`;
-    const svgVideosElm = `<svg width="16" height="16" viewBox="0 0 90 90" preserveAspectRatio="xMidYMid meet">${PAGE_CONSTANTS.SVG.VIDEOS}</svg>`;
-    const svgPlaylistElm = `<svg width="16" height="16" viewBox="0 0 20 20" preserveAspectRatio="xMidYMid meet">${PAGE_CONSTANTS.SVG.PLAYLIST}</svg>`;
+    const svgInfoElm: string = `<svg width="16" height="16" viewBox="0 0 60 60" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">${PAGE_CONSTANTS.SVG.INFO}</svg>`;
+    const svgCommentsElm: string = `<svg width="16" height="16" viewBox="0 0 120 120" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">${PAGE_CONSTANTS.SVG.COMMENTS}</svg>`;
+    const svgVideosElm: string = `<svg width="16" height="16" viewBox="0 0 90 90" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">${PAGE_CONSTANTS.SVG.VIDEOS}</svg>`;
+    const svgPlaylistElm: string = `<svg width="16" height="16" viewBox="0 0 20 20" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">${PAGE_CONSTANTS.SVG.PLAYLIST}</svg>`;
 
     return `
       <tabview-view-pos-thead></tabview-view-pos-thead>
       <header>
         <div id="${PAGE_CONSTANTS.IDS.MATERIAL_TABS}">
-          <a id="${PAGE_CONSTANTS.IDS.TAB_BTN_INFO}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
-            ${svgInfoElm}<span>${infoLabel}</span>${strRipple}${strFontBtns}
-          </a>
-          <a id="${PAGE_CONSTANTS.IDS.TAB_BTN_COMMENTS}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
-            ${svgCommentsElm}<span id="${PAGE_CONSTANTS.IDS.COMMENT_COUNT_BADGE}"></span>${strRipple}${strFontBtns}
-          </a>
-          <a id="${PAGE_CONSTANTS.IDS.TAB_BTN_VIDEOS}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
-            ${svgVideosElm}<span>${videosLabel}</span>${strRipple}${strFontBtns}
-          </a>
-          <a id="${PAGE_CONSTANTS.IDS.TAB_BTN_PLAYLIST}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_PLAYLIST_CONTAINER}" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN} ${PAGE_CONSTANTS.CLASSES.TAB_BTN_HIDDEN}">
-            ${svgPlaylistElm}<span>${playlistLabel}</span>${strRipple}${strFontBtns}
-          </a>
+          <div class="${PAGE_CONSTANTS.CLASSES.TAB_BTN_GROUP}">
+            <button type="button" id="${PAGE_CONSTANTS.IDS.TAB_BTN_INFO}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_INFO_CONTAINER}" ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_CONTROLS}="${PAGE_CONSTANTS.IDS.TAB_INFO}" ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_PRESSED}="false" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
+              ${svgInfoElm}<span>${infoLabel}</span>${strRipple}
+            </button>${strFontBtns()}
+          </div>
+          <div class="${PAGE_CONSTANTS.CLASSES.TAB_BTN_GROUP}">
+            <button type="button" id="${PAGE_CONSTANTS.IDS.TAB_BTN_COMMENTS}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_COMMENTS_CONTAINER}" ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_CONTROLS}="${PAGE_CONSTANTS.IDS.TAB_COMMENTS}" ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_PRESSED}="false" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
+              ${svgCommentsElm}<span id="${PAGE_CONSTANTS.IDS.COMMENT_COUNT_BADGE}"></span>${strRipple}
+            </button>${strFontBtns()}
+          </div>
+          <div class="${PAGE_CONSTANTS.CLASSES.TAB_BTN_GROUP}">
+            <button type="button" id="${PAGE_CONSTANTS.IDS.TAB_BTN_VIDEOS}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_VIDEOS_CONTAINER}" ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_CONTROLS}="${PAGE_CONSTANTS.IDS.TAB_VIDEOS}" ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_PRESSED}="false" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN}">
+              ${svgVideosElm}<span>${videosLabel}</span>${strRipple}
+            </button>${strFontBtns()}
+          </div>
+          <div class="${PAGE_CONSTANTS.CLASSES.TAB_BTN_GROUP}">
+            <button type="button" id="${PAGE_CONSTANTS.IDS.TAB_BTN_PLAYLIST}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_DI}="q9Kjc" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}="${PAGE_CONSTANTS.SELECTORS.TAB_PLAYLIST_CONTAINER}" ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_CONTROLS}="${PAGE_CONSTANTS.IDS.TAB_PLAYLIST}" ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_PRESSED}="false" class="${PAGE_CONSTANTS.CLASSES.TAB_BTN} ${PAGE_CONSTANTS.CLASSES.TAB_BTN_HIDDEN}">
+              ${svgPlaylistElm}<span>${playlistLabel}</span>${strRipple}
+            </button>${strFontBtns()}
+          </div>
         </div>
       </header>
       <div class="tab-content">
-        <div id="${PAGE_CONSTANTS.IDS.TAB_INFO}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
-        <div id="${PAGE_CONSTANTS.IDS.TAB_COMMENTS}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
-        <div id="${PAGE_CONSTANTS.IDS.TAB_VIDEOS}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
-        <div id="${PAGE_CONSTANTS.IDS.TAB_PLAYLIST}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
+        <div id="${PAGE_CONSTANTS.IDS.TAB_INFO}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_HIDDEN}="true" ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
+        <div id="${PAGE_CONSTANTS.IDS.TAB_COMMENTS}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_HIDDEN}="true" ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
+        <div id="${PAGE_CONSTANTS.IDS.TAB_VIDEOS}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_HIDDEN}="true" ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
+        <div id="${PAGE_CONSTANTS.IDS.TAB_PLAYLIST}" class="${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_CLD} ${PAGE_CONSTANTS.CLASSES.TAB_CONTENT_HIDDEN}" ${PAGE_CONSTANTS.ATTRIBUTES.TYT_HIDDEN} ${PAGE_CONSTANTS.ATTRIBUTES.ARIA_HIDDEN}="true" ${PAGE_CONSTANTS.ATTRIBUTES.USERSCRIPT_SCROLLBAR}></div>
       </div>
     `;
   }
@@ -307,44 +371,47 @@ export class TabsView {
     }
 
     materialTabs.addEventListener("click", (ev: MouseEvent) => {
-      const target = ev.target as HTMLElement | null;
-      if (!target) {
+      const target: EventTarget | null = ev.target;
+      if (!(target instanceof Element)) {
         return;
       }
 
-      const fontPlus = target.closest(`.${PAGE_CONSTANTS.CLASSES.FONT_SIZE_PLUS}`);
-      const fontMinus = target.closest(`.${PAGE_CONSTANTS.CLASSES.FONT_SIZE_MINUS}`);
-      const tabBtn = target.closest<HTMLAnchorElement>(`a.${PAGE_CONSTANTS.CLASSES.TAB_BTN}`);
-
-      if (!tabBtn) {
-        return;
-      }
-
-      const tabKey = this.getTabKeyFromSelector(
-        tabBtn.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT)
+      const fontSizeButton: HTMLButtonElement | null = target.closest<HTMLButtonElement>(
+        `button.${PAGE_CONSTANTS.CLASSES.FONT_SIZE_BTN}`
       );
+      if (fontSizeButton) {
+        const group: HTMLElement | null = fontSizeButton.closest<HTMLElement>(
+          `.${PAGE_CONSTANTS.CLASSES.TAB_BTN_GROUP}`
+        );
+        const tabButton: HTMLButtonElement | null = group?.querySelector<HTMLButtonElement>(
+          `button.${PAGE_CONSTANTS.CLASSES.TAB_BTN}[${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}]`
+        ) ?? null;
+        if (!tabButton) {
+          return;
+        }
 
-      if (fontPlus) {
-        ev.preventDefault();
-        ev.stopPropagation();
+        const tabKey: TabKey = this.getTabKeyFromSelector(
+          tabButton.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT)
+        );
         const currentSize: number = this.getFontSize(tabKey);
-        const nextSize: number = currentSize + PAGE_CONSTANTS.FONT_SIZE.STEP_PX;
-        const appliedSize: number = this.setFontSize(tabKey, nextSize);
+        const stepPx: number = fontSizeButton.classList.contains(PAGE_CONSTANTS.CLASSES.FONT_SIZE_PLUS)
+          ? PAGE_CONSTANTS.FONT_SIZE.STEP_PX
+          : -PAGE_CONSTANTS.FONT_SIZE.STEP_PX;
+        const appliedSize: number = this.setFontSize(tabKey, currentSize + stepPx);
         this.options?.onFontSizeChanged(tabKey, appliedSize);
         return;
       }
 
-      if (fontMinus) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const currentSize: number = this.getFontSize(tabKey);
-        const nextSize: number = currentSize - PAGE_CONSTANTS.FONT_SIZE.STEP_PX;
-        const appliedSize: number = this.setFontSize(tabKey, nextSize);
-        this.options?.onFontSizeChanged(tabKey, appliedSize);
+      const tabButton: HTMLButtonElement | null = target.closest<HTMLButtonElement>(
+        `button.${PAGE_CONSTANTS.CLASSES.TAB_BTN}[${PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT}]`
+      );
+      if (!tabButton) {
         return;
       }
 
-      ev.preventDefault();
+      const tabKey: TabKey = this.getTabKeyFromSelector(
+        tabButton.getAttribute(PAGE_CONSTANTS.ATTRIBUTES.TYT_TAB_CONTENT)
+      );
       this.setActiveTab(tabKey);
       this.options?.onTabSelected(tabKey);
     });

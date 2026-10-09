@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { userscriptMetadata } from "../../../build/metadata";
 import { DICTIONARIES, type LocaleDictionary } from "../locales";
+import type { ActiveLocaleSnapshot } from "../index";
 
 const ENGLISH_DICTIONARY: LocaleDictionary = DICTIONARIES.en;
 const ENGLISH_KEYS: string[] = Object.keys(ENGLISH_DICTIONARY.messages);
@@ -8,6 +9,11 @@ const DICTIONARY_ENTRIES: [string, LocaleDictionary][] = Object.entries(DICTIONA
 const DECLARED_LANGUAGE_TAGS: string[] = Object.keys(
   userscriptMetadata.name as Record<string, string>
 ).filter((language: string): boolean => language.length > 0);
+const TABVIEW_ACCESSIBILITY_KEYS: string[] = [
+  "tab_comments",
+  "tab_font_size_increase",
+  "tab_font_size_decrease"
+];
 const LOCALIZED_INTERFACE_KEYS: string[] = [
   "function_setting_title",
   "status_enabled",
@@ -15,7 +21,8 @@ const LOCALIZED_INTERFACE_KEYS: string[] = [
   "status_starting",
   "status_loading_settings",
   "action_retry",
-  "notice_session_only"
+  "notice_session_only",
+  ...TABVIEW_ACCESSIBILITY_KEYS
 ];
 const LANGUAGE_ALIASES: Record<string, string> = {
   "es-419": "es",
@@ -49,6 +56,12 @@ describe("locale dictionaries", () => {
 
       expect(localeModule.Locale.getLocale(), `${language} locale resolution`).toBe(expectedLocale);
       expect(DICTIONARIES[expectedLocale], `${language} runtime dictionary`).toBeDefined();
+      const activeSnapshot: ActiveLocaleSnapshot = localeModule.Locale.exportActiveSnapshot();
+      for (const key of TABVIEW_ACCESSIBILITY_KEYS) {
+        expect(activeSnapshot.messages[key], `${language} snapshot.${key}`).toBe(
+          DICTIONARIES[expectedLocale].messages[key]
+        );
+      }
 
       if (language !== "en") {
         expect(localeModule.Locale.getLocale()).not.toBe("en");

@@ -99,11 +99,20 @@ export const PAGE_CONSTANTS = {
     FONT_SIZE_BTN: "font-size-btn",
     FONT_SIZE_PLUS: "font-size-plus",
     FONT_SIZE_MINUS: "font-size-minus",
+    TAB_BTN_GROUP: "tab-btn-group",
     PLACEHOLDER_ANCHOR: "tyt-relocator-anchor",
     METADATA_HOVER: "tyt-metadata-hover",
     METADATA_HOVER_RESIZED: "tyt-metadata-hover-resized"
   },
+  I18N_KEYS: {
+    TAB_FONT_SIZE_INCREASE: "tab_font_size_increase",
+    TAB_FONT_SIZE_DECREASE: "tab_font_size_decrease"
+  },
   ATTRIBUTES: {
+    ARIA_CONTROLS: "aria-controls",
+    ARIA_HIDDEN: "aria-hidden",
+    ARIA_LABEL: "aria-label",
+    ARIA_PRESSED: "aria-pressed",
     TARGET_ID: "target-id",
     VISIBILITY: "visibility",
     TYT_DI: "tyt-di",
