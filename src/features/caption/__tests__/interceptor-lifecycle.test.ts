@@ -39,6 +39,10 @@ class LifecycleXHR extends window.EventTarget {
   public readyState: number = 0;
   public status: number = 0;
   public responseType: string = "";
+  public dispatchOpenReadyStateChange: boolean = false;
+  public openFailure: Error | null = null;
+  public readonly openArguments: unknown[][] = [];
+  public readonly openReceivers: unknown[] = [];
   public sendFailure: Error | null = null;
   public readonly listenerCountsAtSend: number[] = [];
   private payload: string = "";
@@ -74,10 +78,18 @@ class LifecycleXHR extends window.EventTarget {
     }
   }
 
-  public open(_method: string, _url: string | URL): void {
+  public open(method: string, url: string | URL, ...rest: [boolean?, string?, string?]): void {
+    this.openReceivers.push(this);
+    this.openArguments.push([method, url, ...rest]);
+    if (this.openFailure) {
+      throw this.openFailure;
+    }
     this.readyState = OPENED_READY_STATE;
     this.status = 0;
     this.payload = "";
+    if (this.dispatchOpenReadyStateChange) {
+      this.dispatchEvent(new Event("readystatechange"));
+    }
   }
 
   public send(_body?: Document | XMLHttpRequestBodyInit | null): void {
@@ -106,6 +118,13 @@ class LifecycleXHR extends window.EventTarget {
 
   public fail(eventType: XhrFailureEvent): void {
     this.dispatchEvent(new Event(eventType));
+  }
+}
+
+class SynchronousOpenLifecycleXHR extends LifecycleXHR {
+  public constructor() {
+    super();
+    this.dispatchOpenReadyStateChange = true;
   }
 }
 
@@ -357,6 +376,228 @@ describe("TimedTextInterceptor lifecycle ownership", (): void => {
 
     expect(failedRequests.map((request: CapturedFailure): number => request.requestSequence)).toEqual([2, 4, 5, 6, 7, 8, 9]);
     expect(onTrack.mock.calls.map((call: Parameters<TrackCallback>): number => call[4])).toEqual([1, 3]);
+    expect(onTrack.mock.calls.map((call: Parameters<TrackCallback>): string => call[0])).toEqual([
+      "current-video_en_",
+      "current-video_de_"
+    ]);
+  });
+
+  it("preserves the active request when the native open operation throws", (): void => {
+    const onTrack: Mock<TrackCallback> = vi.fn<TrackCallback>();
+    const failedRequests: CapturedFailure[] = [];
+    interceptor = new TimedTextInterceptor(
+      (): number => OFFSET_MS,
+      onTrack,
+      (): void => {},
+      (key: string, videoId: string, requestSequence: number): void => {
+        failedRequests.push({ key, videoId, requestSequence });
+      }
+    );
+    interceptor.install();
+
+    const xhr: LifecycleXHR = new LifecycleXHR();
+    xhr.open("GET", TIMEDTEXT_URL);
+    xhr.send();
+    const responseTextGetter: (() => string | null) | undefined = Object.getOwnPropertyDescriptor(xhr, "responseText")?.get;
+    const responseGetter: (() => unknown) | undefined = Object.getOwnPropertyDescriptor(xhr, "response")?.get;
+    const openFailure: Error = new Error("native open validation failed");
+    xhr.openFailure = openFailure;
+
+    let thrownError: unknown;
+    try {
+      xhr.open("INVALID METHOD", NON_TIMEDTEXT_URL, false, "user", "password");
+    } catch (error: unknown) {
+      thrownError = error;
+    }
+    expect(thrownError).toBe(openFailure);
+    expect(xhr.openReceivers[xhr.openReceivers.length - 1]).toBe(xhr);
+    expect(xhr.openArguments[xhr.openArguments.length - 1]).toEqual([
+      "INVALID METHOD",
+      NON_TIMEDTEXT_URL,
+      false,
+      "user",
+      "password"
+    ]);
+    expect(xhr.getActiveRequestListenerCount()).toBe(REQUEST_LISTENER_COUNT);
+    expect(Object.getOwnPropertyDescriptor(xhr, "responseText")?.get).toBe(responseTextGetter);
+    expect(Object.getOwnPropertyDescriptor(xhr, "response")?.get).toBe(responseGetter);
+
+    xhr.finish(makePayload("Retained"));
+
+    expect(failedRequests).toEqual([]);
+    expect(onTrack.mock.calls.map((call: Parameters<TrackCallback>): [string, string, number] => [call[0], call[2], call[4]])).toEqual([
+      ["current-video_en_", "current-video", FIRST_REQUEST_SEQUENCE]
+    ]);
+    expect(JSON.parse(xhr.responseText).events[0].tStartMs).toBe(OFFSET_MS);
+  });
+
+  it("uses a successful nested open from a synchronous ready state event after the outer open returns", (): void => {
+    const onTrack: Mock<TrackCallback> = vi.fn<TrackCallback>();
+    const failedRequests: CapturedFailure[] = [];
+    interceptor = new TimedTextInterceptor(
+      (): number => OFFSET_MS,
+      onTrack,
+      (): void => {},
+      (key: string, videoId: string, requestSequence: number): void => {
+        failedRequests.push({ key, videoId, requestSequence });
+      }
+    );
+    interceptor.install();
+
+    const xhr: SynchronousOpenLifecycleXHR = new SynchronousOpenLifecycleXHR();
+    xhr.open("GET", TIMEDTEXT_URL);
+    xhr.send();
+    let reentered: boolean = false;
+    xhr.addEventListener("readystatechange", (): void => {
+      if (xhr.readyState !== OPENED_READY_STATE || reentered) {
+        return;
+      }
+      reentered = true;
+      xhr.open("GET", GERMAN_TIMEDTEXT_URL);
+      xhr.send();
+    });
+
+    xhr.open("GET", FRENCH_TIMEDTEXT_URL);
+    xhr.finish(makePayload("German"));
+
+    expect(onTrack.mock.calls.map((call: Parameters<TrackCallback>): [string, number] => [call[0], call[4]])).toEqual([
+      ["current-video_de_", REINSTALLED_REQUEST_SEQUENCE]
+    ]);
+    expect(failedRequests.map((request: CapturedFailure): number => request.requestSequence)).toEqual([
+      FIRST_REQUEST_SEQUENCE
+    ]);
+    expect(JSON.parse(xhr.responseText).events[0].tStartMs).toBe(OFFSET_MS);
+  });
+
+  it("tracks a send started inside the synchronous ready state event for the pending open target", (): void => {
+    const onTrack: Mock<TrackCallback> = vi.fn<TrackCallback>();
+    interceptor = new TimedTextInterceptor((): number => OFFSET_MS, onTrack);
+    interceptor.install();
+
+    const xhr: SynchronousOpenLifecycleXHR = new SynchronousOpenLifecycleXHR();
+    let sentDuringOpen: boolean = false;
+    xhr.addEventListener("readystatechange", (): void => {
+      if (xhr.readyState !== OPENED_READY_STATE || sentDuringOpen) {
+        return;
+      }
+      sentDuringOpen = true;
+      xhr.send();
+    });
+
+    xhr.open("GET", FRENCH_TIMEDTEXT_URL);
+    xhr.finish(makePayload("French"));
+
+    expect(onTrack.mock.calls.map((call: Parameters<TrackCallback>): [string, number] => [call[0], call[4]])).toEqual([
+      ["current-video_fr_", FIRST_REQUEST_SEQUENCE]
+    ]);
+    expect(JSON.parse(xhr.responseText).events[0].tStartMs).toBe(OFFSET_MS);
+  });
+
+  it("does not retain a pending send when its start callback destroys and reinstalls the interceptor", (): void => {
+    const startedRequests: string[] = [];
+    const ingestedRequests: string[] = [];
+    let hasReinstalled: boolean = false;
+    interceptor = new TimedTextInterceptor(
+      (): number => OFFSET_MS,
+      (key: string): void => {
+        ingestedRequests.push(key);
+      },
+      (key: string): void => {
+        startedRequests.push(key);
+        if (!hasReinstalled) {
+          hasReinstalled = true;
+          interceptor?.destroy();
+          interceptor?.install();
+        }
+      }
+    );
+    interceptor.install();
+
+    const xhr: SynchronousOpenLifecycleXHR = new SynchronousOpenLifecycleXHR();
+    const readyStateListener: EventListener = (): void => {
+      if (xhr.readyState === OPENED_READY_STATE && !hasReinstalled) {
+        xhr.send();
+      }
+    };
+    xhr.addEventListener("readystatechange", readyStateListener);
+
+    xhr.open("GET", FRENCH_TIMEDTEXT_URL);
+    xhr.removeEventListener("readystatechange", readyStateListener);
+    expect(xhr.getActiveRequestListenerCount()).toBe(0);
+
+    xhr.open("GET", GERMAN_TIMEDTEXT_URL);
+    xhr.send();
+    xhr.finish(makePayload("German"));
+
+    expect(startedRequests).toEqual(["current-video_fr_", "current-video_de_"]);
+    expect(ingestedRequests).toEqual(["current-video_de_"]);
+    expect(xhr.getActiveRequestListenerCount()).toBe(0);
+  });
+
+  it("does not let a destroyed open wrapper overwrite a replacement interceptor request", (): void => {
+    const replacementRequests: Array<[string, string, number]> = [];
+    const replacementInterceptorHolder: { current: TimedTextInterceptor | null } = { current: null };
+    interceptor = new TimedTextInterceptor((): number => OFFSET_MS, (): void => {});
+    interceptor.install();
+
+    const xhr: SynchronousOpenLifecycleXHR = new SynchronousOpenLifecycleXHR();
+    xhr.open("GET", TIMEDTEXT_URL);
+    xhr.send();
+    let replaced: boolean = false;
+    xhr.addEventListener("readystatechange", (): void => {
+      if (xhr.readyState !== OPENED_READY_STATE || replaced) {
+        return;
+      }
+      replaced = true;
+      interceptor?.destroy();
+      const replacementInterceptor: TimedTextInterceptor = new TimedTextInterceptor(
+        (): number => OFFSET_MS,
+        (key: string, _rawText: string, videoId: string, _isLatestRequest: boolean, requestSequence: number): void => {
+          replacementRequests.push([key, videoId, requestSequence]);
+        }
+      );
+      replacementInterceptorHolder.current = replacementInterceptor;
+      replacementInterceptor.install();
+      xhr.open("GET", GERMAN_TIMEDTEXT_URL);
+      xhr.send();
+    });
+
+    try {
+      xhr.open("GET", FRENCH_TIMEDTEXT_URL);
+      xhr.finish(makePayload("German"));
+
+      expect(replacementRequests).toEqual([["current-video_de_", "current-video", FIRST_REQUEST_SEQUENCE]]);
+      expect(JSON.parse(xhr.responseText).events[0].tStartMs).toBe(OFFSET_MS);
+    } finally {
+      replacementInterceptorHolder.current?.destroy();
+    }
+  });
+
+  it("keeps a reinstalled interceptor's nested request when the prior open wrapper resumes", (): void => {
+    const onTrack: Mock<TrackCallback> = vi.fn<TrackCallback>();
+    interceptor = new TimedTextInterceptor((): number => OFFSET_MS, onTrack);
+    interceptor.install();
+
+    const xhr: SynchronousOpenLifecycleXHR = new SynchronousOpenLifecycleXHR();
+    let reinstalled: boolean = false;
+    xhr.addEventListener("readystatechange", (): void => {
+      if (xhr.readyState !== OPENED_READY_STATE || reinstalled) {
+        return;
+      }
+      reinstalled = true;
+      interceptor?.destroy();
+      interceptor?.install();
+      xhr.open("GET", GERMAN_TIMEDTEXT_URL);
+      xhr.send();
+    });
+
+    xhr.open("GET", FRENCH_TIMEDTEXT_URL);
+    xhr.finish(makePayload("German"));
+
+    expect(onTrack.mock.calls.map((call: Parameters<TrackCallback>): [string, number] => [call[0], call[4]])).toEqual([
+      ["current-video_de_", FIRST_REQUEST_SEQUENCE]
+    ]);
+    expect(JSON.parse(xhr.responseText).events[0].tStartMs).toBe(OFFSET_MS);
   });
 
   it("removes pending XHR listeners on destroy and preserves instance response getters", (): void => {

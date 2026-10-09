@@ -8,11 +8,26 @@ interface TimedTextRequestIdentity {
 
 interface ActiveXhrRequest {
   readonly xhr: XMLHttpRequest;
+  readonly openCallId: number;
   readonly settleFailure: () => void;
   readonly cleanup: () => void;
 }
 
+interface XhrOpenTarget {
+  readonly callId: number;
+  readonly isTimedText: boolean;
+  readonly url: string | undefined;
+}
+
+interface XhrOpenState {
+  nextCallId: number;
+  latestSuccessfulCallId: number;
+  committedTarget: XhrOpenTarget | null;
+  readonly pendingCalls: XhrOpenTarget[];
+}
+
 interface XhrHeaderDecoration {
+  readonly openCallId: number;
   readonly restore: () => void;
 }
 
@@ -29,6 +44,7 @@ export class TimedTextInterceptor {
   private latestRequestSequenceByVideo: Map<string, number> = new Map();
   private readonly activeXhrRequests: Set<ActiveXhrRequest> = new Set();
   private readonly xhrRequestByInstance: WeakMap<XMLHttpRequest, ActiveXhrRequest> = new WeakMap();
+  private readonly xhrOpenStateByInstance: WeakMap<XMLHttpRequest, XhrOpenState> = new WeakMap();
   private readonly activeXhrHeaderDecorations: Set<WeakRef<XMLHttpRequest>> = new Set();
   private readonly xhrHeaderDecorationByInstance: WeakMap<XMLHttpRequest, XhrHeaderDecoration> = new WeakMap();
   private readonly responseMetadataByInstance: WeakMap<Response, ResponseMetadata> = new WeakMap();
@@ -72,6 +88,82 @@ export class TimedTextInterceptor {
           ? (url as Request).url
           : (url as URL)?.href || "";
     return rawUrl.includes(SUBTITLE_CONSTANTS.TIMEDTEXT_API_PATH);
+  }
+
+  private getXhrOpenState(xhr: XMLHttpRequest): XhrOpenState {
+    const existingState: XhrOpenState | undefined = this.xhrOpenStateByInstance.get(xhr);
+    if (existingState) {
+      return existingState;
+    }
+    const openState: XhrOpenState = {
+      nextCallId: SUBTITLE_CONSTANTS.XHR_INITIAL_OPEN_CALL_ID,
+      latestSuccessfulCallId: SUBTITLE_CONSTANTS.XHR_INITIAL_OPEN_CALL_ID,
+      committedTarget: null,
+      pendingCalls: []
+    };
+    this.xhrOpenStateByInstance.set(xhr, openState);
+    return openState;
+  }
+
+  private getEffectiveXhrOpenTarget(
+    xhr: XMLHttpRequest & {
+      __isTimedText?: boolean;
+      __timedTextUrl?: string;
+    },
+    openState: XhrOpenState
+  ): XhrOpenTarget {
+    let effectiveTarget: XhrOpenTarget =
+      openState.committedTarget ?? {
+        callId: openState.latestSuccessfulCallId,
+        isTimedText: xhr.__isTimedText === true,
+        url: xhr.__timedTextUrl
+      };
+    for (const pendingCall of openState.pendingCalls) {
+      if (pendingCall.callId > effectiveTarget.callId) {
+        effectiveTarget = pendingCall;
+      }
+    }
+    return effectiveTarget;
+  }
+
+  private isCurrentXhrOpenCall(
+    xhr: XMLHttpRequest & {
+      __isTimedText?: boolean;
+      __timedTextUrl?: string;
+    },
+    openCallId: number
+  ): boolean {
+    const openState: XhrOpenState | undefined = this.xhrOpenStateByInstance.get(xhr);
+    return !openState || this.getEffectiveXhrOpenTarget(xhr, openState).callId === openCallId;
+  }
+
+  private commitXhrOpen(
+    xhr: XMLHttpRequest & {
+      __isTimedText?: boolean;
+      __timedTextUrl?: string;
+      __timedTextRequestSequence?: number;
+    },
+    openState: XhrOpenState,
+    openTarget: XhrOpenTarget
+  ): void {
+    if (openTarget.callId <= openState.latestSuccessfulCallId) {
+      return;
+    }
+
+    openState.latestSuccessfulCallId = openTarget.callId;
+    openState.committedTarget = openTarget;
+    xhr.__isTimedText = openTarget.isTimedText;
+    xhr.__timedTextUrl = openTarget.url;
+
+    const activeRequest: ActiveXhrRequest | undefined = this.xhrRequestByInstance.get(xhr);
+    const replacesActiveRequest: boolean = activeRequest !== undefined && activeRequest.openCallId < openTarget.callId;
+    if (!activeRequest || replacesActiveRequest) {
+      xhr.__timedTextRequestSequence = undefined;
+    }
+    this.restoreXhrHeaderDecoration(xhr, openTarget.callId);
+    if (activeRequest && replacesActiveRequest) {
+      activeRequest.settleFailure();
+    }
   }
 
   private registerRequest(identity: TimedTextRequestIdentity): number {
@@ -335,17 +427,34 @@ export class TimedTextInterceptor {
       url: string | URL,
       ...rest: [boolean?, string?, string?]
     ): void {
-      self.restoreXhrHeaderDecoration(this);
-      const activeRequest: ActiveXhrRequest | undefined = self.xhrRequestByInstance.get(this);
-      activeRequest?.settleFailure();
-      this.__isTimedText = self.isTimedTextUrl(url);
-      this.__timedTextRequestSequence = undefined;
-      if (this.__isTimedText) {
-        this.__timedTextUrl = typeof url === "string" ? url : url instanceof URL ? url.href : String(url);
-      } else {
-        this.__timedTextUrl = undefined;
+      const openState: XhrOpenState = self.getXhrOpenState(this);
+      const isTimedText: boolean = self.isTimedTextUrl(url);
+      const requestUrl: string | undefined = isTimedText
+        ? typeof url === "string"
+          ? url
+          : url instanceof URL
+            ? url.href
+            : String(url)
+        : undefined;
+      openState.nextCallId += SUBTITLE_CONSTANTS.XHR_OPEN_CALL_ID_INCREMENT;
+      const openTarget: XhrOpenTarget = {
+        callId: openState.nextCallId,
+        isTimedText,
+        url: requestUrl
+      };
+      openState.pendingCalls.push(openTarget);
+      try {
+        const result: void = (rawOpen as unknown as (...args: unknown[]) => void).apply(this, [method, url, ...rest]) as void;
+        if (self.isInstalled) {
+          self.commitXhrOpen(this, openState, openTarget);
+        }
+        return result;
+      } finally {
+        const pendingCallIndex: number = openState.pendingCalls.lastIndexOf(openTarget);
+        if (pendingCallIndex >= 0) {
+          openState.pendingCalls.splice(pendingCallIndex, 1);
+        }
       }
-      return (rawOpen as unknown as (...args: unknown[]) => void).apply(this, [method, url, ...rest]) as void;
     };
 
     xhrProto.send = function (
@@ -356,13 +465,27 @@ export class TimedTextInterceptor {
       },
       body?: Document | XMLHttpRequestBodyInit | null
     ): void {
-      if (this.__isTimedText && self.isCurrentLifecycle(lifecycleToken)) {
+      const openState: XhrOpenState = self.getXhrOpenState(this);
+      const openTarget: XhrOpenTarget = self.getEffectiveXhrOpenTarget(this, openState);
+      this.__isTimedText = openTarget.isTimedText;
+      this.__timedTextUrl = openTarget.url;
+      if (openTarget.isTimedText && self.isCurrentLifecycle(lifecycleToken)) {
         const xhr = this;
+        const openCallId: number = openTarget.callId;
         const previousRequest: ActiveXhrRequest | undefined = self.xhrRequestByInstance.get(xhr);
         previousRequest?.settleFailure();
-        const requestUrl: string = xhr.__timedTextUrl || window.location.href;
+        if (!self.isCurrentLifecycle(lifecycleToken) || !self.isCurrentXhrOpenCall(xhr, openCallId)) {
+          return rawSend.apply(this, [body]);
+        }
+        const requestUrl: string = openTarget.url || window.location.href;
         const identity: TimedTextRequestIdentity = self.extractRequestIdentityFromUrl(requestUrl);
         const requestSequence: number = self.registerRequest(identity);
+        if (!self.isCurrentLifecycle(lifecycleToken) || !self.isCurrentXhrOpenCall(xhr, openCallId)) {
+          if (self.isCurrentLifecycle(lifecycleToken)) {
+            self.settleTrackRequestFailure(lifecycleToken, identity, requestSequence);
+          }
+          return rawSend.apply(this, [body]);
+        }
         xhr.__timedTextRequestSequence = requestSequence;
         let modifiedResponseText: string | null = null;
         let didModifyResponseText: boolean = false;
@@ -383,7 +506,11 @@ export class TimedTextInterceptor {
         };
 
         const resolveModifiedPayload = (): string | null => {
-          if (!self.isCurrentLifecycle(lifecycleToken) || xhr.__timedTextRequestSequence !== requestSequence) {
+          if (
+            !self.isCurrentLifecycle(lifecycleToken) ||
+            xhr.__timedTextRequestSequence !== requestSequence ||
+            !self.isCurrentXhrOpenCall(xhr, openCallId)
+          ) {
             return null;
           }
           if (modifiedResponseText !== null) {
@@ -452,11 +579,15 @@ export class TimedTextInterceptor {
         };
 
         readystatechangeListener = (): void => {
-          if (xhr.readyState === SUBTITLE_CONSTANTS.XHR_READY_STATE_DONE) {
+          if (self.isCurrentXhrOpenCall(xhr, openCallId) && xhr.readyState === SUBTITLE_CONSTANTS.XHR_READY_STATE_DONE) {
             resolveModifiedPayload();
           }
         };
-        failureListener = (): void => settleFailure();
+        failureListener = (): void => {
+          if (self.isCurrentXhrOpenCall(xhr, openCallId)) {
+            settleFailure();
+          }
+        };
         cleanupListeners = (): void => {
           if (!listenersAttached) {
             return;
@@ -475,6 +606,7 @@ export class TimedTextInterceptor {
         };
         requestLifecycle = {
           xhr,
+          openCallId,
           settleFailure,
           cleanup: cleanupListeners
         };
@@ -514,6 +646,7 @@ export class TimedTextInterceptor {
           self.installXhrResponseHeaderOverrides(
             xhr,
             requestSequence,
+            openCallId,
             lifecycleToken,
             resolveModifiedPayload,
             (): boolean => didModifyResponseText,
@@ -587,6 +720,7 @@ export class TimedTextInterceptor {
   private installXhrResponseHeaderOverrides(
     xhr: XMLHttpRequest,
     requestSequence: number,
+    openCallId: number,
     lifecycleToken: object,
     resolveModifiedPayload: () => string | null,
     didModifyResponseText: () => boolean,
@@ -614,7 +748,8 @@ export class TimedTextInterceptor {
       const isCurrentRequest: boolean =
         this === xhr &&
         self.isCurrentLifecycle(lifecycleToken) &&
-        trackedXhr.__timedTextRequestSequence === requestSequence;
+        trackedXhr.__timedTextRequestSequence === requestSequence &&
+        self.isCurrentXhrOpenCall(xhr, openCallId);
       if (isCurrentRequest && xhr.readyState === SUBTITLE_CONSTANTS.XHR_READY_STATE_DONE) {
         resolveModifiedPayload();
       }
@@ -632,7 +767,8 @@ export class TimedTextInterceptor {
       const isCurrentRequest: boolean =
         this === xhr &&
         self.isCurrentLifecycle(lifecycleToken) &&
-        trackedXhr.__timedTextRequestSequence === requestSequence;
+        trackedXhr.__timedTextRequestSequence === requestSequence &&
+        self.isCurrentXhrOpenCall(xhr, openCallId);
       if (isCurrentRequest && xhr.readyState === SUBTITLE_CONSTANTS.XHR_READY_STATE_DONE) {
         resolveModifiedPayload();
       }
@@ -668,7 +804,7 @@ export class TimedTextInterceptor {
         this.xhrHeaderDecorationByInstance.delete(xhr);
       }
     };
-    const decoration: XhrHeaderDecoration = { restore };
+    const decoration: XhrHeaderDecoration = { openCallId, restore };
 
     try {
       Object.defineProperties(xhr, {
@@ -693,8 +829,12 @@ export class TimedTextInterceptor {
     this.xhrHeaderDecorationByInstance.set(xhr, decoration);
   }
 
-  private restoreXhrHeaderDecoration(xhr: XMLHttpRequest): void {
-    this.xhrHeaderDecorationByInstance.get(xhr)?.restore();
+  private restoreXhrHeaderDecoration(xhr: XMLHttpRequest, beforeOpenCallId?: number): void {
+    const decoration: XhrHeaderDecoration | undefined = this.xhrHeaderDecorationByInstance.get(xhr);
+    if (!decoration || (beforeOpenCallId !== undefined && decoration.openCallId >= beforeOpenCallId)) {
+      return;
+    }
+    decoration.restore();
     this.removeCollectedXhrHeaderDecorations();
   }
 

@@ -5,11 +5,13 @@ import type { TimedTextEvent, YouTubeTimedTextJson3 } from "../types";
 
 const OFFSET_MS: number = -200;
 const POSITIVE_OFFSET_MS: number = 100;
+const FIRST_TRACK_REQUEST_SEQUENCE: number = 1;
 const SUCCESS_STATUS: number = SUBTITLE_CONSTANTS.HTTP_SUCCESS_STATUS_MIN;
 const OPENED_READY_STATE: number = 1;
 const DONE_READY_STATE: number = SUBTITLE_CONSTANTS.XHR_READY_STATE_DONE;
 const HEADERS_RECEIVED_READY_STATE: number = 2;
 const TIMEDTEXT_URL: string = "https://www.youtube.com/api/timedtext?v=caption-video&lang=en";
+const NON_TIMEDTEXT_URL: string = "https://www.youtube.com/api/player";
 const RESPONSE_URL: string = "https://www.youtube.com/api/timedtext?v=caption-video&lang=en&fmt=json3";
 const SECOND_RESPONSE_URL: string = "https://www.youtube.com/api/timedtext?v=caption-video&lang=fr&fmt=json3";
 const SOURCE_RESPONSE_HEADERS: readonly (readonly [string, string])[] = [
@@ -42,17 +44,36 @@ class ResponseHeaderXHR extends window.EventTarget {
   public readyState: number = 0;
   public status: number = 0;
   public responseType: string = "";
+  public openFailure: Error | null = null;
+  public readonly openArguments: unknown[][] = [];
+  public readonly openReceivers: unknown[] = [];
+  public dispatchReadystatechangeOnOpen: boolean = false;
+  public synchronousResponseOnSend: string | null = null;
   private payload: string = "";
   private responseHeaders: Map<string, string> = new Map<string, string>();
 
-  public open(_method: string, _url: string | URL): void {
+  public open(method: string, url: string | URL, ...rest: [boolean?, string?, string?]): void {
+    this.openReceivers.push(this);
+    this.openArguments.push([method, url, ...rest]);
+    if (this.openFailure) {
+      throw this.openFailure;
+    }
     this.readyState = OPENED_READY_STATE;
     this.status = 0;
     this.payload = "";
     this.responseHeaders.clear();
+    if (this.dispatchReadystatechangeOnOpen) {
+      this.dispatchEvent(new Event("readystatechange"));
+    }
   }
 
-  public send(_body?: Document | XMLHttpRequestBodyInit | null): void {}
+  public send(_body?: Document | XMLHttpRequestBodyInit | null): void {
+    if (this.synchronousResponseOnSend !== null) {
+      const payload: string = this.synchronousResponseOnSend;
+      this.synchronousResponseOnSend = null;
+      this.finish(payload);
+    }
+  }
 
   public get responseText(): string {
     return this.payload;
@@ -293,6 +314,165 @@ describe("TimedTextInterceptor fourth-round caption repairs", (): void => {
 
     expect(response).toBe(sourceResponse);
     expect(JSON.parse(await response.text()).events[0].tStartMs).toBe(100);
+  });
+
+  it("keeps the active XHR identity, body rewriting, and header decoration after native open throws", (): void => {
+    Object.defineProperty(window, "XMLHttpRequest", {
+      configurable: true,
+      writable: true,
+      value: ResponseHeaderXHR
+    });
+    const originalGetResponseHeader: ResponseHeaderXHR["getResponseHeader"] =
+      ResponseHeaderXHR.prototype.getResponseHeader;
+    const originalGetAllResponseHeaders: ResponseHeaderXHR["getAllResponseHeaders"] =
+      ResponseHeaderXHR.prototype.getAllResponseHeaders;
+    const ingestedRequests: Array<[string, string, boolean, number]> = [];
+    const failedRequests: Array<[string, string, number]> = [];
+    interceptor = new TimedTextInterceptor(
+      (): number => POSITIVE_OFFSET_MS,
+      (key: string, _rawText: string, videoId: string, isLatestRequest: boolean, requestSequence: number): void => {
+        ingestedRequests.push([key, videoId, isLatestRequest, requestSequence]);
+      },
+      (): void => {},
+      (key: string, videoId: string, requestSequence: number): void => {
+        failedRequests.push([key, videoId, requestSequence]);
+      }
+    );
+    interceptor.install();
+
+    const xhr: ResponseHeaderXHR = new ResponseHeaderXHR();
+    const payload: string = makePayload([{ tStartMs: 100, dDurationMs: 1000, segs: [{ utf8: "Caption" }] }]);
+    xhr.open("GET", TIMEDTEXT_URL);
+    xhr.send();
+    const openFailure: Error = new Error("native open validation failed");
+    xhr.openFailure = openFailure;
+
+    let thrownError: unknown;
+    try {
+      xhr.open("INVALID METHOD", SECOND_RESPONSE_URL, false, "user", "password");
+    } catch (error: unknown) {
+      thrownError = error;
+    }
+    expect(thrownError).toBe(openFailure);
+    expect(xhr.openReceivers[xhr.openReceivers.length - 1]).toBe(xhr);
+    expect(xhr.openArguments[xhr.openArguments.length - 1]).toEqual([
+      "INVALID METHOD",
+      SECOND_RESPONSE_URL,
+      false,
+      "user",
+      "password"
+    ]);
+    expect(xhr.getResponseHeader).not.toBe(originalGetResponseHeader);
+    expect(xhr.getAllResponseHeaders).not.toBe(originalGetAllResponseHeaders);
+
+    xhr.finish(payload);
+
+    expect(ingestedRequests).toEqual([["caption-video_en_", "caption-video", true, FIRST_TRACK_REQUEST_SEQUENCE]]);
+    expect(failedRequests).toEqual([]);
+    expect(JSON.parse(xhr.responseText).events[0].tStartMs).toBe(200);
+    expect(xhr.getResponseHeader("etag")).toBeNull();
+    expect(xhr.getResponseHeader("x-caption-source")).toBe("youtube");
+  });
+
+  it("defers an active caption request settlement until a synchronous non-caption reopen succeeds", (): void => {
+    Object.defineProperty(window, "XMLHttpRequest", {
+      configurable: true,
+      writable: true,
+      value: ResponseHeaderXHR
+    });
+    const originalGetResponseHeader: ResponseHeaderXHR["getResponseHeader"] =
+      ResponseHeaderXHR.prototype.getResponseHeader;
+    const ingestedRequests: string[] = [];
+    const failedRequests: string[] = [];
+    interceptor = new TimedTextInterceptor(
+      (): number => POSITIVE_OFFSET_MS,
+      (key: string): void => {
+        ingestedRequests.push(key);
+      },
+      (): void => {},
+      (key: string): void => {
+        failedRequests.push(key);
+      }
+    );
+    interceptor.install();
+
+    const xhr: ResponseHeaderXHR = new ResponseHeaderXHR();
+    const nonCaptionPayload: string = makePayload([{ tStartMs: 100, dDurationMs: 1000, segs: [{ utf8: "Player" }] }]);
+    xhr.open("GET", TIMEDTEXT_URL);
+    xhr.send();
+    xhr.dispatchReadystatechangeOnOpen = true;
+    xhr.synchronousResponseOnSend = nonCaptionPayload;
+    const observedBodies: string[] = [];
+    const observedContentLengths: Array<string | null> = [];
+    let sentDuringOpen: boolean = false;
+    xhr.addEventListener("readystatechange", (): void => {
+      if (xhr.readyState === OPENED_READY_STATE && !sentDuringOpen) {
+        sentDuringOpen = true;
+        xhr.send();
+      } else if (xhr.readyState === DONE_READY_STATE) {
+        observedBodies.push(xhr.responseText);
+        observedContentLengths.push(xhr.getResponseHeader("content-length"));
+      }
+    });
+
+    xhr.open("GET", NON_TIMEDTEXT_URL);
+
+    expect(ingestedRequests).toEqual([]);
+    expect(failedRequests).toEqual(["caption-video_en_"]);
+    expect(observedBodies).toEqual([nonCaptionPayload]);
+    expect(observedContentLengths).toEqual(["500"]);
+    expect(xhr.getResponseHeader).toBe(originalGetResponseHeader);
+    expect(xhr.responseText).toBe(nonCaptionPayload);
+  });
+
+  it("bypasses a completed caption decoration during a synchronous non-caption reopen", (): void => {
+    Object.defineProperty(window, "XMLHttpRequest", {
+      configurable: true,
+      writable: true,
+      value: ResponseHeaderXHR
+    });
+    const originalGetResponseHeader: ResponseHeaderXHR["getResponseHeader"] =
+      ResponseHeaderXHR.prototype.getResponseHeader;
+    const ingestedRequests: string[] = [];
+    interceptor = new TimedTextInterceptor(
+      (): number => POSITIVE_OFFSET_MS,
+      (key: string): void => {
+        ingestedRequests.push(key);
+      }
+    );
+    interceptor.install();
+
+    const xhr: ResponseHeaderXHR = new ResponseHeaderXHR();
+    const captionPayload: string = makePayload([{ tStartMs: 100, dDurationMs: 1000, segs: [{ utf8: "Caption" }] }]);
+    const nonCaptionPayload: string = makePayload([{ tStartMs: 300, dDurationMs: 1000, segs: [{ utf8: "Player" }] }]);
+    xhr.open("GET", TIMEDTEXT_URL);
+    xhr.send();
+    xhr.finish(captionPayload);
+    expect(ingestedRequests).toEqual(["caption-video_en_"]);
+    expect(xhr.getResponseHeader("content-length")).toBeNull();
+
+    xhr.dispatchReadystatechangeOnOpen = true;
+    xhr.synchronousResponseOnSend = nonCaptionPayload;
+    const observedBodies: string[] = [];
+    const observedContentLengths: Array<string | null> = [];
+    let sentDuringOpen: boolean = false;
+    xhr.addEventListener("readystatechange", (): void => {
+      if (xhr.readyState === OPENED_READY_STATE && !sentDuringOpen) {
+        sentDuringOpen = true;
+        xhr.send();
+      } else if (xhr.readyState === DONE_READY_STATE) {
+        observedBodies.push(xhr.responseText);
+        observedContentLengths.push(xhr.getResponseHeader("content-length"));
+      }
+    });
+
+    xhr.open("GET", NON_TIMEDTEXT_URL);
+
+    expect(ingestedRequests).toEqual(["caption-video_en_"]);
+    expect(observedBodies).toEqual([nonCaptionPayload]);
+    expect(observedContentLengths).toEqual(["500"]);
+    expect(xhr.getResponseHeader).toBe(originalGetResponseHeader);
+    expect(xhr.responseText).toBe(nonCaptionPayload);
   });
 
   it("filters XHR representation headers only for changed text and restores methods on reuse and destroy", (): void => {
